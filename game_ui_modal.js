@@ -59,14 +59,7 @@ function showSetup() {
     const setupEl = document.getElementById('setup-overlay');
     const winnerOverlay = document.getElementById('winner-overlay');
     
-    if (titleEl) {
-        titleEl.classList.remove('hidden');
-        
-        // --- 修正箇所：タイトル表示に合わせて音を鳴らす ---
-        // ファイル名はご自身で用意されるものに合わせて「se_title_call.mp3」としています。
-        if (typeof playSE === 'function') {
-            playSE('se_title_call.mp3');
-        }}
+    if (titleEl) titleEl.classList.remove('hidden'); // タイトル画面に戻す
     if (setupEl) setupEl.classList.add('hidden');    // 人数選択は隠す
     if (winnerOverlay) winnerOverlay.classList.add('hidden');
 

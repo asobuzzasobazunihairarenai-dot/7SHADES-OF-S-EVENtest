@@ -237,36 +237,30 @@ function renderBoard() {
     const boardEl = document.getElementById('board-grid');
     if (!boardEl) return;
     boardEl.innerHTML = '';
-    
-    // 【既存コード】
     if (!players || !players.length || !players[turn]) return;
+
+    // ★修正：プレイヤー配列が空、または現在のプレイヤーが未定義の場合（初期化中）への対策
     const p = (players && players.length > 0 && players[turn]) ? players[turn] : null;
 
-    // --- 修正箇所：自動到達監視ロジックの追加 ---
-    // 選択モード中でなく、かつ移動アニメーション処理中でない時のみチェック
+    // --- 修正箇所：条件付き監視ロジック ---
+    // 選択モード中でなく、かつ自分が移動処理中でない時のみ、足元の未処理カードをチェック
     if (!selectionState.active && !isProcessingMove) { 
         players.forEach(pObj => {
-            // 盤面外（-1）にいる場合はスキップ
             if (pObj.x === -1 || pObj.y === -1) return;
-            
             const cell = board[pObj.y][pObj.x];
             
-            // 条件：マスにカードがあり、表向きで、かつ現在そのプレイヤーが「処理中」としているカードと異なる場合
+            // カードが存在し、表向きで、かつまだそのプレイヤーがそのカードの効果を処理していない場合
             if (cell && !cell.empty && cell.revealed && pObj.processedArrivalCard !== cell.color) {
-                
-                // 到達としてマーク（二重発動防止）
                 pObj.processedArrivalCard = cell.color;
                 
-                // 描画の完了をわずかに待ってから到達ロジックを実行
+                // 演出が重ならないようわずかに遅延させて実行
                 setTimeout(() => {
-                    if (typeof handleArrivalLogic === 'function') {
-                        // handleArrivalLogic(セルのデータ, 到達したプレイヤー, コールバック, カードデータ, 新規オープンか)
-                        handleArrivalLogic(cell, pObj, null, cell.color, false);
-                    }
+                    handleArrivalLogic(cell, pObj, null, cell.color, false);
                 }, 50);
             }
         });
     }
+    // --- 修正箇所ここまで ---
     
     board.forEach((row, y) => {
         row.forEach((cell, x) => {

@@ -503,14 +503,8 @@ function handleHandClick(cardIndex, lockedCard = null) {
         // 【修正】ロックフェイズでも確認モーダルを表示
         showDetailModal("ロック確認", `「${card.name}」をロックしますか？`, card, "ロックする", () => {
             // --- 虹カードの処理 ---
-            if (card.colorId === 'rainbow') { 
-                const lockableColors = [...BASE_COLORS].reverse().filter(c => {
-                    const s = collections[p.id][c.id];
-                    return s.length === 0 || (s.some(cur => cur.id === 34) && s.length < 3);
-                });
-                
-                if (lockableColors.length === 0) { if (typeof showToast === 'function') showToast("ロックできるスロットがありません"); return; }
-                
+            if (card.colorId === 'rainbow') {
+                // ... (中略) ...
                 showSelectionModal("RAINBOW LOCK", "どの色としてロックしますか？", lockableColors, "card-back-pattern", 1, (sel) => {
                     const targetColorId = sel[0].id; // 選択された色のID
                     if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
@@ -528,15 +522,8 @@ function handleHandClick(cardIndex, lockedCard = null) {
                 return;
             }
 
+            // --- 通常カードの処理部分 (270行目付近) ---
             const slot = collections[p.id][card.colorId];
-
-            // --- エターナル/通常カードの処理 ---
-            // 呪い(34)が含まれているスロットなら、合計3枚になるまでロックを許可
-            const hasCurse = slot.some(c => c.id === 34);
-            const isSlotAvailable = slot.length === 0 || (hasCurse && slot.length < 3);
-            
-            if (!isSlotAvailable) return;
-
             if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
             slot.push(card);
             
@@ -548,13 +535,17 @@ function handleHandClick(cardIndex, lockedCard = null) {
             addLog(`${p.name}が「${card.name}」をロック！`);
             processExile(slot);
 
-            // --- 修正箇所：通常ロック時の演出追加 ---
-            if (typeof triggerLockEffect === 'function') {
-                triggerLockEffect(p.id, card.colorId);
-            }
-            // ----------------------------------
+            // --- エターナル/通常カードの処理 ---
+            // 呪い(34)が含まれているスロットなら、合計3枚になるまでロックを許可
+            const hasCurse = slot.some(c => c.id === 34);
+            const isSlotAvailable = slot.length === 0 || (hasCurse && slot.length < 3);
+            
+            if (!isSlotAvailable) return;
 
-            processExile(slot);
+            if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
+            slot.push(card);
+            addLog(`${p.name}が「${card.name}」をロック！`);
+            processExile(slot); 
         });
 
     } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime) { 
@@ -748,7 +739,7 @@ async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraC
     if (marker && extraClass) marker.classList.add(extraClass);
 
     // 内部処理用の関数
-    const executeLogic = async () => { // asyncを追加
+    const executeLogic = () => {
         if (player.x >= 0 && player.y >= 0) {
             const dist = Math.abs(player.x - tx) + Math.abs(player.y - ty);
             if (playerStats[player.id]) playerStats[player.id].moveCount += dist;
@@ -759,52 +750,32 @@ async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraC
         player.y = ty;
 
         if (marker && extraClass) marker.classList.remove(extraClass);
+        if (destinationCard && !isNoOpen) cell.revealed = true; 
+        if (typeof renderBoard === 'function') renderBoard(); 
 
-        // --- 修正箇所：ここから ---
-        // 1. 駒の移動アニメーション（0.6s）が完全に終わるのを待つ
-        await new Promise(resolve => setTimeout(resolve, 650));
-
-        // 2. 移動先のカードをオープン（裏向きの場合のみ）
-        if (destinationCard && !isNoOpen) {
-            cell.revealed = true;
-            renderBoard(); // オープン状態を反映
-            
-            // --- 修正箇所：triggerCellFlash から triggerArrivalRipple に変更 ---
-            if (typeof triggerArrivalRipple === 'function') {
-                const flashColor = destinationCard.hex || player.color.hex || '#ffffff';
-                triggerArrivalRipple(tx, ty, flashColor);
-            }
-            // じわじわ広がる演出を見せるため、待機時間を少し長めに確保（400ms -> 800ms）
-            await new Promise(resolve => setTimeout(resolve, 800));
-            // --- 修正箇所ここまで ---
-        }
-
-        // 4. 到達処理の実行
-        const proceedToArrival = async () => {
+        const proceedToArrival = () => { 
             if (isDashMove || isNoOpen) {
                 if (callback) callback();
                 return;
             }
             player.pendingComboCallback = callback;
-
             if (destinationCard) { 
-                player.processedArrivalCard = null; 
-                isProcessingMove = false; 
-                // 到達モーダルを表示
-                await handleArrivalLogic(cell, player, null, cell.color, false);
-                renderBoard(); 
+                player.processedArrivalCard = destinationCard;
+
+                /* --- 修正箇所：ここで処理中フラグを立てる --- */
+                isProcessingMove = true; 
+                handleArrivalLogic(cell, player, null, destinationCard, isNewReveal); 
+                
             } else if(callback) { 
                 callback(); 
             }
         };
 
-        // preArrival（コンボ等の前処理）がある場合はそれを挟み、なければ直接到達へ
-        if (preArrival) {
-            preArrival(proceedToArrival);
+        if (destinationCard && !isNoOpen) {
+            setTimeout(preArrival ? () => preArrival(proceedToArrival) : proceedToArrival, 800); 
         } else {
-            await proceedToArrival();
+            if(preArrival) preArrival(proceedToArrival); else proceedToArrival();
         }
-        // --- 修正箇所：ここまで ---
     };
 
     if (marker && !isForced) { 
@@ -849,20 +820,12 @@ async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraC
 }
 
 function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false) {
-    // 1. 【修正】カッコと矢印 => { を忘れないようにしてください
-    return new Promise((resolve) => {
-        
-        const originalCallback = callback;
-        const finalCallback = () => {
-            if (typeof originalCallback === 'function') originalCallback();
-            resolve(); 
-        };
-        callback = finalCallback;
-
-        const curC = cardObj || cell.color;
-        if (!curC) { callback(); return; }
+    const curC = cardObj || cell.color;
+    if (!curC) { if (callback) callback(); return; }
     
-    // 【既存コード】処理開始
+    player.processedArrivalCard = curC; // 処理開始フラグ
+
+    /* --- 既存の雷演出(ID:24)や player.currentArrivalCard 設定、isDash判定等は変更なし --- */
     if (curC.id === 24) triggerLightningEffect();
     player.currentArrivalCard = curC;
     const isDash = curC.id === 15;
@@ -870,6 +833,7 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
     const executeAndFollowUp = () => {
         executeCardEffect(curC.arrivalEffect, player, (res = {}) => {
             
+            // 【重要】cleanupCellを修正：カードが消えたらフラグをリセット
             const cleanupCell = () => {
                 if (!(res && res.stayOnBoard)) {
                     if (cell.stack && cell.stack.length > 0) {
@@ -884,12 +848,8 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
                         cell.stack = [];
                     }
                 }
-                
-                // --- 修正箇所：重要フラグのリセット ---
-                // カードが消えた（または入れ替わった）ので、現在の「到達済みマーク」を消す
                 player.processedArrivalCard = null; 
-                
-                // 盤面を描画し直すことで、renderBoardの監視ロジックに次の判定をさせる
+                // --- 修正箇所：カードが入れ替わった直後に描画を更新し、監視に知らせる ---
                 renderBoard(); 
             };
 
@@ -973,22 +933,29 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
                     return; 
                 }
 
-                // 【既存のコンボ判定ロジックを整理】
+                // --- 共通処理：コンボ判定またはコールバック実行 ---
                 const finalizeComboOrCallback = () => {
                     const nextCell = board[player.y][player.x];
-                    // 下にカードがあり、それが現在の処理対象と異なるなら監視に任せる
                     const hasNextCombo = !nextCell.empty && nextCell.revealed && player.processedArrivalCard !== nextCell.color;
 
                     if (hasNextCombo) {
                         addLog(`[Combo] ${player.name}の足元で連続到達を検知。`);
-                        isProcessingMove = false; // 監視を有効化
-                        player.processedArrivalCard = null; // 未処理状態にする
-                        renderBoard(); // これにより次の到達が発動
+                        // --- 修正箇所：移動中フラグを解除して、renderBoardの監視を通るようにする ---
+                        isProcessingMove = false; 
+                        renderBoard(); 
                     } else {
-                        // 後続の処理を実行
+                        // --- 既存の終了処理 ---
                         if (player.pendingComboCallback) {
                             const fCb = player.pendingComboCallback;
                             player.pendingComboCallback = null;
+                            
+                            const finalCheckCell = board[player.y][player.x];
+                            if (!finalCheckCell.empty && finalCheckCell.revealed && player.processedArrivalCard !== finalCheckCell.color) {
+                                isProcessingMove = false; // 念押し解除
+                                renderBoard();
+                                return; 
+                            }
+                            
                             if (fCb) fCb();
                         } else if (callback) {
                             callback();
@@ -1036,8 +1003,15 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
                     if (res.followUpAction === 'chotto_matta_flow') {
                         afterGain();
                     } else {
-                        if (!(res && res.stayOnBoard)) discardCard(curC); 
-                        cleanupCell(); renderBoard(); afterGain(); 
+                        // 【修正箇所】「にじいろの呪い」などは rainbow_curse_logic 内で既にロックエリアへ
+                        // 移動済みのため、ここで discardCard(curC) を呼ぶと捨て札に重複してしまう。
+                        // curC.id === 34 (にじいろの呪い) の場合は捨て札処理をスキップする。
+                        if (!(res && res.stayOnBoard) && curC.id !== 34) {
+                            discardCard(curC); 
+                        }
+                        cleanupCell(); 
+                        renderBoard(); 
+                        afterGain();
                     }
                 }
             }
@@ -1048,12 +1022,7 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
     showCardModal(curC, () => {
         executeAndFollowUp();
     }, "到達効果発動", player.name, "到達！到達効果が発動します");
-
-    // 2. 【追加】ここで Promise の箱を閉じます
-    }); 
-} // 関数自体の終わり
-
-
+}
 
 function checkGateInvasionForAll() { 
      invasionQueue = []; 
@@ -1271,31 +1240,20 @@ async function initGameInternal(num, isTest = false) {
         }
     }
 
-    // --- 修正箇所：ここから ---
-    // ループが終わった直後、念のため一瞬だけ待機して演出を同期させる
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // ロゴ演出の追加
+    // --- ここからロゴ演出を追加 ---
     const logoOverlay = document.createElement('div');
     logoOverlay.className = "fixed inset-0 flex items-center justify-center logo-overlay-active";
-    logoOverlay.style.zIndex = "1000"; // 最前面に
     logoOverlay.innerHTML = `
         <img src="images/logo.webp" class="w-64 animate-logo-entrance shadow-[0_0_50px_rgba(234,179,8,0.4)]" alt="LOGO">
     `;
     document.body.appendChild(logoOverlay);
 
-    // インパクト音の再生
-    // ここで鳴らない場合、ファイル名が正しいか、または images/ ではなく sounds/ 等にあるか確認してください
+    // 追加：ロゴが出現した瞬間に「ドーン」と鳴らす
     if (typeof playSE === 'function') {
-        try {
-            playSE('se_title_impact.mp3'); 
-            console.log("SE Play: se_title_impact.mp3"); // デバッグ用ログ
-        } catch (e) {
-            console.error("SE Play Error:", e);
-        }
+        playSE('se_title_impact.mp3'); 
     }
-    // --- 修正箇所：ここまで ---
-    
+    // ------------------------------------------
+
     // 2秒間ロゴを表示してから消して、ゲームを開始する
     setTimeout(() => {
         logoOverlay.style.transition = "opacity 0.8s ease";

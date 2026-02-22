@@ -924,29 +924,6 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     animation: flip-glow 1.2s ease-in-out;
 }
 
-@keyframes arriving-ripple {
-    0% {
-        box-shadow: 0 0 0 0 var(--ripple-color);
-        border-color: var(--ripple-color);
-        filter: brightness(1);
-    }
-    50% {
-        filter: brightness(1.8);
-    }
-    100% {
-        /* 周囲8マスに広がるイメージで、影を大きく拡散させる */
-        box-shadow: 0 0 80px 40px rgba(255, 255, 255, 0);
-        border-color: transparent;
-        filter: brightness(1);
-    }
-}
-
-.ripple-active {
-    animation: arriving-ripple 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-    z-index: 45;
-    position: relative;
-}
-
 :root {
     --ripple-color: #ffd700;
 }
@@ -971,9 +948,11 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     }
 }
 
+/* 既存の .lock-flash-active を以下に差し替え */
 .lock-flash-active {
     animation: lock-flash-glow 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
     border: 3px solid #ffd700 !important;
     position: relative;
     pointer-events: none; /* 演出中はクリック不可 */
 }
+

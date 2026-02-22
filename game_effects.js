@@ -715,28 +715,25 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 if (!targetCell || targetCell.empty || targetCell.revealed) continue;
                 
                 targetCell.revealed = true;
-                addLog(`情報開示：(${pos.x}, ${pos.y}) をオープンしました。`);
+                addLog(`情報開示：(${pos.x}, ${pos.y}) をオープン。`);
                 
                 if (typeof renderBoard === 'function') renderBoard();
                 if (typeof triggerCellFlash === 'function') {
                     triggerCellFlash(pos.x, pos.y, targetCell.color.hex || '#ffffff');
                 }
 
-                // --- 修正箇所：割り込み確認と待機 ---
-                // そのマスに自分以外のプレイヤーが立っているかチェック
-                const stander = players.find(pObj => pObj.x === pos.x && pObj.y === pos.y && pObj.id !== p.id);
-                if (stander) {
-                    addLog(`[割り込み] ${stander.name} の足元がオープンされました。解決を待ちます。`);
-                    // handleArrivalLogic が Promise を返すようになっているので await で停止できます
-                    await handleArrivalLogic(targetCell, stander, null, targetCell.color, true);
-                    addLog(`[再開] ${stander.name} の割り込み処理が完了しました。`);
+                // 【重要】オープンしたマスにプレイヤーがいるか確認
+                const pOnCell = players.find(pl => pl.x === pos.x && pl.y === pos.y);
+                if (pOnCell) {
+                    // 到達処理（モーダル）が終わるまでこのループを一時停止させる
+                    await new Promise(resolve => {
+                        handleArrivalLogic(targetCell, pOnCell, resolve, targetCell.color, false);
+                    });
+                } else {
+                    // プレイヤーがいない場合は通常の待機時間
+                    await new Promise(r => setTimeout(r, 800));
                 }
-                // ----------------------------------
-
-                // 演出のための待機（割り込みがあった後も、少し間隔を空けます）
-                await new Promise(r => setTimeout(r, 600)); 
             }
-            
             if (onSuccess) onSuccess({});
         };
 

@@ -102,12 +102,15 @@ function triggerArrivalRipple(x, y, colorHex) {
     if (!boardEl) return;
     const cellEl = boardEl.children[y * GRID_SIZE + x];
     if (cellEl) {
-        cellEl.style.setProperty('--ripple-color', colorHex || '#ffffff');
+        // 色が指定されていない場合は白、rainbowの場合は金にする等の処理
+        const effectColor = colorHex || '#ffffff';
+        cellEl.style.setProperty('--ripple-color', effectColor);
+        
         cellEl.classList.remove('ripple-active');
-        void cellEl.offsetWidth; // リフローさせて再発動可能にする
+        void cellEl.offsetWidth; // リフロー
         cellEl.classList.add('ripple-active');
         
-        // 演出が終わったらクラスを削除
+        // 演出が終わったらクラスを削除（1.3秒後に除去）
         setTimeout(() => {
             cellEl.classList.remove('ripple-active');
         }, 1300);

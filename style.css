@@ -33,6 +33,13 @@
     --playmat-url: url('images/playmat_0.webp');
 }
 
+/* --- 修正箇所：ライトモード時のプルダウン配色指定 --- */
+.light-mode select {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border-color: #d1d5db !important;
+}
+
 .light-mode .text-orange-500,
 .light-mode .text-yellow-500,
 .light-mode .text-orange-400,
@@ -956,3 +963,24 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     pointer-events: none; /* 演出中はクリック不可 */
 }
 
+/* --- 修正箇所：ripple-active の定義を上書き/追加 --- */
+@keyframes ripple-glow-complex {
+    0% {
+        box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8), inset 0 0 0 0 rgba(255, 255, 255, 0.8);
+        filter: brightness(1) white-balance(0%);
+    }
+    20% {
+        box-shadow: 0 0 40px 20px var(--ripple-color), inset 0 0 20px 10px white;
+        filter: brightness(2.5);
+    }
+    100% {
+        box-shadow: 0 0 80px 40px rgba(255, 255, 255, 0), inset 0 0 40px 20px rgba(255, 255, 255, 0);
+        filter: brightness(1);
+    }
+}
+
+.ripple-active {
+    position: relative;
+    z-index: 100 !important;
+    animation: ripple-glow-complex 1.2s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}

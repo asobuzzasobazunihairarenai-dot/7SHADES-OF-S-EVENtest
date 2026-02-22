@@ -825,12 +825,19 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
     
     player.processedArrivalCard = curC; // 処理開始フラグ
 
+    /* --- 修正箇所：冒頭に発光演出と待機処理を追加 --- */
+    // 1. まずド派手な発光をトリガー
+    triggerArrivalRipple(player.x, player.y, curC.hex);
+
+    // 2. 演出と余韻（計 約1.2秒）待ってから、本来のモーダル処理を開始する
+    setTimeout(() => {
+
     /* --- 既存の雷演出(ID:24)や player.currentArrivalCard 設定、isDash判定等は変更なし --- */
     if (curC.id === 24) triggerLightningEffect();
-    player.currentArrivalCard = curC;
-    const isDash = curC.id === 15;
+        player.currentArrivalCard = curC;
+        const isDash = curC.id === 15;
 
-    const executeAndFollowUp = () => {
+        const executeAndFollowUp = () => {
         executeCardEffect(curC.arrivalEffect, player, (res = {}) => {
             
             // 【重要】cleanupCellを修正：カードが消えたらフラグをリセット
@@ -1018,10 +1025,12 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
         }, curC, isNewReveal);
     };
 
-    /* --- 修正箇所：ここで表示される文言を統合 --- */
-    showCardModal(curC, () => {
-        executeAndFollowUp();
-    }, "到達効果発動", player.name, "到達！到達効果が発動します");
+    /* --- 既存のモーダル呼び出しをこの位置で実行 --- */
+        showCardModal(curC, () => {
+            executeAndFollowUp();
+        }, "到達効果発動", player.name, "到達！到達効果が発動します");
+
+    }, 800); // 1.2秒の待機（発光アニメーションの時間）
 }
 
 function checkGateInvasionForAll() { 

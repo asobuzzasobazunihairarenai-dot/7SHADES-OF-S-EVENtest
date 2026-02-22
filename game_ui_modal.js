@@ -53,6 +53,15 @@ function showPlayerSelection() {
  * セットアップ画面（プレイ人数選択）の表示
  */
 function showSetup() {
+
+    // 【修正箇所】BGMの停止処理
+    if (window.gameBGM) {
+        window.gameBGM.pause();
+        window.gameBGM.currentTime = 0;
+        window.gameBGM = null;
+        console.log("BGM stopped by reset.");
+    }
+
     if (typeof cleanupGame === 'function') cleanupGame();
 
     const titleEl = document.getElementById('title-overlay');

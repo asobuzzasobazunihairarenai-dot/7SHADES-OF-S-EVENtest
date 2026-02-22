@@ -1,0 +1,67 @@
+/**
+ * 7 SHADES OF S:EVEN - Core Logic
+ * 【共通定義】
+ * - 到達: 表向きカードの上に駒が置かれた瞬間
+ * - 到達効果: 到達時に発動。原則「効果解決」→「カード獲得」の順。
+ * - 例外: カードに処遇（場に残る、破棄等）が書かれている場合はそれに従う。
+ */
+/**
+ * game_state.js
+ * ゲームのグローバル変数を一括管理するファイル。
+ * 最初に読み込むことで、全てのファイルから参照可能にします。
+ */
+
+let board = [];
+let players = [];
+let turn = 0;
+let currentPhase = PHASE.LOCK;
+let winner = null;
+let collections = {};
+let hands = {};
+let deck = [];
+let eternalDeck = [];
+let discardPile = [];
+
+let isStuck = false;
+let isAutoSkipping = false;
+let isPlacingCard = false;
+let isAutoAction = false;
+let isAutoProcessing = false; 
+let invasionQueue = [];
+let isEndingTurn = false; 
+let isProcessingMove = false; 
+let isPeekingMode = false; // 盤面確認中フラグ
+let isHandEffectProcessing = false; // 【追加】手札効果の演出・処理中フラグ
+
+let timeLeft = PHASE_TIME_SEC;
+let timerInterval = null;
+let tempAction = null;
+let selectionState = { 
+    active: false, type: null, count: 0, current: 0, selected: [], 
+    logic: null, callback: null, range: null, prompt: null, 
+    forbiddenTile: null, noCancel: false, origin: null, 
+    isEightDirection: false, cancelCallback: null, autoBtnText: null, 
+    restrictedCells: null, actingPlayer: null 
+};
+let testSelectedCards = [];
+let testFirstCards = []; 
+let testInitialLocks = []; 
+let touchPreviewTimer = null;
+let pointerStartTime = 0;
+let isLongPressActive = false;
+let activeHandCard = null; 
+let activeTargetPos = null; 
+
+let activeModalId = null;
+let hoverTemporarilyDisabled = false;
+let expandedLockColor = null;
+let richWhimHistory = []; // {pos: {x,y}, player: object} の配列
+
+
+let playerStats = {}; // 各プレイヤーの統計（移動距離など）を保持
+
+let useGlobalTimer = false; // タイマー形式フラグ (false: フェイズ固定, true: 全体持ち時間併用)
+
+let timeAtTurnStart = 0;
+
+let isLightMode = localStorage.getItem('shades_light_mode') !== 'false';

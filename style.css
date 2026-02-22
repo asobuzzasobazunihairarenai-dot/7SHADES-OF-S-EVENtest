@@ -1,0 +1,979 @@
+/**
+ * 7 SHADES OF S:EVEN - Core Logic
+ * 【共通定義】
+ * - 到達: 表向きカードの上に駒が置かれた瞬間
+ * - 到達効果: 到達時に発動。原則「効果解決」→「カード獲得」の順。
+ * - 例外: カードに処遇（場に残る、破棄等）が書かれている場合はそれに従う。
+ */
+/**
+ * 2026/02/07 11:30 修正
+ * 1. .game-layout の grid-template-areas プロパティから不要なエスケープ文字を削除し、CSS構文エラーを修正。
+ */
+
+
+:root {
+    /* ダークモード（デフォルト）の定義 */
+    --bg-main: #111827;
+    --bg-app: #1f2937;
+    --text-main: #f3f4f6;
+    --text-muted: #9ca3af;
+    --border-color: #374151;
+    --panel-bg: rgba(31, 41, 55, 0.8);
+    --playmat-url: url('images/playmat_0_B.webp');
+}
+
+.light-mode {
+    /* ライトモードの定義 */
+    --bg-main: #f3f4f6;
+    --bg-app: #ffffff;
+    --text-main: #111827;
+    --text-muted: #4b5563;
+    --border-color: #d1d5db;
+    --panel-bg: rgba(255, 255, 255, 0.8);
+    --playmat-url: url('images/playmat_0.webp');
+}
+
+.light-mode .text-orange-500,
+.light-mode .text-yellow-500,
+.light-mode .text-orange-400,
+.light-mode .text-yellow-400 {
+    /* 黒の細い影を追加して文字を浮き立たせる */
+    text-shadow: 0.5px 0.5px 1px rgba(0, 0, 0, 0.8), 
+                 -0.5px -0.5px 1px rgba(0, 0, 0, 0.2);
+    /* 必要に応じて少しだけ太く見せる */
+    font-weight: 700;
+}
+
+/* モーダル内のタイトルなどの大きな文字には少し強めの影を */
+.light-mode h2.text-orange-500,
+.light-mode h3.text-yellow-500 {
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+body { 
+    font-family: 'Noto Sans JP', sans-serif; 
+    touch-action: manipulation; 
+    user-select: none; 
+    -webkit-user-select: none; 
+    overflow-x: hidden; 
+    background-color: var(--bg-main); /* 変数に変更 */
+    color: var(--text-main);          /* 変数に変更 */
+}
+
+#app {
+    background-color: var(--bg-app);
+    border-color: var(--border-color);
+}
+
+/* --- アニメーション定義 --- */
+@keyframes pulse-ring { 0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); } 70% { transform: scale(1.05); box-shadow: 0 0 0 4px rgba(255, 255, 255, 0); } 100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); } }
+.player-active .player-marker { animation: pulse-ring 2s infinite; z-index: 50; }
+
+@keyframes rainbow-glow { 0% { box-shadow: 0 0 10px #ff0000; } 20% { box-shadow: 0 0 10px #ffff00; } 40% { box-shadow: 0 0 10px #00ff00; } 60% { box-shadow: 0 0 10px #00ffff; } 80% { box-shadow: 0 0 10px #0000ff; } 100% { box-shadow: 0 0 10px #ff00ff; } }
+.rainbow-active { animation: rainbow-glow 1s linear infinite; border: 2px solid white !important; z-index: 40; }
+
+@keyframes special-glow { 0%, 100% { box-shadow: 0 0 5px currentColor, 0 0 10px currentColor; } 50% { box-shadow: 0 0 15px currentColor, 0 0 30px currentColor; border-color: white; } }
+.special-card-glow { animation: special-glow 2s infinite; }
+
+@keyframes viridian-glow {
+    0%, 100% { box-shadow: 0 0 5px #22c55e, inset 0 0 5px #22c55e; border-color: #4ade80; }
+    50% { box-shadow: 0 0 15px #4ade80, inset 0 0 10px #4ade80; border-color: #fff; }
+}
+
+.viridian-temp-card {
+    animation: viridian-glow 1.5s infinite ease-in-out !important;
+    position: relative;
+}
+
+/* 判別しやすくするため「一時的」なアイコンを右上に表示 */
+.viridian-temp-card::after {
+    content: "⏳";
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    font-size: 10px;
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 50%;
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+    border: 1px solid #22c55e;
+}
+
+@keyframes active-player-glow {
+    0%, 100% { border-color: #facc15; box-shadow: 0 0 5px #facc15, inset 0 0 2px #facc15; }
+    50% { border-color: #fbbf24; box-shadow: 0 0 25px #fbbf24, inset 0 0 10px #fbbf24; }
+}
+.player-active-box { 
+    animation: active-player-glow 1.2s ease-in-out infinite; 
+    border-width: 3px !important; 
+    z-index: 10; 
+    margin: 0 auto;
+}
+
+/* 上下のプレイヤー(P1/P3)の横幅調整：幅を固定し、常に中央配置 */
+.area-top .player-area-box,
+.area-bottom .player-area-box {
+    width: 90% !important;
+    margin: 0 auto !important; /* 中央寄せを追加 */
+}
+
+/* 左右のプレイヤー(P2/P4)の横幅調整 */
+.area-left .player-area-box,
+.area-right .player-area-box {
+    height: 90% !important;
+    width: 100% !important;
+    margin: auto 0 !important; /* 垂直方向の中央寄せ */
+}
+
+/* ターン中の演出：幅は固定済みなので枠線と光のみ制御 */
+.player-active-box { 
+    animation: active-player-glow 1.2s ease-in-out infinite; 
+    border-width: 3px !important; 
+    z-index: 10; 
+}
+
+/* 降りてくるアニメーション */
+@keyframes fade-in-down {
+    0% { opacity: 0; transform: translateY(-10px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-down { animation: fade-in-down 0.3s ease-out forwards; }
+
+/* 雷エフェクト */
+.lightning-overlay { position: fixed; inset: 0; z-index: 999; pointer-events: none; }
+.bolt-path { stroke: #fff; stroke-width: 4; fill: none; stroke-dasharray: 600; animation: bolt-grow 1s ease-out forwards; filter: drop-shadow(0 0 15px #60a5fa) drop-shadow(0 0 5px white); }
+
+@keyframes arrival-flash {
+    0% { box-shadow: 0 0 0px currentColor; filter: brightness(1); }
+    30% { box-shadow: 0 0 40px currentColor; filter: brightness(1.8); }
+    100% { box-shadow: 0 0 0px transparent; filter: brightness(1); }
+}
+.cell-flash-active { animation: arrival-flash 0.8s ease-out forwards; z-index: 45; }
+
+/* カード裏面 */
+.card-back-pattern { background-image: url('images/normal_card_back.webp'); background-size: cover; background-position: center; background-repeat: no-repeat; background-color: #374151; border: 1px solid #4b5563; }
+.eternal-back-pattern { background-image: url('images/eternal_card_back.webp'); background-size: cover; background-position: center; background-repeat: no-repeat; background-color: #1a1a1a; border: 2px solid #ffd700; box-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+.first-back-pattern { background-image: url('images/first_card_back.webp'); background-size: cover; background-position: center; background-repeat: no-repeat; background-color: #22c55e; border: 1px solid #718096; }
+
+.selected-card-glow { border: 4px solid #facc15 !important; box-shadow: 0 0 25px #facc15 !important; transform: scale(1.05); }
+
+.game-wrapper { 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: center; 
+    width: 100%; 
+    height: 100%; 
+    margin: 0 auto; 
+    overflow: hidden;
+    position: relative;
+    padding: 10px; 
+}
+
+/* プレイマット */
+.game-layout { 
+    display: grid; 
+    grid-template-areas: ". top ." "left center right" ". bottom ."; 
+    grid-template-rows: 11% 78% 11%; 
+    grid-template-columns: 11% 78% 11%; 
+    width: 80vw; 
+    max-width: 400px; 
+    aspect-ratio: 1 / 1; 
+    /* 2026/02/19 16:15 修正：変数を使用してモード切替に対応 */
+    background-image: var(--playmat-url);
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    position: relative;
+    margin: auto;
+}
+
+.area-center { 
+    grid-area: center; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    width: 100%;
+    height: 100%;
+}
+
+/* 盤面グリッド */
+#board-grid { 
+    width: 91%; 
+    height: 88%; 
+    background-color: transparent; 
+    border: none;
+    gap: 0px; 
+    grid-template-rows: repeat(7, 1fr);
+}
+
+.cell {
+    border-radius: 0px;
+    /* 以下の2行を追加 */
+    aspect-ratio: 1 / 1; /* セルを常に正方形に保つ */
+    min-height: 0;       /* Grid内での潰れ防止 */
+}
+
+/* 選択モード時のハイライト */
+.selection-active .cell.selectable {
+    opacity: 1 !important;
+    cursor: pointer;
+    box-shadow: inset 0 0 15px #22c55e, 0 0 10px #22c55e !important;
+    z-index: 60;
+}
+
+/* ロックエリア */
+.player-area-box { 
+    position: relative;
+    background-color: transparent !important; 
+    border-color: transparent !important;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.player-area-box > div:first-child {
+    position: absolute;
+    white-space: nowrap;
+    z-index: 100;
+    text-shadow: 0 0 6px rgba(0,0,0,1), 0 0 2px rgba(0,0,0,1);
+    font-size: 10px;
+    font-weight: bold;
+    color: #fff;
+    pointer-events: none;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 4px;
+}
+
+.area-top .player-area-box > div:first-child { top: -20px; left: 50%; transform: translateX(-50%); }
+.area-bottom .player-area-box > div:first-child { bottom: -20px; left: 50%; transform: translateX(-50%); }
+.area-left .player-area-box > div:first-child { left: -30px; top: 50%; transform: translateY(-50%) rotate(90deg); }
+.area-right .player-area-box > div:first-child { right: -30px; top: 50%; transform: translateY(-50%) rotate(-90deg); }
+
+.area-top { grid-area: top; width: 100%; display: flex; justify-content: center; align-items: center; }
+.area-bottom { grid-area: bottom; width: 100%; display: center; justify-content: center; align-items: center; }
+.area-left { grid-area: left; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+.area-right { grid-area: right; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+
+.area-top .mini-slot { transform: rotate(180deg); }
+.area-right .mini-slot { transform: rotate(270deg); }
+.area-bottom .mini-slot { transform: rotate(0deg); }
+.area-left .mini-slot { transform: rotate(90deg); }
+
+.mini-slot { 
+    width: 2.5rem; 
+    height: 2.5rem; 
+    max-width: 10vw;
+    max-height: 10vw;
+    font-size: 0.5rem; 
+    flex-shrink: 0; 
+    transition: transform 0.2s; 
+    background-size: cover; 
+    background-position: center; 
+    border-radius: 2px;
+}
+
+.card-shape { 
+    width: 3.5rem; 
+    height: 3.5rem; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    flex-shrink: 0;
+    position: relative;
+    border-radius: 4px;
+}
+
+.card-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3); }
+.card-dimmed { filter: grayscale(0.8) brightness(0.5); }
+
+.test-card-select.selected {
+    border: 3px solid #fbbf24 !important;
+    box-shadow: 0 0 15px #fbbf24;
+    transform: scale(1.1);
+    background-color: #4b5563 !important;
+}
+
+.large-slot { width: 3rem; height: 3rem; font-size: 0.8rem; flex-shrink: 0; transition: transform 0.2s; position: relative; background-size: cover; background-position: center; }
+.gate-glow-overlay { position: absolute; inset: 0px; border-radius: 0px; pointer-events: none; z-index: 40; background: transparent; }
+.fab-container { position: absolute; bottom: 12.5rem; right: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 100; pointer-events: none; }
+.fab-btn { pointer-events: auto; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
+
+.phase-step { flex: 1; height: 2.2rem; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 10px; color: #6b7280; background: #0f172a; border: 1px solid #1e293b; font-weight: bold; }
+.phase-step.active { color: #000000; background: #f59e0b; border-color: #fbbf24; font-weight: 900; }
+
+.stack-badge { position: absolute; bottom: 1px; right: 1px; background: rgba(0,0,0,0.7); color: #fbbf24; font-size: 6px; font-weight: bold; padding: 0 1px; border-radius: 1px; z-index: 20; }
+
+/* スマホでの画像保存ポップアップを抑制 */
+img, .card-shape, .hand-card, .cell, .mini-slot {
+    -webkit-touch-callout: none; /* iOS Safari */
+    -webkit-user-select: none;   /* Safari */
+    user-select: none;           /* Standard */
+}
+
+/* スライドボタン用アニメーション */
+@keyframes slide-up {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up {
+    animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 閉じるボタンのベーススタイル */
+#close-preview-btn {
+    position: absolute;
+    bottom: 20px;
+    width: 80%;
+    left: 10%;
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
+    font-weight: bold;
+    padding: 12px;
+    border-radius: 9999px;
+    border: 2px solid white;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    text-align: center;
+    z-index: 10000;
+}
+
+/* 透明なガードレイヤー：画像への直接タッチを遮断し、ブラウザの「画像を保存」メニューを封じる */
+.card-guard {
+    position: absolute;
+    top: 0; 
+    left: 0; 
+    width: 100%; 
+    height: 100%;
+    z-index: 90; /* 内容物より前面に配置してタッチを奪う */
+    background: rgba(255, 255, 255, 0); /* 完全に透明 */
+    -webkit-touch-callout: none !important; /* iOSメニュー禁止の重ね掛け */
+}
+
+/* プレビューコンテナ：PCでは背景を透明にして枠外表示を可能にする */
+#hover-preview {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    pointer-events: none; /* 初期状態では下のボタン以外に触れないようにする */
+}
+
+/* 拡大カード本体：マウス追従または中央固定 */
+#hover-preview-box {
+    position: fixed;
+    z-index: 10001;
+    pointer-events: none; 
+    box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+    /* transitionを短くして追従性を高める */
+    transition: transform 0.1s ease-out;
+}
+
+/* スマホ表示時の背景（JavaScriptで制御） */
+#hover-preview:not(.pointer-events-none) {
+    pointer-events: auto;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+}
+
+/* スライド式閉じるボタンのアニメーション */
+@keyframes slide-up-btn {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up {
+    animation: slide-up-btn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+#close-preview-btn {
+    position: absolute;
+    bottom: 40px;
+    width: 80%;
+    left: 10%;
+    background: linear-gradient(to right, #ef4444, #b91c1c);
+    color: white;
+    font-weight: bold;
+    padding: 14px;
+    border-radius: 9999px;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    text-align: center;
+    z-index: 10002;
+    cursor: pointer;
+    pointer-events: auto; /* ボタンだけは触れるようにする */
+}
+
+#close-preview-btn:active {
+    transform: scale(0.95);
+}
+
+/* ダブルタップ時のブラウザズームを防止（ダブルタップ操作を快適にするため） */
+.cell, .hand-card, .mini-slot, .card-guard, #hover-preview-box {
+    touch-action: manipulation;
+}
+
+.title-background {
+    background-image: linear-gradient(rgba(17, 24, 39, 0.7), rgba(17, 24, 39, 0.7)), url('images/background_0.webp');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+#discard-view {
+    position: relative;
+    overflow: visible !important; /* 子要素のカードがはみ出しても切れないようにする */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* モバイル端末向けの調整 (iPhone等) */
+@media (max-width: 640px) {
+    /* ロックエリア全体をマットのサイズに合わせて縮小 */
+    .player-area-box {
+        transform: scale(0.86); /* 15%縮小（マットに合うよう微調整） */
+        transform-origin: center;
+    }
+
+    /* 上下のプレイヤーエリア（P1/P3）のコンテナ自体のサイズと位置を調整 */
+    .area-top, .area-bottom {
+        transform: scale(1); /* エリア全体を10%縮小して被りを軽減 */
+    }
+
+    /* 上のプレイヤー(P1)を少し上に逃がす */
+    .area-top {
+        margin-top: -10px; 
+    }
+
+    /* 下のプレイヤー(P3)を少し下に逃がす */
+    .area-bottom {
+        margin-bottom: -10px;
+    }
+
+    /* --- 黄色い点滅枠(80%)のモバイル用微調整 --- */
+    
+    /* 上下のプレイヤー(P1/P3): 画面が狭いため80%だと小さすぎる場合はここを少し増やします */
+    .area-top .player-active-box,
+    .area-bottom .player-active-box {
+        width:100% !important; /* モバイルでは少しだけ広げてマットに合わせる */
+    }
+
+    /* 左右のプレイヤー(P2/P4): 回転による高さ(見た目上の幅)を微調整 */
+    .area-left .player-active-box,
+    .area-right .player-active-box {
+        height:100% !important; /* 上下と同様に少し広げて調整 */
+        width: 100% !important;
+    }
+
+    /* 各エリアの位置微調整（縮小によって生じる隙間を埋める） */
+    .area-top .player-area-box { 
+    /* 既存の scale(0.86) を維持しつつ、下に 15px 移動 */
+    transform: scale(0.86) translateY(8px) !important; 
+    }
+    .area-bottom .player-area-box { 
+    /* 既存の scale(0.86) を維持しつつ、上に 15px 移動 */
+    transform: scale(0.86) translateY(-8px) !important; 
+    }
+    .area-left .player-area-box { margin-right: -5px; }
+    .area-right .player-area-box { margin-left: -5px; }
+
+    /* 縮小に伴い、カード枚数などのテキストが重ならないよう調整 */
+    .player-area-box > div:first-child {
+        font-size: 8px; /* 文字を少し小さく */
+    }
+}
+
+@keyframes rainbow-rain-glow {
+    0% { 
+        box-shadow: 0 0 8px rgba(255, 0, 0, 0.1); 
+        border-color: rgba(255, 0, 0, 0.2); 
+    }
+    20% { 
+        box-shadow: 0 0 12px rgba(255, 255, 0, 0.1); 
+        border-color: rgba(255, 255, 0, 0.2); 
+    }
+    40% { 
+        box-shadow: 0 0 8px rgba(0, 255, 0, 0.1); 
+        border-color: rgba(0, 255, 0, 0.2); 
+    }
+    60% { 
+        box-shadow: 0 0 12px rgba(0, 255, 255, 0.1); 
+        border-color: rgba(0, 255, 255, 0.2); 
+    }
+    80% { 
+        box-shadow: 0 0 8px rgba(0, 0, 255, 0.1); 
+        border-color: rgba(0, 0, 255, 0.2); 
+    }
+    100% { 
+        box-shadow: 0 0 12px rgba(255, 0, 255, 0.1); 
+        border-color: rgba(255, 0, 255, 0.2); 
+    }
+}
+
+.rainbow-rain-flash {
+    animation: rainbow-rain-glow 0.5s linear infinite;
+    z-index: 50;
+    position: relative;
+    border-width: 2px !important;
+}
+
+@keyframes whim-blink {
+    0%, 100% { box-shadow: inset 0 0 15px var(--player-color), 0 0 10px var(--player-color); opacity: 1; }
+    50% { box-shadow: inset 0 0 5px var(--player-color), 0 0 2px var(--player-color); opacity: 0.8; }
+}
+
+.rich-whim-highlight {
+    animation: whim-blink 0.8s ease-in-out infinite;
+    z-index: 45;
+    position: relative;
+    border: 2px solid white !important;
+}
+
+.whim-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+    z-index: 46;
+    pointer-events: none;
+    border: 1px solid var(--player-color);
+}
+
+#winner-overlay:not(.hidden) ~ #app .player-area-box,
+#winner-overlay:not(.hidden) ~ .game-wrapper .player-area-box {
+    filter: brightness(0.3) grayscale(0.5);
+    z-index: 0 !important;
+    pointer-events: none;
+}
+
+/* 勝利モーダル自体のz-indexを確実に最前面へ */
+#winner-overlay {
+    z-index: 10000;
+}
+
+@keyframes victory-gold-pulse {
+    0% { box-shadow: 0 0 5px #ffd700, inset 0 0 5px #ffd700; border-color: #fff; }
+    50% { box-shadow: 0 0 20px #ffaa00, inset 0 0 10px #ffaa00; border-color: #ffd700; }
+    100% { box-shadow: 0 0 5px #ffd700, inset 0 0 5px #ffd700; border-color: #fff; }
+}
+
+.victory-glow {
+    animation: victory-gold-pulse 2s infinite ease-in-out;
+    filter: brightness(1.1);
+}
+
+/* 虹色カードの場合はさらに強力に発光 */
+.victory-glow.rainbow-card-face {
+    animation: victory-gold-pulse 1.5s infinite ease-in-out, rainbow-glow 3s infinite linear;
+}
+
+/* 修正箇所：.player-marker の基本スタイルを更新 */
+.player-marker {
+    width: 85%;
+    height: 85%;
+    border-radius: 4px; /* 正方形に近い形。完全に角を消すなら 0 */
+    position: absolute;
+    z-index: 1000 !important; /* 通常時もカード（1）より圧倒的に上 */
+    pointer-events: none;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* 修正箇所：自ターンの発光演出（拡大縮小に合わせて光が広がる） */
+.player-active .player-marker {
+    animation: pulse-ring 2s infinite;
+    z-index: 50;
+    /* 駒の色に合わせて外側を強く光らせる（変数はJSから動的にセットされます） */
+    box-shadow: 0 0 15px 5px var(--player-color-glow);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+}
+
+/* ログエリア */
+#log-area {
+    background-color: var(--bg-main); /* 黒固定から背景色連動へ */
+    border-color: var(--border-color);
+    color: var(--text-main); /* 緑固定からテキスト色連動へ */
+}
+
+.light-mode #log-area {
+    color: #1f2937; /* ライトモード時は読みやすい濃いグレー */
+    border-width: 2px;
+}
+
+/* 手札エリア・ロックエリアのコンテナ */
+#hand-area-container, #my-lock-container {
+    background-color: var(--panel-bg);
+    border-color: var(--border-color);
+}
+
+/* 盤面グリッドの外枠 */
+#board-grid {
+    background-color: transparent !important;
+    border: none !important;
+}
+
+/* フェイズ表示の未通過ステップ */
+.phase-step {
+    background-color: var(--bg-main);
+    color: var(--text-muted);
+    border-color: var(--border-color);
+}
+
+/* --- 1. モーダル・オーバーレイ（外側の膜） --- */
+.light-mode #detail-modal,
+.light-mode #player-detail-modal,
+.light-mode #settings-modal,
+.light-mode #discard-modal,
+.light-mode #selection-modal,
+.light-mode #arrival-modal,
+.light-mode #turn-change-overlay,
+.light-mode .overlay {
+    background-color: rgba(255, 255, 255, 0.4) !important; /* より透け感を出す */
+    backdrop-filter: blur(4px) !important;
+}
+
+/* ターン通知内の文字色補正 */
+.light-mode #turn-change-overlay p {
+    color: var(--text-main) !important;
+    font-weight: bold;
+    text-shadow: 0 0 5px #fff;
+}
+
+/* 【追加】ターン通知の中身の黒いパネルを白くする */
+.light-mode #turn-change-overlay > div {
+    background-color: var(--bg-app) !important;
+    color: var(--text-main) !important;
+    border: 2px solid var(--border-color) !important;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1) !important;
+}
+
+
+
+/* --- 2. ロックエリア・盤面：強制透過 & 境界線削除 --- */
+.light-mode #board-grid,
+.light-mode .area-top, .light-mode .area-bottom, .light-mode .area-left, .light-mode .area-right,
+.light-mode #area-p1, .light-mode #area-p2, .light-mode #area-p3, .light-mode #area-p4 {
+    background: none !important;
+    background-color: transparent !important;
+    border: none !important; 
+    box-shadow: none !important;
+}
+
+/* 修正：.player-active-box（発光枠）がある場合は border: none を適用しないように分離 */
+.light-mode .player-area-box:not(.player-active-box) {
+    background: none !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.light-mode .player-area-box > div {
+    background: none !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* スマホ版でのみ発生する「発光時の枠線」なども念押しで消去 */
+@media (max-width: 640px) {
+    .light-mode .player-active-box {
+        border: none !important;
+        border-width: 0 !important;
+    }
+}
+
+/* 3. 各プレイヤーのミニスロット（ロックカード置き場）の枠線 */
+.light-mode .mini-slot {
+    border: 1px solid rgba(0, 0, 0, 0.2) !important;
+    background-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* 4. 手札・ステータスパネル等の透過コンテナ */
+.light-mode #hand-area-container,
+.light-mode #my-lock-container {
+    background-color: var(--panel-bg) !important;
+    backdrop-filter: blur(4px) !important;
+    border: 1px solid var(--border-color) !important;
+}
+
+/* 5. 不透明なコンテンツ（詳細画面の中身など） */
+.light-mode #detail-modal > div,
+.light-mode #player-detail-modal > div,
+.light-mode #selection-modal > div,
+.light-mode #settings-modal > div,
+.light-mode .bg-gray-800,
+.light-mode .bg-gray-900,
+.light-mode .toast-msg {
+    background-color: var(--bg-app) !important;
+    color: var(--text-main) !important;
+}
+
+/* 6. 文字色の一括補正 */
+.light-mode #instruction-text,
+.light-mode #hand-instruction,
+.light-mode #hand-count,
+.light-mode #detail-title,
+.light-mode #detail-msg,
+.light-mode #pd-name,
+.light-mode [class*="text-white"],
+.light-mode [class*="text-gray-300"],
+.light-mode [class*="text-gray-400"] {
+    color: var(--text-main) !important;
+}
+
+/* プレイヤー情報の文字影 */
+.light-mode .player-area-box > div:first-child {
+    text-shadow: 1px 1px 2px #fff, -1px -1px 2px #fff !important;
+    color: #000 !important;
+}
+
+.light-mode .fab-btn {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border: 2px solid #374151 !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* 特定の役割を持つボタンのライトモード個別調整 */
+.light-mode #skip-btn {
+    background-color: #f3f4f6 !important;
+}
+
+.light-mode #auto-select-btn {
+    background-color: #fef08a !important; /* 黄色みを維持しつつ明るく */
+    border-color: #eab308 !important;
+}
+
+.light-mode #stuck-btn {
+    background-color: #fee2e2 !important; /* 赤みを維持しつつ明るく */
+    color: #b91c1c !important;
+    border-color: #ef4444 !important;
+}
+
+.light-mode #reaction-skip-btn {
+    background-color: #e0e7ff !important;
+    color: #4338ca !important;
+    border-color: #6366f1 !important;
+}
+
+.light-mode button[onclick="showSettings()"],
+.light-mode button[onclick="showSetup()"] {
+    background-color: #f3f4f6 !important;
+    color: #374151 !important;
+    border-color: #d1d5db !important;
+}
+
+.light-mode button[onclick="showSettings()"]:hover,
+.light-mode button[onclick="showSetup()"]:hover {
+    background-color: #e5e7eb !important;
+}
+
+.light-mode button[onclick="showRules()"] {
+    background-color: #dbeafe !important;
+    color: #1e40af !important;
+    border-color: #bfdbfe !important;
+}
+
+.light-mode button[onclick="showRules()"]:hover {
+    background-color: #bfdbfe !important;
+}
+
+#dev-settings-modal input[type="number"]:focus {
+    border-color: #ef4444 !important; /* フォーカス時に赤くする */
+}
+
+@keyframes logo-entrance {
+    0% { transform: scale(0.5); opacity: 0; filter: brightness(2) blur(10px); }
+    50% { transform: scale(1.1); opacity: 1; filter: brightness(1.2) blur(0px); }
+    100% { transform: scale(1); opacity: 1; filter: brightness(1); }
+}
+
+.animate-logo-entrance {
+    animation: logo-entrance 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.logo-overlay-active {
+    background: radial-gradient(circle, rgba(0,0,0,0) 0%, rgba(0,0,0,0.8) 100%);
+    pointer-events: none;
+    z-index: 500;
+}
+
+@keyframes biribiri {
+    0% { box-shadow: 0 0 5px #facc15, inset 0 0 5px #facc15; border-color: #facc15; }
+    20% { box-shadow: 0 0 20px #fbbf24, inset 0 0 10px #fbbf24; border-color: #ffffff; }
+    40% { box-shadow: 0 0 10px #f59e0b, inset 0 0 15px #f59e0b; border-color: #facc15; }
+    60% { box-shadow: 0 0 25px #facc15, inset 0 0 5px #facc15; border-color: #ffffff; }
+    80% { box-shadow: 0 0 15px #fbbf24, inset 0 0 12px #fbbf24; border-color: #facc15; }
+    100% { box-shadow: 0 0 5px #facc15, inset 0 0 5px #facc15; border-color: #facc15; }
+}
+
+.biribiri-active {
+    animation: biribiri 0.15s infinite; /* 高速で回すことでビリビリ感を出す */
+    z-index: 50;
+    position: relative;
+    border-width: 3px !important;
+}
+
+@keyframes generic-blink {
+    0%, 100% { box-shadow: inset 0 0 0px transparent; filter: brightness(1); }
+    50% { box-shadow: inset 0 0 30px var(--blink-color), 0 0 20px var(--blink-color); filter: brightness(1.5); }
+}
+
+.generic-blink-animation {
+    /* 2秒間で3回点滅するように設定 */
+    animation: generic-blink 0.66s ease-in-out 3;
+    z-index: 50;
+    position: relative;
+}
+
+@keyframes absorb-scaling {
+    0% { transform: scale(1.1); opacity: 1; }
+    100% { transform: scale(0.5); opacity: 0; }
+}
+
+.absorb-animation {
+    animation: absorb-scaling 0.4s ease-in forwards;
+}
+
+@keyframes unit-orange-glow {
+    0%, 100% { filter: brightness(1.2) drop-shadow(0 0 5px #f97316); }
+    50% { filter: brightness(1.8) drop-shadow(0 0 15px #f97316); }
+}
+
+/* 移動中や発光中の演出。盤面全体のあらゆる要素（モーダル除く）の頂点へ */
+.moving-unit-glow {
+    animation: unit-orange-glow 0.4s ease-in-out infinite;
+    z-index: 99999 !important; /* ほぼ最前面 */
+}
+
+/* 盤面の各マス（カードを含む）の基本階層を低く固定 */
+#board-grid > div {
+    position: relative;
+    z-index: 1; /* カードは常に 1 */
+}
+
+/* 3D空間の設定 */
+.perspective-1000 {
+    perspective: 1000px;
+    overflow: hidden; /* ★回転中のはみ出しによるスクロールバーを防止 */
+}
+
+/* 回転する内側のコンテナ */
+.flip-card-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    transition: transform 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transform-style: preserve-3d;
+    backface-visibility: hidden; /* ★背面のちらつきを抑える */
+}
+
+/* JavaScriptでこのクラスが付与されると回転する */
+.do-flip {
+    transform: rotateY(180deg);
+}
+
+/* 表・裏 共通設定 */
+.flip-card-back, .flip-card-front {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    -webkit-backface-visibility: hidden; /* 裏側を見せなくする */
+    backface-visibility: hidden;
+    border-radius: 8px;
+    top: 0;
+    left: 0;
+}
+
+/* 裏面（最初はこっちが見える） */
+.flip-card-back {
+    z-index: 2;
+}
+
+/* 表面（180度裏返した状態で待機） */
+.flip-card-front {
+    transform: rotateY(180deg);
+    z-index: 1;
+}
+
+/* カードがめくれる時の光沢アニメーション（任意） */
+@keyframes flip-glow {
+    0% { filter: brightness(1); }
+    50% { filter: brightness(1.5); }
+    100% { filter: brightness(1); }
+}
+.do-flip .flip-card-front {
+    animation: flip-glow 1.2s ease-in-out;
+}
+
+@keyframes arriving-ripple {
+    0% {
+        box-shadow: 0 0 0 0 var(--ripple-color);
+        border-color: var(--ripple-color);
+        filter: brightness(1);
+    }
+    50% {
+        filter: brightness(1.8);
+    }
+    100% {
+        /* 周囲8マスに広がるイメージで、影を大きく拡散させる */
+        box-shadow: 0 0 80px 40px rgba(255, 255, 255, 0);
+        border-color: transparent;
+        filter: brightness(1);
+    }
+}
+
+.ripple-active {
+    animation: arriving-ripple 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+    z-index: 45;
+    position: relative;
+}
+
+:root {
+    --ripple-color: #ffd700;
+}
+
+@keyframes lock-flash-glow {
+    0% { 
+        filter: brightness(1);
+        box-shadow: 0 0 0px var(--ripple-color);
+        transform: scale(1);
+    }
+    20% { 
+        filter: brightness(2.5) contrast(1.2);
+        box-shadow: 0 0 50px 25px var(--ripple-color), inset 0 0 20px #fff;
+        transform: scale(1.3);
+        z-index: 1000 !important; /* 他のUIより手前に */
+    }
+    100% { 
+        filter: brightness(1);
+        box-shadow: 0 0 15px var(--ripple-color);
+        transform: scale(1);
+        z-index: 1;
+    }
+}
+
+.lock-flash-active {
+    animation: lock-flash-glow 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    border: 3px solid #ffd700 !important;
+    position: relative;
+    pointer-events: none; /* 演出中はクリック不可 */
+}

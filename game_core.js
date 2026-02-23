@@ -168,12 +168,14 @@ function checkChottoMattaCounter(targetPlayer, cardToLock, onCanceled, onPassed)
     processNextCounter(0);
 }
 
-function startTurn() { 
+async function startTurn() { 
     if (!players || players.length === 0) return;
     isEndingTurn = false; 
     isProcessingMove = false; 
     const p = players[turn]; 
     if(!p) return;
+
+    // 変数リセット（ここは即座にやってOK）
     p.baseMoveUsed = false; 
     p.viridianUsed = false; 
     p.serenadeUsed = false; 
@@ -186,18 +188,22 @@ function startTurn() {
     p.prevY = p.y; 
     players.forEach(pl => { if (hands[pl.id]) { hands[pl.id].forEach(c => { c.sealed = false; }); } });
     
+    // --- 修正箇所：通知が終わるまで待機 ---
     if (typeof showTurnChangeNotification === 'function') {
-        showTurnChangeNotification(p);
+        // await を付けることで、通知が消えるまで下の処理に進まなくなります
+        await showTurnChangeNotification(p);
     }
-    
+    // ------------------------------------
+
     currentPhase = PHASE.LOCK; 
     isStuck = false; 
     isPlacingCard = false; 
-    isHandEffectProcessing = false; // 【追加】操作ロックを解除
+    isHandEffectProcessing = false; 
     isAutoAction = false;
     isPeekingMode = false; 
-    resetTimer(); 
-    updateGameState(); 
+    
+    resetTimer(); // 演出が終わってからタイマー開始
+    updateGameState(); // 演出が終わってから盤面更新・自動スキップ判定開始
 }
 
 function nextTurn() { 
@@ -267,7 +273,7 @@ function resetTimer() {
 }
 
 function updateTimerTick() { 
-    if(winner) return; 
+    if(winner || isTimerPaused) return; // ★修正：一時停止中は処理をスキップ
 
     const p = players[turn];
     if (!p) return;
@@ -584,6 +590,18 @@ function checkWin(pid) {
     
     if (lockedColors.length >= 7) { 
         winner = players.find(p => p.id === pid); 
+
+        // --- 修正箇所：BGMの停止と勝利SEの再生 ---
+        if (window.gameBGM) {
+            window.gameBGM.pause(); // BGMを一時停止
+            window.gameBGM.currentTime = 0; // 曲を最初に戻しておく
+        }
+        
+        if (typeof playSE === 'function') {
+            playSE('win.mp3'); 
+        }
+        // ------------------------------------
+
         const nameEl = document.getElementById('winner-name');
         const overlay = document.getElementById('winner-overlay');
         const statsDisplay = document.getElementById('winner-stats-display');
@@ -632,8 +650,43 @@ function checkWin(pid) {
         }
 
         if(overlay) overlay.classList.remove('hidden'); 
-        addLog(`🏆 ${winner.name} が勝利！ 総移動距離: ${moveDist}マス`);
-    } 
+
+        // 勝利モーダルのボタンを「リザルトへ」の役割に変更
+        // ※ index.html 内の勝利モーダルにある「戻る」ボタン等のIDを確認してください。
+        // ここでは便宜上、勝利画面をクリックしたらリザルトへ行くか、専用ボタンを設ける想定です。
+        const winBtn = overlay.querySelector('button');
+        if (winBtn) {
+            winBtn.textContent = "リザルトを確認";
+            winBtn.onclick = () => {
+                overlay.classList.add('hidden');
+                showResultModal(winner.id);
+            };
+        }
+    }
+}
+
+function showResultModal(pid) {
+    const resultOverlay = document.getElementById('result-overlay');
+    const container = document.getElementById('result-items-container');
+    if (!resultOverlay || !container) return;
+
+    const moveDist = (playerStats[pid] && playerStats[pid].moveCount) ? playerStats[pid].moveCount : 0;
+
+    // 項目を生成（今後ここを増やせば項目が増えます）
+    const results = [
+        { label: "👑 勝者", value: players.find(p => p.id === pid).name, color: "text-yellow-400" },
+        { label: "👟 総移動距離", value: `${moveDist} マス`, color: "text-white" },
+        // { label: "🃏 使用カード数", value: "12 枚", color: "text-white" }, // 今後の追加例
+    ];
+
+    container.innerHTML = results.map(item => `
+        <div class="flex justify-between items-center bg-gray-700/50 p-3 rounded-lg border border-gray-600">
+            <span class="text-xs text-gray-400 font-bold">${item.label}</span>
+            <span class="text-sm font-black ${item.color}">${item.value}</span>
+        </div>
+    `).join('');
+
+    resultOverlay.classList.remove('hidden');
 }
 
 function startPlaceCardMode() { if (isPeekingMode) return; isPlacingCard = true; updateGameState(); }
@@ -678,6 +731,11 @@ function executeMove(x, y, cell, epOn) {
     gainTime(5); 
     isProcessingMove = true; 
     const p = players[turn];
+    
+    // --- ここを追記 ---
+    if (epOn) window.activeTargetPlayerForCounter = epOn; 
+    // ----------------
+
     const moveFinish = () => { 
         if (!p.baseMoveUsed) p.baseMoveUsed = true; 
         else if (p.extraMoves > 0) p.extraMoves--; 
@@ -697,21 +755,37 @@ function executeMove(x, y, cell, epOn) {
 function startStealSequence(victim, callback) { 
     if (!players[turn] || !hands[victim.id]) return;
     const turnPlayer = players[turn]; 
+    
+    // 現在の「奪われる側（被害者）」を特定
+    // 初回は接触された側、反撃後は接触した側、再反撃後はまた接触された側...と入れ替わります
     const counterCard = hands[victim.id].find(c => c.id === 22); 
+    
     if (counterCard) {
         showDetailModal("反撃のチャンス", `${victim.name}さん、「反撃」で接触を無効化し、逆に強奪しますか？`, counterCard, "反撃する", () => {
+            // 反撃コスト（カード）の支払い
             hands[victim.id].splice(hands[victim.id].indexOf(counterCard), 1); 
             discardPile.push(counterCard); 
             addLog(`${victim.name}が「反撃」を発動！`); 
-            startStealSequenceInternal(turnPlayer, callback, victim); 
+
+            // --- 修正ポイント ---
+            // 直接強奪せず、もう一度自分(startStealSequence)を呼び出す。
+            // その際、victim（狙われる側）を「自分を狙ってきた相手」に切り替える。
+            const nextVictim = (victim.id === turnPlayer.id) ? (activeTargetPlayerForCounter || victim) : turnPlayer;
+            startStealSequence(nextVictim, callback); 
         }, false);
+
         const cnlBtn = document.getElementById('detail-cancel-btn'); 
         if(cnlBtn) { 
             cnlBtn.textContent = "使わない"; 
-            cnlBtn.onclick = () => { closeDetailModal(); startStealSequenceInternal(turnPlayer, callback); }; 
+            cnlBtn.onclick = () => { 
+                closeDetailModal(); 
+                // 反撃しない場合は、そのまま現在の被害者から強奪を実行
+                startStealSequenceInternal(victim, callback); 
+            }; 
         } 
         return;
     }
+    // 反撃カードがない場合は通常の強奪処理へ
     startStealSequenceInternal(victim, callback);
 }
 
@@ -833,7 +907,6 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
     setTimeout(() => {
 
     /* --- 既存の雷演出(ID:24)や player.currentArrivalCard 設定、isDash判定等は変更なし --- */
-    if (curC.id === 24) triggerLightningEffect();
         player.currentArrivalCard = curC;
         const isDash = curC.id === 15;
 
@@ -1079,7 +1152,7 @@ function processEternalAcquisition(invader, victim) {
     } 
 }
 
-function processForcedReturn(invader) { const gate = invader.startPos; setTimeout(() => { const gCell = board[gate.y][gate.x]; if (!gCell.empty) { showCardModal(gCell.color, () => { if(hands[invader.id]) hands[invader.id].push(gCell.color); if(gCell.stack?.length > 0) { gCell.color = gCell.stack.shift(); gCell.revealed = gCell.color.savedRevealedState || false; gCell.empty = false; } else { gCell.empty = true; } invader.x = gate.x; invader.y = gate.y; updateGameState(); setTimeout(processInvasionQueue, 1000); }, "ゲート防衛カード獲得", invader.name, "獲得しました"); } else { invader.x = gate.x; invader.y = gate.y; updateGameState(); setTimeout(processInvasionQueue, 1000); } }, 1000); }
+function processForcedReturn(invader) { const gate = invader.startPos; setTimeout(() => { const gCell = board[gate.y][gate.x]; if (!gCell.empty) { showCardModal(gCell.color, () => { if(hands[invader.id]) hands[invader.id].push(gCell.color); if(gCell.stack?.length > 0) { gCell.color = gCell.stack.shift(); gCell.revealed = gCell.color.savedRevealedState || false; gCell.empty = false; } else { gCell.empty = true; } invader.x = gate.x; invader.y = gate.y; updateGameState(); setTimeout(processInvasionQueue, 1000); }, "自ゲートのカード獲得", invader.name, "獲得しました"); } else { invader.x = gate.x; invader.y = gate.y; updateGameState(); setTimeout(processInvasionQueue, 1000); } }, 1000); }
 
 function cleanupGame() { 
     ['setup-overlay','winner-overlay','arrival-modal','selection-modal','detail-modal','player-detail-modal','invasion-overlay','test-mode-modal','settings-modal','discard-modal'].forEach(id => { 
@@ -1180,6 +1253,7 @@ async function initGameInternal(num, isTest = false) {
 
     playerStats = {};
     
+    // --- 既存コード（board生成の後、bCards確保の前あたり） ---
     // 一旦、空の盤面を作成
     board = []; 
     for (let y=0; y<GRID_SIZE; y++) { 
@@ -1194,19 +1268,51 @@ async function initGameInternal(num, isTest = false) {
     discardPile = []; 
 
     const shfCols = [...BASE_COLORS].sort(() => Math.random() - 0.5); 
+    
     players = seats.map((pos, i) => { 
         const pColor = (isTest && testFirstCards[i]) ? BASE_COLORS.find(bc => bc.id === testFirstCards[i].colorId) : shfCols[i]; 
+        
+        // 事前設定されたプロフィールがあるか確認
+        const profile = (window.pendingProfiles && window.pendingProfiles[i]) ? window.pendingProfiles[i] : null;
+
         const player = { 
-            id: i+1, x: pos.x, y: pos.y, startPos: {...pos}, name: `P${i+1}`, 
-            color: pColor, css: `${pColor.bg} border-2 border-white`, 
-            extraMoves: 0, baseMoveUsed: false, 
-            viridianUsed: false, serenadeUsed: false, dimensionActive: false, 
-            lockPrevented: false, domusNeroUsed: false, marmegoPenalty: false, 
-            konohanaPenalty: false, reactionSkip: false,
+            id: i+1, 
+            x: pos.x, 
+            y: pos.y, 
+            startPos: {...pos}, 
+            name: profile ? profile.name : `P${i+1}`, 
+            // プロフィール画像（ステータス表示用）
+            icon: profile ? profile.icon : `images/character_00${i+1}.webp`,
+            // 駒の画像（元の piece_00X.png に固定）
+            pieceImage: pColor.pieceImage, 
+            color: pColor, 
+            css: `${pColor.bg} border-2 border-white`, 
+            extraMoves: 0, 
+            baseMoveUsed: false, 
+            viridianUsed: false, 
+            serenadeUsed: false, 
+            dimensionActive: false, 
+            lockPrevented: false, 
+            domusNeroUsed: false, 
+            marmegoPenalty: false, 
+            konohanaPenalty: false, 
+            reactionSkip: false,
             totalTimeLeft: initTime, 
             timeoutStrikes: 0 
         }; 
-        player.prevX = player.x; player.prevY = player.y; 
+        player.prevX = player.x; 
+        player.prevY = player.y; 
+
+        // 【追加】P2(index 1)以降の場合、割り当てられた色に合わせてアイコンを上書き
+        if (i > 0 && window.pendingProfiles && window.pendingProfiles[i]) {
+            const colorMap = { 'red': 1, 'orange': 2, 'yellow': 3, 'green': 4, 'blue': 5, 'pink': 6, 'purple': 7 };
+            const colorIdx = colorMap[player.color.id];
+            if (colorIdx) {
+                window.pendingProfiles[i].icon = `images/character_00${colorIdx}.webp`;
+                player.icon = window.pendingProfiles[i].icon; // playerオブジェクト側のアイコンも更新
+            }
+        }
+
         return player; 
     });
 
@@ -1277,6 +1383,31 @@ async function initGameInternal(num, isTest = false) {
 
 async function initGame(n) { 
     await initGameInternal(n); 
+}
+
+/**
+ * 2026/02/23 18:20 修正
+ * START GAME ボタンから呼ばれる専用の関数。
+ * ここで初めてプロフィール設定が必要かチェックします。
+ */
+function openProfileSetup() {
+    // すでにプロフィール設定済みなら、そのまま人数選択へ
+    if (window.isProfileSet) {
+        const titleEl = document.getElementById('title-overlay');
+        const setupEl = document.getElementById('setup-overlay');
+        
+        if (titleEl) titleEl.classList.add('hidden');
+        if (setupEl) setupEl.classList.remove('hidden');
+        return;
+    }
+
+    // 未設定ならプロフィールモーダルを表示
+    const modal = document.getElementById('profile-setup-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex'; // 確実に表示
+        setupProfileUI(); 
+    }
 }
 
 function skipToPositionSelection() {
@@ -1386,4 +1517,74 @@ function setupEventListeners() {
             if (modal) modal.classList.remove('hidden');
         };
     }
+}
+
+function setupProfileUI() {
+    const p1Container = document.getElementById('p1-icon-selector');
+    const startBtn = document.getElementById('start-with-profile-btn');
+    if (!p1Container || !startBtn) return;
+
+    let selectedIcon = "images/character_001.webp"; 
+
+    const renderIcons = () => {
+        p1Container.innerHTML = '';
+        // 横一列に並べるための親コンテナのクラス指定
+        p1Container.className = "flex flex-row justify-between w-full gap-1 px-1";
+        
+        for (let i = 1; i <= 7; i++) {
+            const iconPath = `images/character_00${i}.webp`;
+            const img = document.createElement('img');
+            img.src = iconPath;
+            // アイコンサイズを w-9 に少しだけ小さくして、7枚が1列に収まりやすくしました
+            img.className = `w-9 h-9 rounded-full border-2 cursor-pointer transition-all shrink-0 ${selectedIcon === iconPath ? 'border-yellow-500 scale-110 z-10' : 'border-transparent opacity-50'}`;
+            img.onclick = () => {
+                selectedIcon = iconPath;
+                renderIcons();
+            };
+            p1Container.appendChild(img);
+        }
+    };
+    renderIcons();
+
+    startBtn.onclick = () => {
+        const nameInput = document.getElementById('p1-name-input');
+        const name1 = (nameInput && nameInput.value) ? nameInput.value : "P1";
+        
+        // P1のみ設定、他はデフォルト（3,4人プレイ時も考慮）
+        window.pendingProfiles = [
+            { name: name1, icon: selectedIcon },
+            { name: "P2", icon: "images/character_002.webp" },
+            { name: "P3", icon: "images/character_003.webp" },
+            { name: "P4", icon: "images/character_004.webp" }
+        ];
+        window.isProfileSet = true;
+
+        // 1. プロフィールモーダルを非表示
+        const profileModal = document.getElementById('profile-setup-modal');
+        if (profileModal) {
+            profileModal.classList.add('hidden');
+            profileModal.style.display = 'none';
+        }
+
+        // 2. タイトル画面（START GAMEがある画面）を隠す
+        const titleOverlay = document.getElementById('title-overlay');
+        if (titleOverlay) {
+            titleOverlay.classList.add('hidden');
+        }
+
+        // 3. 人数選択画面を表示
+        const setupOverlay = document.getElementById('setup-overlay');
+        if (setupOverlay) {
+            setupOverlay.classList.remove('hidden');
+        }
+    };
+}
+
+// --- 追加箇所：game_core.js の任意の場所（末尾などでOK） ---
+function pauseTimer() {
+    isTimerPaused = true;
+}
+
+function resumeTimer() {
+    isTimerPaused = false;
 }

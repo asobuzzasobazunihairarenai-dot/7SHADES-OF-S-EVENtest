@@ -132,11 +132,11 @@
            <div class="text-center animate-fade-in-down flex flex-col items-center">
              <img src="images/logo.webp" alt="7 SHADES OF S:EVEN" class="w-72 md:w-80 mb-4 drop-shadow-[0_0_15px_rgba(234,179,8,0.6)]">
         
-             <p class="text-[10px] text-gray-400 font-mono mb-12">Ver 2026.0223.2.1</p>
+             <p class="text-[10px] text-gray-400 font-mono mb-12">Ver 2026.0223.6.1</p>
         
-             <button onclick="showPlayerSelection()" class="bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-4 px-12 rounded-full shadow-[0_0_30px_rgba(234,179,8,0.3)] transition-all active:scale-95 text-lg">
+             <button onclick="openProfileSetup()" class="w-full py-4 bg-yellow-600 hover:bg-yellow-500 text-white font-black rounded-xl transition-all shadow-lg active:scale-95">
                START GAME
-             </button>
+            </button>
              </div>
         </div>
 
@@ -243,7 +243,41 @@
 
         <div id="winner-lock-display" class="flex justify-center gap-1 mb-6"></div>
         <div id="winner-stats-display"></div>
-        <button onclick="showSetup()" class="bg-blue-600 text-white font-bold px-8 py-3 rounded-full shadow-lg">トップへ戻る</button>
+        <button onclick="showSetup()" class="bg-blue-600 text-white font-bold px-8 py-3 rounded-full shadow-lg">リザルトを確認</button>
+    </div>
+</div>
+
+
+
+<div id="result-overlay" class="fixed inset-0 z-[1000] bg-black/90 backdrop-blur-md flex items-center justify-center hidden">
+    <div class="bg-gray-800 border-2 border-yellow-500/50 w-80 p-6 rounded-2xl shadow-2xl text-center">
+        <h2 class="text-xl font-black text-yellow-500 mb-4 tracking-tighter">GAME RESULT</h2>
+        
+        <div id="result-items-container" class="space-y-3 mb-6">
+            </div>
+
+        <button onclick="location.reload()" class="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-xl transition-all shadow-lg active:scale-95">
+            タイトルへ戻る
+        </button>
+    </div>
+</div>
+
+<div id="profile-setup-modal" class="fixed inset-0 z-[600] bg-black/80 backdrop-blur-sm flex items-center justify-center hidden">
+    <div class="bg-gray-800 border-2 border-yellow-500/50 w-[90%] max-w-sm p-6 rounded-2xl shadow-2xl">
+        <h2 class="text-xl font-black text-yellow-500 mb-6 text-center tracking-wider">PLAYER SETUP</h2>
+        
+        <div class="space-y-6">
+            <div class="p-3 bg-gray-700/50 rounded-xl border border-gray-600">
+                <p class="text-[10px] font-bold text-gray-400 mb-2 uppercase">Your Name</p>
+                <input type="text" id="p1-name-input" value="P1" class="w-full bg-gray-900 border border-gray-500 rounded px-3 py-2 text-sm focus:outline-none focus:border-yellow-500 mb-3">
+                <div class="flex flex-wrap gap-2 justify-center" id="p1-icon-selector">
+                    </div>
+            </div>
+        </div>
+
+        <button id="start-with-profile-btn" class="w-full mt-8 py-4 bg-yellow-600 hover:bg-yellow-500 text-white font-black rounded-xl transition-all shadow-lg active:scale-95">
+            OK
+        </button>
     </div>
 </div>
 

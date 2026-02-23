@@ -53,13 +53,13 @@ function showPlayerSelection() {
  * セットアップ画面（プレイ人数選択）の表示
  */
 function showSetup() {
+    // ※ window.isProfileSet = false; は実行しない（名前設定を維持するため）
 
-    // 【修正箇所】BGMの停止処理
+    // BGMの停止処理
     if (window.gameBGM) {
         window.gameBGM.pause();
         window.gameBGM.currentTime = 0;
         window.gameBGM = null;
-        console.log("BGM stopped by reset.");
     }
 
     if (typeof cleanupGame === 'function') cleanupGame();
@@ -67,14 +67,18 @@ function showSetup() {
     const titleEl = document.getElementById('title-overlay');
     const setupEl = document.getElementById('setup-overlay');
     const winnerOverlay = document.getElementById('winner-overlay');
+    const profileModal = document.getElementById('profile-setup-modal');
     
-    if (titleEl) titleEl.classList.remove('hidden'); // タイトル画面に戻す
-    if (setupEl) setupEl.classList.add('hidden');    // 人数選択は隠す
+    // 画面の初期化：タイトル画面のみ表示し、他を隠す
+    if (titleEl) titleEl.classList.remove('hidden');
+    if (setupEl) setupEl.classList.add('hidden');
     if (winnerOverlay) winnerOverlay.classList.add('hidden');
+    if (profileModal) profileModal.classList.add('hidden');
 
-    // --- 以下、既存のコードを維持 ---
+    // 既存のUI初期化処理（そのまま継続）
     if (document.getElementById('my-lock-container')) document.getElementById('my-lock-container').classList.add('hidden');
     if (document.getElementById('hand-area-container')) document.getElementById('hand-area-container').classList.add('hidden');
+    // ...以降のコードは既存のものを維持してください...
 
     const boardEl = document.getElementById('board-grid');
     if (boardEl) boardEl.innerHTML = '';
@@ -104,6 +108,11 @@ function showSetup() {
 
     const skipBtn = document.getElementById('skip-btn');
     if (skipBtn) skipBtn.classList.add('hidden');
+
+    // 【重要】イベントリスナーを再セットアップ
+    if (typeof setupProfileUI === 'function') {
+        setupProfileUI();
+    }
 }
 
 /**
@@ -225,13 +234,30 @@ function openPlayerDetailModal(pid) {
     if (!players || players.length === 0) return;
     const p = players.find(pl => pl.id === pid);
     if (!p) return;
+
+    // --- 追加：プロフィール画像の表示処理 ---
+    const modal = document.getElementById('player-detail-modal');
+    const nameEl = document.getElementById('pd-name');
+    if (modal && nameEl) {
+        // 既存の画像をチェックして削除
+        const oldImg = modal.querySelector('.pd-profile-img');
+        if (oldImg) oldImg.remove();
+
+        // 画像要素を作成して挿入
+        const img = document.createElement('img');
+        img.src = p.icon || `images/character_00${p.id}.webp`;
+        img.className = "pd-profile-img w-16 h-16 rounded-full border-2 border-gray-500 shadow-md object-cover mx-auto mb-2";
+        nameEl.parentNode.insertBefore(img, nameEl);
+    }
+    // ------------------------------------
+
     const pHand = hands[p.id] || [], pCols = collections[p.id] || {}; 
     
     // 自分のターンかつ操作中のプレイヤーが自分自身か確認
     const isMyTurn = (turn === players.indexOf(p));
     const isHuman = (p.id === 1); 
 
-    document.getElementById('pd-name').textContent = `${p.name} の詳細`; 
+    if (nameEl) nameEl.textContent = `${p.name} の詳細`;
     document.getElementById('pd-hand-count').textContent = pHand.length; 
     const lockAreaEl = document.getElementById('pd-lock-area'); 
     if (!lockAreaEl) return;
@@ -309,7 +335,7 @@ function openPlayerDetailModal(pid) {
         } 
         handAreaEl.appendChild(div); 
     }); 
-    const modal = document.getElementById('player-detail-modal');
+   
     if (modal) {
         modal.classList.remove('hidden'); 
         modal.style.zIndex = "150";
@@ -597,27 +623,35 @@ function closeDetailModal() {
  */
 function showSelectionModal(title, dummy, source, back, count, onComplete, isBlind = false, cancelCallback = null, autoBtnText = null, restrictedCells = null, actingPlayer = null) { 
     
-    // ★自動処理(isAutoAction)がONの場合のバイパス処理
+    // ★自動処理(isAutoAction)がONの場合のバイパス処理（強化版）
     if (isAutoAction) {
-        addLog(`[Auto] ${title} を自動選択します`);
+        addLog(`[Auto] ${title} を自動選択中...`);
 
-        // 有効な選択肢（disabledでないもの）を抽出
+        // 1. 有効な選択肢（disabledでないもの）を抽出
         const validSource = source.filter(item => !item.disabled);
 
-        // 選択肢が足りない場合は、ある分だけ選ぶ
-        const finalCount = Math.min(count, validSource.length);
+        // 2. 選択肢がない場合はキャンセル処理へ
+        if (validSource.length === 0) {
+            addLog(`[Auto] 選択可能な対象がないためスキップします`);
+            if (cancelCallback) cancelCallback();
+            else onComplete([]);
+            return;
+        }
 
-        // ソースからランダムに必要な数だけ選ぶ
-        const shuffled = [...source].sort(() => Math.random() - 0.5);
-        const selection = shuffled.slice(0, count);
+        // 3. 必要な数だけシャッフルして選択
+        const finalCount = Math.min(count, validSource.length);
+        const shuffled = [...validSource].sort(() => Math.random() - 0.5);
+        const selection = shuffled.slice(0, finalCount);
         
-        // 演出のために少し待ってから結果確認画面へ飛ばす
+        // 4. 演出のために少し待ってから、モーダルを表示せずに直接完了を呼ぶ
+        // ※モーダルを表示させると、その中のボタンクリック待ちでフリーズするため
         setTimeout(() => {
-            // --- 修正箇所：後続処理を呼ぶ前にフラグを確実にオフにする ---
-            isAutoAction = false; 
-            showSelectionResult(selection, onComplete, title, cancelCallback, autoBtnText, isBlind, actingPlayer);
-        }, 600);
-        return;
+            // 後続の効果処理で isAutoAction が必要になる場合があるため、
+            // ここではフラグを折らずにそのまま callback を実行する
+            addLog(`[Auto] ${selection.map(s => s.name || '対象').join(', ')} を選択しました`);
+            onComplete(selection);
+        }, 500);
+        return; 
     }
     
     const modal = document.getElementById('selection-modal'); 
@@ -893,68 +927,101 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
 
     // ★自動処理(isAutoAction)がONの場合の処理
     if (isAutoAction) {
-        // プレイヤーが内容を確認できる時間を1.2秒ほど設けてから、自動で閉じて完了させる
+        // フリップ演出（0.4秒後開始＋約1.2秒の回転）を考慮。
+        // 自動進行時は最低でも 4秒程度確保して、カードが表面になってから1〜2秒見せる。
+        const drawWaitTime = (timeLeft <= 2) ? 7000 : 1500;
+
+        // タイマーを一時停止
+        if (typeof pauseTimer === 'function') pauseTimer();
+
+        setTimeout(() => {
+            // 自動クリックではなく、直接閉じる処理を行う
+            modal.classList.add('hidden');
+            managePeekUI(false);
+            
+            // タイマーを再開
+            if (typeof resumeTimer === 'function') resumeTimer();
+            
+            if (onComplete) onComplete();
+        }, drawWaitTime);
+    } else {
+        // 手動操作時
+        btnEl.onclick = () => { 
+            if (typeof gainTime === 'function') gainTime(5); 
+            modal.classList.add('hidden'); 
+            managePeekUI(false); 
+            onComplete(); 
+        }; 
+    }
+}
+if (isAutoAction) {
+        // timeLeft が 2秒以下なら「自動進行中」とみなして 4秒（またはお好みで延長）待機
+        const drawWaitTime = (timeLeft <= 2) ? 4000 : 1200;
+
+        if (typeof pauseTimer === 'function') pauseTimer();
+
         setTimeout(() => {
             modal.classList.add('hidden');
             managePeekUI(false);
+            if (typeof resumeTimer === 'function') resumeTimer();
             if (onComplete) onComplete();
-        }, 1200);
+        }, drawWaitTime);
     } else {
-       btnEl.onclick = () => { if (typeof gainTime === 'function') gainTime(5); modal.classList.add('hidden'); managePeekUI(false); onComplete(); }; 
+        btnEl.onclick = () => { 
+            if (typeof gainTime === 'function') gainTime(5); 
+            modal.classList.add('hidden'); 
+            managePeekUI(false); 
+            onComplete(); 
+        }; 
     }
-
-    if (isAutoAction) {
-        setTimeout(() => {
-            if (btnEl) btnEl.click();
-        }, 500); // 演出を見せるためわずかに待機してクリック
-    }
-}
-
 /**
  * ターン開始時のかっこいい通知演出
  * @param {Object} player ターンを開始するプレイヤーオブジェクト
  * @param {Function} callback アニメーション終了後に実行するコールバック
  */
-function showTurnChangeNotification(p) {
+async function showTurnChangeNotification(p) {
     if (!p) return;
-    const existing = document.getElementById('turn-change-overlay');
-    if (existing) existing.remove();
+    return new Promise((resolve) => {
+        const existing = document.getElementById('turn-change-overlay');
+        if (existing) existing.remove();
 
-    const overlay = document.createElement('div');
-    overlay.id = "turn-change-overlay";
-    overlay.className = "fixed inset-0 z-[500] flex items-center justify-center pointer-events-none";
+        const overlay = document.createElement('div');
+        overlay.id = "turn-change-overlay";
+        overlay.className = "fixed inset-0 z-[500] flex items-center justify-center pointer-events-none";
 
-    const inner = document.createElement('div');
-    // プレイヤーのイメージカラー（hex）を優先適用
-    const pColor = p.color.hex || "#fbbf24";
-    
-    inner.className = `px-10 py-6 rounded-xl border-t-4 border-b-4 bg-gray-900/90 backdrop-blur-md shadow-2xl flex flex-col items-center gap-2 transform -translate-y-10 opacity-0 transition-all duration-500 animate-fade-in-down`;
-    
-    // インラインスタイルでプレイヤーの駒の色を注入
-    inner.style.borderColor = pColor;
-    inner.style.boxShadow = `0 0 40px ${pColor}66, inset 0 0 20px ${pColor}33`;
+        const inner = document.createElement('div');
+        const pColor = p.color.hex || "#fbbf24";
+        
+        inner.className = `px-10 py-6 rounded-xl border-t-4 border-b-4 bg-gray-900/90 backdrop-blur-md shadow-2xl flex flex-col items-center gap-2 transform -translate-y-10 opacity-0 transition-all duration-500 animate-fade-in-down`;
+        inner.style.borderColor = pColor;
+        inner.style.boxShadow = `0 0 40px ${pColor}66, inset 0 0 20px ${pColor}33`;
 
-    inner.innerHTML = `
-        <div class="text-[10px] font-bold tracking-[0.4em] text-gray-400 uppercase opacity-80">Turn Start</div>
-        <div class="text-4xl font-black tracking-tighter italic" style="color: ${pColor}; text-shadow: 0 0 15px ${pColor}aa;">
-            ${p.name}
-        </div>
-        <div class="w-12 h-0.5 mt-1 rounded-full" style="background-color: ${pColor}; opacity: 0.5;"></div>
-    `;
+        inner.innerHTML = `
+            <div class="text-[10px] font-bold tracking-[0.4em] text-gray-400 uppercase opacity-80">Turn Start</div>
+            <div class="text-4xl font-black tracking-tighter italic" style="color: ${pColor}; text-shadow: 0 0 15px ${pColor}aa;">
+                ${p.name}
+            </div>
+            <div class="w-12 h-0.5 mt-1 rounded-full" style="background-color: ${pColor}; opacity: 0.5;"></div>
+        `;
 
-    overlay.appendChild(inner);
-    document.body.appendChild(overlay);
+        overlay.appendChild(inner);
+        document.body.appendChild(overlay);
 
-    requestAnimationFrame(() => {
-        inner.classList.remove('-translate-y-10', 'opacity-0');
-        inner.classList.add('translate-y-0', 'opacity-100');
+        requestAnimationFrame(() => {
+            inner.classList.remove('-translate-y-10', 'opacity-0');
+            inner.classList.add('translate-y-0', 'opacity-100');
+        });
+
+        // 演出全体の時間（表示1.8秒 + 消える時間）待ってから resolve を呼ぶ
+        setTimeout(() => {
+            inner.classList.remove('translate-y-0', 'opacity-100');
+            inner.classList.add('translate-y-10', 'opacity-0');
+            setTimeout(() => {
+                overlay.remove();
+                resolve(); // ここで「演出終了」を通知
+            }, 600);
+        }, 1800);
     });
-
-    setTimeout(() => {
-        inner.classList.remove('translate-y-0', 'opacity-100');
-        inner.classList.add('translate-y-10', 'opacity-0');
-        setTimeout(() => overlay.remove(), 600);
-    }, 1800);
 }
 
 /**
@@ -1677,41 +1744,51 @@ function executeSelectionLogic(logic, selection, callback) {
             break;
 
         case 'force_move_logic':
-            if (activeTargetPos) {
-                (async () => {
-                    const victim = activeTargetPos;
-                    const destPos = selection[0];
+        if (activeTargetPos) {
+            (async () => {
+                const victim = activeTargetPos;
+                const destPos = selection[0];
 
-                    // 1. 移動元点滅
-                    await animateCellBlink(victim.x, victim.y, '#f97316');
+                // 1. 移動元点滅
+                await animateCellBlink(victim.x, victim.y, '#f97316');
 
-                    // 2. 移動（第5引数を null にして、モーダル発動を抑制する）
-                    await moveToCell(victim, destPos.x, destPos.y, false, null, null, 'moving-unit-glow');
+                // 2. 移動（演出用クラスを付与）
+                await moveToCell(victim, destPos.x, destPos.y, false, null, null, 'moving-unit-glow');
 
-                    // 3. 移動先点滅（点滅が終わるまで await で待つ）
-                    await animateCellBlink(destPos.x, destPos.y, '#f97316');
-                    
-                    addLog(`${p.name}がフォースの力で${victim.name}を移動させました。`);
-                    
-                    // 4. 全ての演出が終わった後、手動で到達判定（モーダル等）をトリガーする
-                    // moveToCellの第5引数相当の処理をここで実行
-                    const cell = board[destPos.y][destPos.x];
-                    const card = cell.empty ? null : cell.color;
-                    
-                    if (card) {
-                        // 到達モーダルを表示（点滅終了後に出る）
-                        showCardModal(card, () => {
-                            handleArrivalLogic(cell, victim, null, card, true);
-                            if (callback) callback(selection);
-                        }, "フォースによる到達", victim.name, "移動させられました");
-                    } else {
-                        if (callback) callback(selection);
+                // 3. 移動先点滅
+                await animateCellBlink(destPos.x, destPos.y, '#f97316');
+                
+                addLog(`${p.name}がフォースの力で${victim.name}を移動させました。`);
+                
+                const cell = board[destPos.y][destPos.x];
+                const card = cell.empty ? null : cell.color;
+                
+                if (card) {
+                    // --- 修正箇所：まずカードをオープンし、盤面を再描画 ---
+                    cell.revealed = true;
+                    if (typeof renderBoard === 'function') renderBoard();
+
+                    // --- 修正箇所：到達時のド派手な発光演出を実行 ---
+                    if (typeof triggerArrivalRipple === 'function') {
+                        triggerArrivalRipple(destPos.x, destPos.y, card.hex);
                     }
-                })();
-                return;
-            }
-            break;
-                    
+
+                    // --- 修正箇所：発光の余韻（0.7秒）を待ってから handleArrivalLogic を呼ぶ ---
+                    // handleArrivalLogic 内部で showCardModal が呼ばれるため、ここでは直接呼びません
+                    setTimeout(() => {
+                        handleArrivalLogic(cell, victim, () => {
+                            if (callback) callback(selection);
+                        }, card, true);
+                    }, 700);
+
+                } else {
+                    if (callback) callback(selection);
+                }
+            })();
+            return;
+        }
+        break;
+        
         case 'apocalypse_placed_logic':
             (async () => {
                 if (activeHandCard) {

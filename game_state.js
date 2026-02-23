@@ -34,6 +34,8 @@ let isPeekingMode = false; // 盤面確認中フラグ
 let isHandEffectProcessing = false; // 【追加】手札効果の演出・処理中フラグ
 
 let timeLeft = PHASE_TIME_SEC;
+let isTimerPaused = false; // ★追加：タイマー一時停止フラグ
+
 let timerInterval = null;
 let tempAction = null;
 let selectionState = { 
@@ -65,3 +67,9 @@ let useGlobalTimer = false; // タイマー形式フラグ (false: フェイズ�
 let timeAtTurnStart = 0;
 
 let isLightMode = localStorage.getItem('shades_light_mode') !== 'false';
+
+/**
+ * 2026/02/23 17:50 修正
+ * プロフィール（名前・アイコン）が設定済みかどうかを管理するフラグ
+ */
+let isProfileSet = false;

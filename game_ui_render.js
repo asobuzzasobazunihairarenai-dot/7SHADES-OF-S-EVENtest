@@ -225,8 +225,14 @@ function generateUI() {
         });
 
         const hCount = (hands[p.id] || []).length;
-        const infoHTML = `<div class="flex ${isVertical ? 'flex-col' : 'flex-row'} items-center gap-1 text-[8px] justify-center relative"><span class="font-bold text-gray-300">${p.name}</span></div><div class="text-[10px] mt-0.5 font-bold flex items-center justify-center">🖐<span id="p${p.id}-hand-count">${hCount}</span><div id="p${p.id}-rights" class="flex gap-0.5 ml-1 items-center"></div></div>`;
-        
+        // 修正箇所：手札枚数の前にプレイヤーアイコン(icon)を追加
+        // 重複を避けるため、名前以外の情報は renderStatus で動的に生成するように変更
+        const infoHTML = `
+            <div class="flex ${isVertical ? 'flex-col' : 'flex-row'} items-center gap-1 text-[8px] justify-center relative">
+                <span class="font-bold text-gray-300">${p.name}</span>
+            </div>
+            <div id="p${p.id}-rights" class="flex gap-0.5 mt-0.5 items-center justify-center"></div>`;
+
         if (isVertical) div.innerHTML = `<div class="mb-0.5 text-center w-full">${infoHTML}</div><div class="flex flex-col gap-0 items-center">${slotsHTML}</div>`;
         else div.innerHTML = `<div class="flex gap-1 items-center mb-0.5 w-full justify-center">${infoHTML}</div><div class="flex gap-0 w-full justify-center">${slotsHTML}</div>`;
         container.appendChild(div);
@@ -337,7 +343,7 @@ function renderBoard() {
                 div.appendChild(label);
             }
 
-            // --- 3. プレイヤー駒の描画（ここが修正の肝） ---
+            // --- 3. プレイヤー駒の描画 ---
             const pOnCellMarker = players.find(pl => x === pl.x && y === pl.y && x !== -1); 
             if (pOnCellMarker) { 
                 const isActive = p && (turn === players.indexOf(pOnCellMarker)); 
@@ -345,11 +351,13 @@ function renderBoard() {
                 pDiv.id = `p${pOnCellMarker.id}-marker`; 
                 pDiv.className = `w-[85%] h-[85%] player-marker absolute inset-0 m-auto`; 
                 
-                // 強制的にスタイルで z-index を上書きして定着させる
                 pDiv.style.zIndex = "1000";
 
-                if (pOnCellMarker.color && pOnCellMarker.color.pieceImage) {
-                    pDiv.style.backgroundImage = `url('${pOnCellMarker.color.pieceImage}')`;
+                // 修正箇所：常に pieceImage (piece_00X.png) を使用するよう固定
+                const markerImage = pOnCellMarker.pieceImage;
+
+                if (markerImage) {
+                    pDiv.style.backgroundImage = `url('${markerImage}')`;
                     pDiv.style.backgroundSize = 'cover';
                     pDiv.style.backgroundPosition = 'center';
                     pDiv.style.backgroundColor = 'transparent';
@@ -473,15 +481,38 @@ function renderStatus() {
         const rightsEl = document.getElementById(`p${p.id}-rights`);
         if (rightsEl) {
             rightsEl.innerHTML = '';
+            rightsEl.className = "flex items-center gap-1 mt-0.5"; // レイアウト調整用クラス
+
+            // 1. プロフィール画像の追加
+            const profImg = document.createElement('img');
+            const iconPath = p.icon || `images/character_00${p.id + 1}.webp`;
+            profImg.src = iconPath;
+            profImg.className = "w-6 h-6 rounded-full border border-gray-500 shadow-sm object-cover";
+            rightsEl.appendChild(profImg);
+
+            // 2. 手札枚数の追加
+            const handInfo = document.createElement('div');
+            handInfo.className = "flex items-center text-[10px] font-bold text-gray-300 mr-1";
+            const handCount = hands[p.id] ? hands[p.id].length : 0;
+            handInfo.innerHTML = `<span class="opacity-70 mr-0.5">🎴</span>${handCount}`;
+            rightsEl.appendChild(handInfo);
+
+            // 3. 既存の追加移動権利（ダッシュアイコン）の表示（既存ロジックを維持）
             if (p.extraMoves > 0) {
                 const dashIcon = document.createElement('div');
                 dashIcon.className = "rounded-sm border border-white relative overflow-hidden bg-red-500 cursor-pointer hover:scale-110 transition-transform shadow-sm flex-shrink-0";
                 dashIcon.style.width = "1.1rem"; dashIcon.style.height = "1.1rem"; dashIcon.style.pointerEvents = "auto"; 
                 dashIcon.style.backgroundImage = `url('images/card_15.webp')`; dashIcon.style.backgroundSize = "cover"; dashIcon.style.backgroundPosition = "center";
+                
                 const badge = document.createElement('div');
                 badge.className = "absolute -bottom-0.5 -right-0.5 bg-black/80 text-white text-[5px] px-0.5 rounded-tl-sm border border-white/20 font-bold z-10";
-                badge.textContent = `x${p.extraMoves}`; dashIcon.appendChild(badge);
-                dashIcon.onclick = (e) => { e.stopPropagation(); if (typeof showToast === 'function') showToast(`追加移動権利が ${p.extraMoves} 回あります`); };
+                badge.textContent = `x${p.extraMoves}`; 
+                dashIcon.appendChild(badge);
+                
+                dashIcon.onclick = (e) => { 
+                    e.stopPropagation(); 
+                    if (typeof showToast === 'function') showToast(`追加移動権利が ${p.extraMoves} 回あります`); 
+                };
                 rightsEl.appendChild(dashIcon);
             }
         }

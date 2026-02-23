@@ -708,7 +708,50 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         startFlow(); return;
     }
 
-    else if (act.type === 'greedy_choice') { const hasHand = hands[p.id].length > 0; if (!hasHand) { showDetailModal("欲しがりの吊り橋", "手札がないため獲得のみ行い、元の場所へ戻ります。", null, "戻る", () => { const targetCell = board[p.y][p.x]; targetCell.revealed = false; if(p.prevX !== -1 && (p.x !== p.prevX || p.y !== p.prevY)) { p.x = p.prevX; p.y = p.prevY; } updateGameState(); onSuccess({}); }, true); } else { const msg = "手札を1枚捨てて獲得しますか？\n（「捨てない」を選択すると元の場所へ戻り、カード獲得します）"; showDetailModal("欲しがりの吊り橋", msg, null, "１枚捨てる", () => { showSelectionModal("手札を捨てる", "捨てるカードを選択してください", hands[p.id], "card-back-pattern", 1, (sel) => { sel.forEach(c => { const curIdx = hands[p.id].indexOf(c); if(curIdx > -1) hands[p.id].splice(curIdx, 1); discardPile.push(c); }); renderHand(); onSuccess({}); }, false, null, null, null, p); }); const cnl = document.getElementById('detail-cancel-btn'); cnl.textContent = "捨てない"; cnl.onclick = () => { const targetCell = board[p.y][p.x]; targetCell.revealed = false; if(p.prevX !== -1 && (p.x !== p.prevX || p.y !== p.prevY)) { p.x = p.prevX; p.y = p.prevY; } updateGameState(); onSuccess({}); closeDetailModal(); }; } return; } 
+    else if (act.type === 'greedy_choice') {
+        const hasHand = hands[p.id].length > 0;
+        if (!hasHand) {
+            // ★修正箇所：中央モーダルを表示し、ボタンを隠して自動で閉じる
+            showDetailModal("欲しがりの吊り橋", "手札がないため獲得のみ行い、元の場所へ戻ります。", null, "OK", () => {
+                // ここは自動で呼ばれるので空でもOK
+            }, true);
+
+            // 「富裕層の気まぐれ」等のモーダルデザインを維持しつつ、ボタンを非表示にする
+            const modalOkBtn = document.getElementById('detail-ok-btn');
+            const modalCancelBtn = document.getElementById('detail-cancel-btn');
+            if (modalOkBtn) modalOkBtn.style.display = 'none';
+            if (modalCancelBtn) modalCancelBtn.style.display = 'none';
+
+            // 1.5秒後に自動で処理を完結させる
+            setTimeout(() => {
+                closeDetailModal(); // モーダルを閉じる
+                
+                // ★修正箇所：非表示にしたボタンを元の状態（表示）に戻す
+                const modalOkBtn = document.getElementById('detail-ok-btn');
+                const modalCancelBtn = document.getElementById('detail-cancel-btn');
+                if (modalOkBtn) modalOkBtn.style.display = ''; // デフォルトに戻す
+                if (modalCancelBtn) modalCancelBtn.style.display = ''; // デフォルトに戻す
+
+                const targetCell = board[p.y][p.x];
+                targetCell.revealed = false; 
+                if(p.prevX !== -1 && (p.x !== p.prevX || p.y !== p.prevY)) {
+                    p.x = p.prevX;
+                    p.y = p.prevY;
+                }
+                updateGameState();
+                onSuccess({});
+            }, 2500);
+        } else {
+            const msg = "手札を1枚捨てて獲得しますか？\n（「捨てない」を選択すると元の場所へ戻り、カード獲得します）";
+            showDetailModal("欲しがりの吊り橋", msg, null, "１枚捨てる", () => {
+            showSelectionModal("手札を捨てる", "捨てるカードを選択してください", hands[p.id], "card-back-pattern", 1, (sel) => { 
+            sel.forEach(c => { 
+            const curIdx = hands[p.id].indexOf(c); if(curIdx > -1) hands[p.id].splice(curIdx, 1); 
+            discardPile.push(c); }); renderHand(); onSuccess({}); }, false, null, null, null, p); }); 
+            const cnl = document.getElementById('detail-cancel-btn'); cnl.textContent = "捨てない"; cnl.onclick = () => { 
+            const targetCell = board[p.y][p.x]; targetCell.revealed = false; 
+            if(p.prevX !== -1 && (p.x !== p.prevX || p.y !== p.prevY)) { p.x = p.prevX; p.y = p.prevY; } 
+            updateGameState(); onSuccess({}); closeDetailModal(); }; } return; } 
     
     else if (act.type === 'info_disclosure') {
         const targets = [{x:3, y:3}, {x:0, y:0}, {x:GRID_SIZE-1, y:0}, {x:0, y:GRID_SIZE-1}, {x:GRID_SIZE-1, y:GRID_SIZE-1}]; 
@@ -785,22 +828,21 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
     else if (act.type === 'favorite_flower_arrival') {
         const opponents = players.filter(pl => pl.id !== p.id);
+        
+        // 修正箇所：showSelectionModal の第12引数（自動選択用のデフォルト値）を適切に設定
         showSelectionModal("対象プレイヤー選択", "カードを渡す相手を選んでください", opponents.map(pl => ({id:pl.id, name:pl.name, type:"PLAYER_SELECT"})), "card-back-pattern", 1, (selPl) => {
             const victim = players.find(v => v.id === selPl[0].id);
             // カードを相手の手札に加える
             hands[victim.id].push(contextCard);
 
-            // --- 修正箇所（ここを差し替え） ---
             const currentCell = board[p.y][p.x];
             if (currentCell.stack && currentCell.stack.length > 0) {
-                // 下にカードがある場合：一番上のスタックを表面に出す
                 const nextCard = currentCell.stack.shift();
                 currentCell.color = nextCard;
                 currentCell.revealed = nextCard.savedRevealedState || false;
                 delete nextCard.savedRevealedState;
                 currentCell.empty = false;
             } else {
-                // 下にカードがない場合：マスを空にする
                 currentCell.empty = true;
                 currentCell.revealed = false;
                 currentCell.color = null;
@@ -808,9 +850,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             }
             
             if (typeof renderBoard === 'function') renderBoard();
-            // --- 修正箇所（ここまで） ---
 
-            // このターンにオープンされた(isNewRevealがtrue)場合のみドロー
             if (isNewReveal) {
                 const c = drawCard();
                 if (c) {
@@ -820,11 +860,10 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     onSuccess({ preventGain: true, stayOnBoard: true });
                 }
             } else {
-                // 既に表向きだった場合はドローせずに終了
                 addLog("既に表向きであったため、ドロー効果は発動しません。");
                 onSuccess({ preventGain: true, stayOnBoard: true });
             }
-        }, false, null, null, null, p);
+        }, false, null, null, null, p); // ← ここの引数順序を game_ui_modal.js の定義と合わせる必要があります
         return;
     }
 
@@ -961,15 +1000,39 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             else { addLog("周囲にカードがないため移動は発生しませんでした。"); p.konohanaPenalty = true; onSuccess({}); }
         }, false, null, null, null, p); return;
     }
+
     else if (act.type === 'force_hand_flow') {
         const playerOptions = players.filter(pl => pl.id !== p.id).map(pl => ({ id: pl.id, name: pl.name, type: "PLAYER_SELECT" }));
         showSelectionModal("移動させる相手", "対象のプレイヤーを選んでください", playerOptions, "card-back-pattern", 1, (selPl) => {
-            const victim = players.find(v => v.id === selPl[0].id); const cardPlacedCells = [];
-            for(let y=0; y<GRID_SIZE; y++){ for(let x=0; x<GRID_SIZE; x++){ if(!board[y][x].empty) cardPlacedCells.push({x, y}); } }
-            if (cardPlacedCells.length > 0) { startSelectionMode('select_cell', 1, 'force_move_logic', "移動先のカードがあるマスを選択", () => onSuccess({}), null, null, true, p, false, null, "おまかせ", cardPlacedCells, victim); activeTargetPos = victim; } 
-            else { addLog("盤面にカードがないため移動できませんでした。"); onSuccess({}); }
-        }, false, null, null, null, p); return;
+            const victim = players.find(v => v.id === selPl[0].id);
+            
+            // --- 修正箇所：カードがあり、かつ「誰もいない」マスだけを抽出 ---
+            const validCells = [];
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const cell = board[y][x];
+                    // 駒が既にそのマスにいるかチェック
+                    const isOccupied = players.some(pl => pl.x === x && pl.y === y);
+                    // 「カードがあり」かつ「誰もいない」
+                    if (!cell.empty && !isOccupied) {
+                        validCells.push({ x, y });
+                    }
+                }
+            }
+
+            if (validCells.length > 0) {
+                // 第11引数(restrictedCells)に validCells を渡し、第13引数(highlightCells)にも同じものを渡して光らせる
+                startSelectionMode('select_cell', 1, 'force_move_logic', "移動先の空きマスを選択", () => onSuccess({}), null, null, true, p, false, validCells, "おまかせ", validCells, victim);
+                activeTargetPos = victim;
+            } 
+            else {
+                addLog("移動できる有効な空きマスがないため移動できませんでした。");
+                onSuccess({});
+            }
+        }, false, null, null, null, p);
+        return;
     }
+
     // --- 欲しがりの吊り橋 (ID: 19) ---
     else if (act.type === 'greedy_bridge_hand') { 
     startSelectionMode('select_cell_outside', 1, 'greedy_step1', "裏向きで置くマスを選択してください（周囲以外）", (res) => {
@@ -977,14 +1040,29 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }, null, null, true, p, false, null, "おまかせ", null, p); 
     return; 
     }
+
     else if (act.type === 'return_gate_no_open') { 
-        // ゲートへ移動。第5引数の callback で onSuccess を呼ぶ。
-        // preventGain: false にすることで、移動完了後に handleArrivalLogic 内の「獲得処理」が走るようにします。
-        moveToCell(p, p.startPos.x, p.startPos.y, 'no_open', () => {
-            onSuccess({ preventGain: false }); 
-        }); 
+        // 1. まず足元をビリビリさせる演出（0.5秒）
+        const boardEl = document.getElementById('board-grid');
+        const targetEl = boardEl.children[p.y * GRID_SIZE + p.x];
+        if (targetEl) targetEl.classList.add('biribiri-active');
+
+        setTimeout(() => {
+            // 2. 雷を落とす
+            if (typeof triggerLightningEffect === 'function') {
+                triggerLightningEffect();
+            }
+            if (targetEl) targetEl.classList.remove('biribiri-active');
+
+            // 3. 雷が落ちた瞬間にゲートへ強制移動
+            // ※カードは獲得しない仕様（カード一覧準拠）
+            moveToCell(p, p.startPos.x, p.startPos.y, 'no_open', () => {
+                onSuccess({ preventGain: false }); 
+            }); 
+        }, 500);
         return; 
     }
+
     else if (act.type === 'greedy_palette_hand') {
         showSelectionModal("色宣言", "相手が対処すべき色を選択してください", BASE_COLORS, "card-back-pattern", 1, (selCols) => {
             const declaredColor = selCols[0]; addLog(`${p.name}が「${declaredColor.name}」を宣言！`); 

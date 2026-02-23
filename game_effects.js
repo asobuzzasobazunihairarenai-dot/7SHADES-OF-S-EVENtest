@@ -623,6 +623,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             // --- ここから追加：自動処理時の挙動 ---
             if (isAutoAction) {
                 setTimeout(() => {
+                    // --- 修正箇所：ボタンをクリックする「前」にフラグをオフにする ---
+                    isAutoAction = false; 
                     if (canDouble) {
                         choiceModal.querySelector('#btn-choice-double').click();
                     } else {
@@ -658,6 +660,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     }
 
                     showSelectionModal("ロック先選択", "2枚をどの色としてロックしますか？", colorOptions, "card-back-pattern", 1, (sel) => {
+                        // --- 修正箇所：ここでも念押しでフラグをオフにする（自動処理から呼ばれた際の保険） ---
+                        isAutoAction = false; 
                         const targetColor = sel[0];
                         const tSlot = collections[p.id][targetColor.id];
                         
@@ -693,7 +697,11 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                             if (typeof renderHand === 'function') renderHand();
                             onSuccess({ stayOnBoard: true });
                         }, "ドロー", p.name, "使用しました");
-                    }, false, startFlow, null, null, p);
+                    }, false, () => {
+                        // --- 修正箇所：キャンセル（戻る）ボタンが押された時もフラグをリセット ---
+                        isAutoAction = false;
+                        startFlow();
+                    }, null, null, p);
                 };
             }
         };

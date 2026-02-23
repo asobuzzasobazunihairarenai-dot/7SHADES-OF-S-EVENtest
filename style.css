@@ -33,6 +33,15 @@
     --playmat-url: url('images/playmat_0.webp');
 }
 
+/* --- 追加箇所：テスト設定パネルなどの背景をライトモード時に白くする --- */
+.light-mode .bg-gray-800,
+.light-mode .bg-gray-700 {
+    background-color: var(--bg-app) !important;
+    color: var(--text-main) !important;
+}
+
+
+
 /* --- 修正箇所：ライトモード時のプルダウン配色指定 --- */
 .light-mode select {
     background-color: #ffffff !important;
@@ -731,6 +740,36 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     background-color: var(--bg-app) !important;
     color: var(--text-main) !important;
 }
+
+/* キャンセル・スキップ系のボタン：明るいグレー背景に黒文字 */
+.light-mode #detail-cancel-btn,
+.light-mode #cancel-selection-btn,
+.light-mode #selection-cancel-btn {
+    background-color: #e5e7eb !important; /* bg-gray-200相当 */
+    color: #111827 !important;            /* 濃い黒文字 */
+    border: 1px solid #9ca3af !important; /* 境界線を明確に */
+}
+
+.light-mode #detail-cancel-btn:hover,
+.light-mode #cancel-selection-btn:hover,
+.light-mode #selection-cancel-btn:hover {
+    background-color: #d1d5db !important; /* ホバー時は少し暗く */
+}
+
+/* 実行・確定ボタン：白文字を維持（親要素からの黒文字指定を上書き） */
+.light-mode #detail-confirm-btn,
+.light-mode #selection-confirm-btn {
+    color: #ffffff !important;
+}
+
+/* 選択モード時の「おまかせ/自動」ボタン：黄色背景に黒文字でコントラスト確保 */
+.light-mode #selection-auto-btn,
+.light-mode #auto-select-btn {
+    background-color: #facc15 !important; /* 黄色 */
+    color: #111827 !important;            /* 黒文字 */
+    border: 1px solid #ca8a04 !important;
+}
+
 
 /* 6. 文字色の一括補正 */
 .light-mode #instruction-text,

@@ -611,11 +611,12 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
         const shuffled = [...source].sort(() => Math.random() - 0.5);
         const selection = shuffled.slice(0, count);
         
-        // 演出のために少し待ってから結果確認画面へ飛ばす、あるいは直接完了させる
+        // 演出のために少し待ってから結果確認画面へ飛ばす
         setTimeout(() => {
-            // 選択結果確認画面を表示。この関数も自動処理対応済みのため、連鎖して完了します。
+            // --- 修正箇所：後続処理を呼ぶ前にフラグを確実にオフにする ---
+            isAutoAction = false; 
             showSelectionResult(selection, onComplete, title, cancelCallback, autoBtnText, isBlind, actingPlayer);
-        }, 600); // プレイヤーが何が起きたか追えるよう、わずかに待機時間を設ける
+        }, 600);
         return;
     }
     

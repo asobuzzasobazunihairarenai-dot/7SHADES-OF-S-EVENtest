@@ -387,9 +387,13 @@ function renderBoard() {
 function renderHand() {
     const handEl = document.getElementById('current-hand');
     const handCountEl = document.getElementById('hand-count');
-    if (!handEl || !players || !players[turn]) return;
+    
+    // --- 修正箇所：ここから ---
+    const displayTurn = (typeof isP1HandOnlyView !== 'undefined' && isP1HandOnlyView) ? 0 : turn;
+    if (!handEl || !players || !players[displayTurn]) return;
+    const p = players[displayTurn];
+    // --- 修正箇所：ここまで ---
 
-    const p = players[turn];
     const pHand = hands[p.id] || [];
     
     if (handCountEl) handCountEl.textContent = `${pHand.length}枚`;

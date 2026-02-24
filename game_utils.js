@@ -248,7 +248,7 @@ function triggerLightningEffect() {
     setTimeout(() => {
         overlay.classList.remove('lightning-active');
         overlay.innerHTML = ''; 
-    }, 1200);
+    }, 1200); // 既存の1200msを維持、または演出に合わせて微調整
 }
 
 function gainTime(seconds) {
@@ -294,28 +294,31 @@ function setBGMVolume(vol) {
  */
 function updateBGMVolumeFromSlider(valStr) {
     const vol = parseInt(valStr) / 100;
+    // localStorageに保存して次回以降も維持
+    localStorage.setItem('shades_bgm_volume', valStr);
+    
     if (window.gameBGM) {
         window.gameBGM.volume = vol;
     }
-    // コンソールで確認用（不要なら消してOK）
-    console.log("BGM音量変更:", vol);
 }
 
 /**
  * 修正概要：効果音（SE）を再生する共通関数
  */
 function playSE(fileName) {
-    if (!fileName) return; // ファイル名がない場合は何もしない
+    if (!fileName) return;
 
+    // 正しいID（index.htmlで修正予定のID）から音量を取得
     const volSlider = document.getElementById('setting-se-volume');
-    const vol = volSlider ? parseInt(volSlider.value) / 100 : 0.5;
+    const vol = volSlider ? (parseInt(volSlider.value) / 100) : 0.5;
 
+    // パスを audio/ に統一（外科手術的修正）
     try {
-        const se = new Audio(`audio/${fileName}`);
-        se.volume = vol;
-        se.play().catch(e => console.warn("SE Play Blocked/Error:", e));
+        const audio = new Audio(`audio/${fileName}`);
+        audio.volume = vol;
+        audio.play().catch(e => console.warn("SE playback failed:", e));
     } catch (err) {
-        console.error("SE Creation Error:", err);
+        console.error("SE play error:", err);
     }
 }
 
@@ -323,8 +326,9 @@ function playSE(fileName) {
  * 修正概要：設定画面のスライダーから効果音の音量をテスト再生する
  * HTML側の oninput="updateSEVolumeFromSlider(this.value)" と完全に一致させます
  */
+// 修正: スライダー操作時に音量を保存する機能を追加
 function updateSEVolumeFromSlider(valStr) {
-    // スライダーを動かした時に「到達音」を鳴らしてテストする
-    playSE('se_arrival_trigger.mp3');
-    console.log("SE音量テスト:", valStr + "%");
+    localStorage.setItem('shades_se_volume', valStr);
+    // テスト再生（動作確認用）
+    playSE('se_arrival_trigger.mp3'); 
 }

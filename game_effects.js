@@ -466,16 +466,16 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 const toEl = boardEl.children[toIdx];
                 
                 const movingData = board[from.y][from.x];
-                const cardData = movingData.color;
-                const stackData = movingData.stack;
+                const cardData = movingData.color; // 一番上のカードを保持
+                // stackData は移動させず、一番上のみを動かす
 
                 // 1. 移動元の発光演出 (約1秒)
                 if (typeof triggerCellFlash === 'function') {
-                    triggerCellFlash(from.x, from.y, '#22c55e'); // 緑色で発光
+                    triggerCellFlash(from.x, from.y, '#22c55e');
                 }
                 await new Promise(r => setTimeout(r, 1000));
 
-                // 2. スライド移動の準備（クローン作成）
+                // 2. スライド移動の準備
                 const cardImg = fromEl.querySelector('.card-back-pattern');
                 if (!cardImg) continue;
                 
@@ -492,10 +492,17 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 clone.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
                 document.body.appendChild(clone);
                 
-                // 移動元のデータを消去して描画
-                movingData.empty = true;
-                movingData.color = null;
-                movingData.stack = [];
+                // 【外科手術的修正】一番上のみを抜き取り、スタックがあれば次を color に昇格させる
+                if (movingData.stack && movingData.stack.length > 0) {
+                    const nextCard = movingData.stack.shift(); // スタックから1枚取り出す
+                    movingData.color = nextCard; // それをマスの表面（color）にする
+                    // empty, revealed はそのまま維持
+                } else {
+                    // スタックがなければマスを空にする
+                    movingData.empty = true;
+                    movingData.color = null;
+                    movingData.stack = [];
+                }
                 renderBoard();
 
                 // 移動アニメーション開始
@@ -507,12 +514,12 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
                 await new Promise(r => setTimeout(r, 650));
 
-                // 3. 移動先にデータをセット
+                // 3. 移動先にデータをセット（移動先は常に空マスなので、stackは空でセット）
                 const destData = board[to.y][to.x];
                 destData.empty = false;
-                destData.color = cardData;
+                destData.color = cardData; // 抜き取った一番上のカード
                 destData.revealed = false;
-                destData.stack = stackData;
+                destData.stack = []; // 移動先は空だったので、スタックは空
                 
                 clone.remove();
                 renderBoard();
@@ -820,9 +827,27 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     else if (act.type === 'counter_arrival') {
         const minHand = Math.min(...players.map(pl => hands[pl.id].length));
         if (hands[p.id].length === minHand) {
-            const drawn = []; for(let i=0; i<2; i++) { const c = drawCard(); if(c) { hands[p.id].push(c); drawn.push(c); } }
-            showCardModal(drawn, () => { if (hands[p.id].length > 0) { showSelectionModal("手札破棄", "捨てるカードを1枚選んでください", hands[p.id], "card-back-pattern", 1, (sel) => { hands[p.id].splice(hands[p.id].indexOf(sel[0]), 1); discardPile.push(sel[0]); onSuccess({}); }, false, null, null, null, p); } else onSuccess({}); }, "反撃ドロー", p.name, "発動しました");
-        } else { addLog("手札が最少ではないため、反撃は発動しませんでした。"); onSuccess({}); } return;
+            const drawn = []; 
+            for(let i=0; i<2; i++) { 
+                const c = drawCard(); 
+                if(c) { hands[p.id].push(c); drawn.push(c); } 
+            }
+            
+            // 自動進行時、次の「1枚捨て」モーダルが出る前にドローをしっかり見せる
+            showCardModal(drawn, () => { 
+                if (hands[p.id].length > 0) { 
+                    showSelectionModal("手札破棄", "捨てるカードを1枚選んでください", hands[p.id], "card-back-pattern", 1, (sel) => { 
+                        hands[p.id].splice(hands[p.id].indexOf(sel[0]), 1); 
+                        discardPile.push(sel[0]); 
+                        onSuccess({}); 
+                    }, false, null, null, null, p); 
+                } else onSuccess({}); 
+            }, "反撃ドロー", p.name, "発動しました");
+        } else { 
+            addLog("手札が最少ではないため、反撃は発動しませんでした。"); 
+            onSuccess({}); 
+        } 
+        return;
     }
 
 
@@ -901,7 +926,20 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         );
         return;
     }
-    if (act.type === 'draw') { const c = drawCard(); if(c) showCardModal(c, () => { hands[p.id].push(c); renderHand(); if(onSuccess) onSuccess({}); }, "ドロー", p.name, "獲得しました"); else if(onSuccess) onSuccess({}); return; }
+    if (act.type === 'draw') { 
+        const c = drawCard(); 
+        if(c) {
+            showCardModal(c, () => { 
+                hands[p.id].push(c); 
+                renderHand(); 
+                if(onSuccess) onSuccess({}); 
+            }, "ドロー", p.name, "獲得しました"); 
+        } else {
+            if(onSuccess) onSuccess({}); 
+        }
+        return; 
+    }
+
     if (act.type === 'dash_effect') { p.extraMoves = (p.extraMoves || 0) + 1; if(onSuccess) onSuccess({}); return; }
     if (act.type === 'phoenix_salvage') {
         if (discardPile.length >= 2) {
@@ -1054,11 +1092,14 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             }
             if (targetEl) targetEl.classList.remove('biribiri-active');
 
-            // 3. 雷が落ちた瞬間にゲートへ強制移動
-            // ※カードは獲得しない仕様（カード一覧準拠）
-            moveToCell(p, p.startPos.x, p.startPos.y, 'no_open', () => {
-                onSuccess({ preventGain: false }); 
-            }); 
+            // --- 修正箇所：雷が落ちる時間を考慮してさらに待機してから移動と完了通知を行う ---
+            setTimeout(() => {
+                moveToCell(p, p.startPos.x, p.startPos.y, 'no_open', () => {
+                    // ここで onSuccess を呼ぶことで、すべての演出が終わってから獲得モーダルが出る
+                    onSuccess({ preventGain: false }); 
+                }); 
+            }, 800); // 雷の描画時間を待つための待機（800ms）
+
         }, 500);
         return; 
     }
@@ -1248,17 +1289,37 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }
     else if (act.type === 'steal_hand_logic') {
         const lockCounts = players.map(pl => ({ id: pl.id, count: LOCK_ORDER.reduce((sum, col) => sum + collections[pl.id][col.id].filter(c => c.colorId !== 'white' && c.colorId !== 'black').length, 0) }));
-        const maxL = Math.max(...lockCounts.map(l => l.count)); const candidates = players.filter(pl => LOCK_ORDER.reduce((sum, col) => sum + collections[pl.id][col.id].filter(c => c.colorId !== 'white' && c.colorId !== 'black').length, 0) === maxL && hands[pl.id].length > 0);
-        if (candidates.length === 0) { showMessageOverlay("対象のプレイヤーがいませんでした。", 2500, () => { addLog("対象がいなかったため不発でした。"); onSuccess({}); }); return; }
+        const maxL = Math.max(...lockCounts.map(l => l.count)); 
+        const candidates = players.filter(pl => LOCK_ORDER.reduce((sum, col) => sum + collections[pl.id][col.id].filter(c => c.colorId !== 'white' && c.colorId !== 'black').length, 0) === maxL && hands[pl.id].length > 0);
+        
+        if (candidates.length === 0) { 
+            showMessageOverlay("対象のプレイヤーがいませんでした。", 2500, () => { addLog("対象がいなかったため不発でした。"); onSuccess({}); }); 
+            return; 
+        }
+
         const executeStealSelection = (targetId) => {
             const victim = players.find(v => v.id === targetId);
-            showSelectionModal("強奪チャンス", `${victim.name}の手札から奪うカードを選んでください（無作為）`, hands[victim.id], "card-back-pattern", 1, (selCards) => {
-                const stolen = selCards[0]; hands[victim.id].splice(hands[victim.id].indexOf(stolen), 1); hands[p.id].push(stolen);
-                showCardModal(stolen, () => { addLog(`${p.name}が${victim.name}から「${stolen.name}」を盗みました。`); renderHand(); renderStatus(); onSuccess({}); }, "カード強奪", p.name, "盗みました");
-            }, true, null, null, null, p); 
+            
+            // --- 修正箇所：演出モーダルを挟む ---
+            showStealActionModal(p, victim, () => {
+                showSelectionModal("強奪チャンス", `${victim.name}の手札から奪うカードを選んでください（無作為）`, hands[victim.id], "card-back-pattern", 1, (selCards) => {
+                    const stolen = selCards[0]; 
+                    hands[victim.id].splice(hands[victim.id].indexOf(stolen), 1); 
+                    hands[p.id].push(stolen);
+                    
+                    showCardModal(stolen, () => { 
+                        addLog(`${p.name}が${victim.name}から「${stolen.name}」を盗みました。`); 
+                        renderHand(); renderStatus(); onSuccess({}); 
+                    }, "カード強奪", p.name, "盗みました");
+                }, true, null, null, null, p); 
+            });
         };
+
         if (candidates.length === 1) executeStealSelection(candidates[0].id);
-        else { showSelectionModal("強奪対象選択", "カードを盗む最多ロックプレイヤーを選んでください", candidates.map(pl => ({ id: pl.id, name: `${pl.name} (${maxL}枚 / 手札${hands[pl.id].length}枚)`, type: "PLAYER_SELECT" })), "card-back-pattern", 1, (selPl) => executeStealSelection(selPl[0].id), false, null, null, null, p); } return;
+        else { 
+            showSelectionModal("強奪対象選択", "カードを盗む最多ロックプレイヤーを選んでください", candidates.map(pl => ({ id: pl.id, name: `${pl.name} (${maxL}枚 / 手札${hands[pl.id].length}枚)`, type: "PLAYER_SELECT" })), "card-back-pattern", 1, (selPl) => executeStealSelection(selPl[0].id), false, null, null, null, p); 
+        } 
+        return;
     }
 
     if (act.type === 'rich_whim_logic') {

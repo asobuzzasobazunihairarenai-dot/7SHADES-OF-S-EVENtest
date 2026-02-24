@@ -118,20 +118,60 @@ function showSetup() {
 /**
  * ルール説明モーダルの表示
  */
+/**
+ * 2026/02/24 17:55 修正
+ * 1. 関数名を showRules に統一。
+ * 2. 簡易テキスト表示から、GLOSSARY_DATA を用いたスクロール可能な詳細リスト表示へ変更。
+ */
 function showRules() {
-    const ruleText = `【用語の定義】
-■到達
-表向きカードの上に駒が置かれたタイミングを指します。
+    // 既存のモーダルがあれば消す
+    const old = document.getElementById('rule-modal');
+    if (old) old.remove();
 
-■到達効果
-カードの到達マーク部分に記載されている効果です。
-原則、到達した時にその駒の所有者が効果を得て、その後カードを手札に加えます。
-（※カードに別途指示がある場合はそれに従います）
+    const modal = document.createElement('div');
+    modal.className = "fixed inset-0 bg-black/80 flex items-center justify-center z-[10000] p-4";
+    modal.id = "rule-modal";
 
-■勝利条件
-7色のカードをロックエリアに揃えたプレイヤーの勝利です。`;
+    // data_cards.js で定義した GLOSSARY_DATA を HTML化
+    const glossaryHTML = GLOSSARY_DATA.map(item => `
+        <div class="mb-3 border-b border-gray-700 pb-2">
+            <dt class="text-yellow-500 light-text-orange font-bold text-[13px]">【${item.term}】</dt>
+            <dd class="text-gray-200 light-text-dark text-[11px] leading-relaxed ml-1">${item.desc}</dd>
+        </div>
+    `).join('');
 
-    showMessageOverlay(ruleText, 10000);
+    modal.innerHTML = `
+        <div class="bg-gray-800 border-2 border-yellow-600 w-full max-w-sm max-h-[80vh] flex flex-col rounded-lg shadow-2xl">
+            <div class="p-3 border-b border-gray-700 flex justify-between items-center shrink-0">
+                <h2 class="text-lg font-bold text-yellow-500">ゲームルール・用語定義</h2>
+                <button id="close-rule-modal" class="text-gray-400 hover:text-white text-2xl px-2">&times;</button>
+            </div>
+            <div class="p-4 overflow-y-auto custom-scrollbar">
+                <section class="mb-6">
+                    <h3 class="text-md font-bold text-white mb-2 border-l-4 border-yellow-500 pl-2">ゲームの流れ</h3>
+                    <ol class="text-xs text-gray-300 space-y-1 list-decimal list-inside">
+                        <li>ロックフェイズ：手札から1枚ロック（任意）</li>
+                        <li>ハンドフェイズ：手札効果を好きなだけ使用（任意）</li>
+                        <li>ムーブフェイズ：移動または接触（強制）</li>
+                    </ol>
+                </section>
+                <section class="mb-6">
+                    <h3 class="text-md font-bold text-white mb-2 border-l-4 border-yellow-500 pl-2">勝利条件</h3>
+                    <p class="text-xs text-gray-300">7色のカードをロックエリアに揃えたプレイヤーの勝利です。</p>
+                </section>
+                <section>
+                    <h3 class="text-md font-bold text-white mb-3 border-l-4 border-yellow-500 pl-2">用語定義一覧</h3>
+                    <dl>
+                        ${glossaryHTML}
+                    </dl>
+                </section>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById('close-rule-modal').onclick = () => modal.remove();
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
 }
 
 /**
@@ -927,15 +967,14 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
 
     // ★自動処理(isAutoAction)がONの場合の処理
     if (isAutoAction) {
-        // フリップ演出（0.4秒後開始＋約1.2秒の回転）を考慮。
-        // 自動進行時は最低でも 4秒程度確保して、カードが表面になってから1〜2秒見せる。
-        const drawWaitTime = (timeLeft <= 2) ? 7000 : 1500;
+        // 補充時間の残り（timeLeft）に関わらず、
+        // フリップ演出(0.4s+1.2s)を完遂させ、内容を確認させるため4秒固定で待つ
+        const drawWaitTime = 4000;
 
-        // タイマーを一時停止
+        // タイマーを一時停止（カウントダウンをストップ）
         if (typeof pauseTimer === 'function') pauseTimer();
 
         setTimeout(() => {
-            // 自動クリックではなく、直接閉じる処理を行う
             modal.classList.add('hidden');
             managePeekUI(false);
             
@@ -945,7 +984,7 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
             if (onComplete) onComplete();
         }, drawWaitTime);
     } else {
-        // 手動操作時
+        // 手動操作時（ボタンクリックを待つ）
         btnEl.onclick = () => { 
             if (typeof gainTime === 'function') gainTime(5); 
             modal.classList.add('hidden'); 
@@ -954,26 +993,7 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
         }; 
     }
 }
-if (isAutoAction) {
-        // timeLeft が 2秒以下なら「自動進行中」とみなして 4秒（またはお好みで延長）待機
-        const drawWaitTime = (timeLeft <= 2) ? 4000 : 1200;
 
-        if (typeof pauseTimer === 'function') pauseTimer();
-
-        setTimeout(() => {
-            modal.classList.add('hidden');
-            managePeekUI(false);
-            if (typeof resumeTimer === 'function') resumeTimer();
-            if (onComplete) onComplete();
-        }, drawWaitTime);
-    } else {
-        btnEl.onclick = () => { 
-            if (typeof gainTime === 'function') gainTime(5); 
-            modal.classList.add('hidden'); 
-            managePeekUI(false); 
-            onComplete(); 
-        }; 
-    }
 /**
  * ターン開始時のかっこいい通知演出
  * @param {Object} player ターンを開始するプレイヤーオブジェクト
@@ -1963,3 +1983,59 @@ function executeSelectionLogic(logic, selection, callback) {
     if (callback && !['lost_item_target', 'rich_whim_sequential', 'move_player'].includes(logic)) callback(selection);
 }
 
+/**
+ * スティール演出モーダルの表示（描画欠け・レイアウト修正版）
+ */
+function showStealActionModal(thief, victim, onComplete) {
+    const modal = document.createElement('div');
+    modal.className = "fixed inset-0 z-[1000] bg-black/95 flex flex-col items-center justify-center p-2";
+    
+    const victimHandCount = hands[victim.id] ? hands[victim.id].length : 0;
+    
+    // 手札枚数に応じて重なりを調整（枚数が多いほど重なりを深くして幅に収める）
+    let handHTML = '';
+    const overlapClass = victimHandCount > 5 ? '-ml-5' : victimHandCount > 1 ? '-ml-3' : '';
+    
+    for(let i = 0; i < victimHandCount; i++) {
+        // 最初の1枚以外にマイナスマージンを適用
+        const margin = i > 0 ? overlapClass : '';
+        handHTML += `<div class="steal-hand-back ${margin}"></div>`;
+    }
+
+    modal.innerHTML = `
+        <h2 class="text-xl font-black text-yellow-500 mb-8 italic tracking-tighter animate-pulse">STEAL ATTEMPT!!</h2>
+        <div class="steal-display-container" style="width: 100%; max-width: 350px;">
+            <div class="steal-player-unit">
+                <img src="${thief.icon}" class="steal-prof-img" style="border-color: ${thief.color.hex}">
+                <span class="text-[10px] font-bold text-white truncate w-full text-center">${thief.name}</span>
+            </div>
+
+            <div class="flex flex-col items-center shrink-0 w-12">
+                <div class="text-2xl text-yellow-500">◀</div>
+                <div class="steal-card-blinking"></div>
+            </div>
+
+            <div class="steal-player-unit">
+                <img src="${victim.icon}" class="steal-prof-img" style="border-color: ${victim.color.hex}">
+                <span class="text-[10px] font-bold text-white truncate w-full text-center">${victim.name}</span>
+                <div class="flex items-center justify-center mt-2 px-1 w-full overflow-visible">
+                    ${handHTML}
+                </div>
+            </div>
+        </div>
+        <p class="text-gray-300 text-[12px] mt-10 px-6 text-center leading-tight">
+            ${thief.name} が ${victim.name} の手札 (${victimHandCount}枚)<br>からカードを狙っています...
+        </p>
+    `;
+
+    document.body.appendChild(modal);
+
+    setTimeout(() => {
+        modal.classList.add('opacity-0');
+        modal.style.transition = "opacity 0.8s ease";
+        setTimeout(() => {
+            modal.remove();
+            if (onComplete) onComplete();
+        }, 800);
+    }, 3500);
+}

@@ -309,9 +309,22 @@ function updateTimerTick() {
                     collections[p.id][targetCard.colorId].push(targetCard);
                     addLog(`[自動] ${targetCard.name} をロックしました。`);
                     
+                    // ステータスを描画（スロット要素を生成）
                     if (typeof renderStatus === 'function') renderStatus();
+
+                    // ★演出を追加：描画されたスロットに対してロックエフェクトを実行
+                    if (typeof triggerLockEffect === 'function') {
+                        triggerLockEffect(p.id, targetCard.colorId);
+                    }
+
+                    // 他の描画更新
                     if (typeof renderHand === 'function') renderHand();
                     if (typeof checkWin === 'function') checkWin(p.id);
+
+                    // ★追加：1枚ロックしたらこのティックの処理を完全に終了し、
+                    // 次のフェイズへ移行させるために handleTimeOut を呼んでから return する
+                    handleTimeOut(); 
+                    return;
                 }
             }
         }
@@ -326,10 +339,8 @@ function updateTimerTick() {
                 const usable = hands[p.id].filter(c => canPlayHandEffect(c, p));
                 if (usable.length > 0) {
                     addLog(`[自動] 使用可能カードを自動実行します。`);
-                    // 1枚目を使用（内部でisAutoActionを参照して自動選択される）
+                    isAutoAction = true; // ★ここが重要：フラグを立ててから実行
                     handleHandClick(hands[p.id].indexOf(usable[0]));
-                    // 自動使用の連鎖は handleHandClick 側や isAutoAction で制御されるため、
-                    // ここではフェイズ移行を一旦止め、自動処理に任せます。
                     return; 
                 }
                 isAutoAction = false;
@@ -498,6 +509,19 @@ const processExile = (tSlot) => {
 // 2. 次に handleHandClick を定義します
 function handleHandClick(cardIndex, lockedCard = null) {
     if (isPeekingMode || !players || !players[turn]) return;
+
+    // 表示されているプレイヤーを特定
+    const displayTurn = isP1HandOnlyView ? 0 : turn;
+    
+    // もし「P1固定表示」かつ「現在はP2のターン」の場合、
+    // P1の手札をクリックしても（自分のターンではないので）使えないように制御、
+    // あるいはテスト用に「P1の手札として」使わせる場合は以下のロジックになります。
+    // ここでは安全のため、「自分のターンのプレイヤー以外のカードは触れない」ようにします。
+    if (displayTurn !== turn) {
+        showToast("現在は P1 の手札を表示中ですが、操作権はありません。");
+        return;
+    }
+
     const p = players[turn];
     const card = lockedCard || (hands[p.id] ? hands[p.id][cardIndex] : null);
     if (!card) return;
@@ -1207,7 +1231,8 @@ async function initGameInternal(num, isTest = false) {
     // パスが正しいか確認してください（index.htmlから見た相対パス）
     window.gameBGM = new Audio('audio/bgm_main.mp3'); 
     window.gameBGM.loop = true;
-    window.gameBGM.volume = 0.3;
+    const bgmVolSlider = document.getElementById('setting-bgm-volume');
+    window.gameBGM.volume = bgmVolSlider ? (parseInt(bgmVolSlider.value) / 100) : 0.3;
 
     // 再生を試行し、結果をログに出す
     window.gameBGM.play().then(() => {
@@ -1355,7 +1380,16 @@ async function initGameInternal(num, isTest = false) {
         }
     }
 
-    // --- ここからロゴ演出を追加 ---
+    if (!isTest) {
+        showOpeningLogo(startTurn);
+    }
+}
+
+async function initGame(n) { 
+    await initGameInternal(n); 
+}
+
+function showOpeningLogo(callback) {
     const logoOverlay = document.createElement('div');
     logoOverlay.className = "fixed inset-0 flex items-center justify-center logo-overlay-active";
     logoOverlay.innerHTML = `
@@ -1363,26 +1397,18 @@ async function initGameInternal(num, isTest = false) {
     `;
     document.body.appendChild(logoOverlay);
 
-    // 追加：ロゴが出現した瞬間に「ドーン」と鳴らす
     if (typeof playSE === 'function') {
         playSE('se_title_impact.mp3'); 
     }
-    // ------------------------------------------
 
-    // 2秒間ロゴを表示してから消して、ゲームを開始する
     setTimeout(() => {
         logoOverlay.style.transition = "opacity 0.8s ease";
         logoOverlay.style.opacity = "0";
         setTimeout(() => {
             logoOverlay.remove();
-            startTurn(); // 演出終了後に実際のターンを開始
+            if (callback) callback(); 
         }, 800);
     }, 2000);
-    // --- ここまで ---
-}
-
-async function initGame(n) { 
-    await initGameInternal(n); 
 }
 
 /**
@@ -1439,19 +1465,24 @@ function skipToPositionSelection() {
 
     // 駒の位置選択モードを開始
     startSelectionMode('select_cell', 1, 'test_pos_p1', "P1開始位置を選択", (sel) => { 
-        players[0].x = sel[0].x; players[0].y = sel[0].y; 
-        players[0].startPos = {...sel[0]}; 
-        players[0].prevX = sel[0].x; players[0].prevY = sel[0].y; 
-        renderBoard();
-        startSelectionMode('select_cell', 1, 'test_pos_p2', "P2開始位置を選択", (sel2) => { 
-            players[1].x = sel2[0].x; players[1].y = sel2[0].y; 
-            players[1].startPos = {...sel2[0]}; 
-            players[1].prevX = sel2[0].x; players[1].prevY = sel2[0].y; 
-            addLog("テスト開始(一括スキップ)。"); 
+    players[0].x = sel[0].x; players[0].y = sel[0].y; 
+    players[0].startPos = {...sel[0]}; 
+    players[0].prevX = sel[0].x; players[0].prevY = sel[0].y; 
+    renderBoard();
+    startSelectionMode('select_cell', 1, 'test_pos_p2', "P2開始位置を選択", (sel2) => { 
+        players[1].x = sel2[0].x; players[1].y = sel2[0].y; 
+        players[1].startPos = {...sel2[0]}; 
+        players[1].prevX = sel2[0].x; players[1].prevY = sel2[0].y; 
+        addLog("テスト開始(一括スキップ)。"); 
+
+        // --- 修正箇所：ロゴ演出を表示し、終わったらタイマーリセットと状態更新を行う ---
+        showOpeningLogo(() => {
             resetTimer(); 
             updateGameState(); 
-        }, null, null, true, null, false, null, null, null, players[1]);
-    }, null, null, true, null, false, null, null, null, players[0]);
+        });
+        
+    }, null, null, true, null, false, null, null, null, players[1]);
+}, null, null, true, null, false, null, null, null, players[0]);
 }
 
 function startTestGame() { 
@@ -1498,10 +1529,17 @@ function startTestGame() {
         startSelectionMode('select_cell', 1, 'test_pos_p1', "P1開始位置", (sel) => { 
             players[0].x = sel[0].x; players[0].y = sel[0].y; players[0].startPos = {...sel[0]}; players[0].prevX = sel[0].x; players[0].prevY = sel[0].y; renderBoard();
             startSelectionMode('select_cell', 1, 'test_pos_p2', "P2開始位置", (sel2) => { 
-                players[1].x = sel2[0].x; players[1].y = sel2[0].y; players[1].startPos = {...sel2[0]}; players[1].prevX = sel2[0].x; players[1].prevY = sel2[0].y; addLog("テスト開始。"); resetTimer(); updateGameState(); 
+                players[1].x = sel2[0].x; players[1].y = sel2[0].y; players[1].startPos = {...sel2[0]}; players[1].prevX = sel2[0].x; players[1].prevY = sel2[0].y; 
+                addLog("テスト開始。"); 
+                
+                // --- 修正: ここでロゴを表示してからゲーム開始 ---
+                showOpeningLogo(() => {
+                    resetTimer(); 
+                    updateGameState(); 
+                });
             }, null, null, true, null, false, null, null, null, players[1]);
         }, null, null, true, null, false, null, null, null, players[0]);
-    }; 
+    };
     
     flowP1F();
 }
@@ -1588,3 +1626,18 @@ function pauseTimer() {
 function resumeTimer() {
     isTimerPaused = false;
 }
+
+/**
+ * 2026/02/24 17:35 修正
+ * 1. P1手札固定設定のリスナーをグローバルに追加
+ */
+document.addEventListener('DOMContentLoaded', () => {
+    const p1HandOnlyInput = document.getElementById('setting-p1-hand-only');
+    if (p1HandOnlyInput) {
+        p1HandOnlyInput.addEventListener('change', (e) => {
+            isP1HandOnlyView = e.target.checked;
+            if (typeof renderHand === 'function') renderHand(); 
+            if (typeof addLog === 'function') addLog(isP1HandOnlyView ? "デバッグ：P1手札固定表示 ON" : "デバッグ：P1手札固定表示 OFF");
+        });
+    }
+});

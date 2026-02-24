@@ -34,6 +34,9 @@ let isPeekingMode = false; // 盤面確認中フラグ
 let isHandEffectProcessing = false; // 【追加】手札効果の演出・処理中フラグ
 
 let timeLeft = PHASE_TIME_SEC;
+
+let isP1HandOnlyView = false; // ★追加：P1の手札のみを表示し続けるフラグ
+
 let isTimerPaused = false; // ★追加：タイマー一時停止フラグ
 
 let timerInterval = null;

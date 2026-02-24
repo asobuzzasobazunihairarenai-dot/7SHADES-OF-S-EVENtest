@@ -513,14 +513,14 @@ function handleHandClick(cardIndex, lockedCard = null) {
     // 表示されているプレイヤーを特定
     const displayTurn = isP1HandOnlyView ? 0 : turn;
     
+    // --- 修正箇所：ここから ---
     // もし「P1固定表示」かつ「現在はP2のターン」の場合、
-    // P1の手札をクリックしても（自分のターンではないので）使えないように制御、
-    // あるいはテスト用に「P1の手札として」使わせる場合は以下のロジックになります。
-    // ここでは安全のため、「自分のターンのプレイヤー以外のカードは触れない」ようにします。
-    if (displayTurn !== turn) {
+    // プログラムによる自動処理（isAutoProcessing）でない場合のみ、操作をブロックする
+    if (!isAutoProcessing && displayTurn !== turn) {
         showToast("現在は P1 の手札を表示中ですが、操作権はありません。");
         return;
     }
+    // --- 修正箇所：ここまで ---
 
     const p = players[turn];
     const card = lockedCard || (hands[p.id] ? hands[p.id][cardIndex] : null);

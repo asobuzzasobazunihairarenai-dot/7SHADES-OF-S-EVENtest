@@ -291,9 +291,12 @@ function updateTimerTick() {
     } else {
         // --- タイムアウト時のランダムロック判定を追加 ---
         if (currentPhase === PHASE.LOCK) {
-            const autoLock = document.getElementById('setting-timeout-random-lock')?.checked;
-            const pHand = hands[p.id] || [];
-            if (autoLock && pHand.length > 0) {
+    const autoLock = document.getElementById('setting-timeout-random-lock')?.checked;
+    const pHand = hands[p.id] || [];
+    if (autoLock && pHand.length > 0) {
+        
+        isAutoProcessing = true; // ★追加：自動処理開始を宣言
+
                 // まだロックしていない色を持つ手札を抽出（特殊色は除外）
                 const lockableCards = pHand.filter(card => {
                     const col = card.colorId;
@@ -323,24 +326,32 @@ function updateTimerTick() {
 
                     // ★追加：1枚ロックしたらこのティックの処理を完全に終了し、
                     // 次のフェイズへ移行させるために handleTimeOut を呼んでから return する
-                    handleTimeOut(); 
-                    return;
-                }
+                    isAutoProcessing = false; // ★追加：処理が終わったら戻す
+            handleTimeOut(); 
+            return;
+        }
+        isAutoProcessing = false; // ★追加：対象がなかった場合も戻す
             }
         }
         // --- ここから追加：タイムアウト時の自動手札使用 ---
         if (currentPhase === PHASE.HAND) {
             const autoHand = document.getElementById('setting-timeout-auto-hand')?.checked;
             if (autoHand) {
-                isAutoAction = true; // カード効果内の選択を「おまかせ」にするフラグを一時的にON
                 let usedAny = false;
                 
-                // 使用可能なカードを1枚ずつ探し、なくなるまで再帰的に試行（簡易的に最初の1枚を使用）
+                // 使用可能なカードを抽出
                 const usable = hands[p.id].filter(c => canPlayHandEffect(c, p));
                 if (usable.length > 0) {
                     addLog(`[自動] 使用可能カードを自動実行します。`);
-                    isAutoAction = true; // ★ここが重要：フラグを立ててから実行
+                    
+                    // ★修正：isAutoProcessing も true にする（これで handleHandClick のガードを突破）
+                    isAutoProcessing = true; 
+                    isAutoAction = true; 
+                    
                     handleHandClick(hands[p.id].indexOf(usable[0]));
+                    
+                    // 実行後はフラグを戻す
+                    isAutoProcessing = false; 
                     return; 
                 }
                 isAutoAction = false;
@@ -510,17 +521,13 @@ const processExile = (tSlot) => {
 function handleHandClick(cardIndex, lockedCard = null) {
     if (isPeekingMode || !players || !players[turn]) return;
 
-    // 表示されているプレイヤーを特定
     const displayTurn = isP1HandOnlyView ? 0 : turn;
     
-    // --- 修正箇所：ここから ---
-    // もし「P1固定表示」かつ「現在はP2のターン」の場合、
-    // プログラムによる自動処理（isAutoProcessing）でない場合のみ、操作をブロックする
+    // ここに !isAutoProcessing が入っている必要があります
     if (!isAutoProcessing && displayTurn !== turn) {
         showToast("現在は P1 の手札を表示中ですが、操作権はありません。");
         return;
     }
-    // --- 修正箇所：ここまで ---
 
     const p = players[turn];
     const card = lockedCard || (hands[p.id] ? hands[p.id][cardIndex] : null);

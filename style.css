@@ -978,28 +978,32 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     0% { 
         filter: brightness(1);
         box-shadow: 0 0 0px var(--ripple-color);
-        transform: scale(1);
+        /* 既存の scale の前に rotate を追加 */
+        transform: rotate(var(--target-deg, 0deg)) scale(1);
     }
     20% { 
         filter: brightness(2.5) contrast(1.2);
         box-shadow: 0 0 50px 25px var(--ripple-color), inset 0 0 20px #fff;
-        transform: scale(1.3);
-        z-index: 1000 !important; /* 他のUIより手前に */
+        /* 既存の scale の前に rotate を追加 */
+        transform: rotate(var(--target-deg, 0deg)) scale(1.3);
+        z-index: 1000 !important;
     }
     100% { 
         filter: brightness(1);
         box-shadow: 0 0 15px var(--ripple-color);
-        transform: scale(1);
+        /* 最終状態も回転を維持 */
+        transform: rotate(var(--target-deg, 0deg)) scale(1);
         z-index: 1;
     }
 }
 
-/* 既存の .lock-flash-active を以下に差し替え */
+
 .lock-flash-active {
     animation: lock-flash-glow 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
     border: 3px solid #ffd700 !important;
     position: relative;
-    pointer-events: none; /* 演出中はクリック不可 */
+    pointer-events: none;
+    /* transform: none; などの記述があれば削除してください */
 }
 
 /* --- 修正箇所：ripple-active の定義を上書き/追加 --- */
@@ -1121,4 +1125,11 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 
 .light-mode #rule-modal .text-gray-300 {
     color: #4b5563;
+}
+
+@keyframes grow-up {
+    from { height: 0; }
+}
+.animate-grow-up {
+    animation: grow-up 1.2s cubic-bezier(0.17, 0.67, 0.83, 0.67);
 }

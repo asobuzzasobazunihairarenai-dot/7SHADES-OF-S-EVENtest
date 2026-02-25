@@ -876,13 +876,14 @@ function showSelectionResult(cards, onComplete, effectName, cancelCallback = nul
  */
 function showCardModal(cards, onComplete, titleText = "カード獲得", playerName = "", actionVerbiage = "到達しました") { 
 
-// ★★★ 修正箇所：SE再生。文字列が含まれているかを柔軟に判定 ★★★
+// SE再生。文字列が含まれているかを柔軟に判定
     if (titleText && (titleText.includes("到達効果") || titleText.includes("到達時"))) {
         playSE('se_arrival_trigger.mp3');
+    } else if (titleText && titleText.includes("手札効果")) {
+        playSE('se_arrival_trigger.mp3'); // 手札効果時も到達効果と同じSE、あるいは専用SEがあれば変更
     } else {
         playSE('se_get_card.mp3');
     }
-    // ★★★ 修正箇所ここまで ★★★
 
     const modal = document.getElementById('arrival-modal'), 
           cardsContainer = document.getElementById('arrival-cards-container'),

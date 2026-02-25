@@ -35,10 +35,14 @@ let isHandEffectProcessing = false; // 【追加】手札効果の演出・処�
 
 let timeLeft = PHASE_TIME_SEC;
 
+let usedOnceEffectsThisTurn = []; // 【追加】そのターンに使用済みの「1回制限カードID」を記録
+
 let isP1HandOnlyView = false; // ★追加：P1の手札のみを表示し続けるフラグ
 
 let isTimerPaused = false; // ★追加：タイマー一時停止フラグ
-
+let gameStartTime = null; // ★追加：ゲーム開始時刻（ミリ秒）
+let totalTurnCount = 0; // ★追加：合計ターン数
+let cardUsageStats = {}; // ★必ず = {} で初期化しておく
 let timerInterval = null;
 let tempAction = null;
 let selectionState = { 

@@ -498,7 +498,12 @@ function renderStatus() {
             const handInfo = document.createElement('div');
             handInfo.className = "flex items-center text-[10px] font-bold text-gray-300 mr-1";
             const handCount = hands[p.id] ? hands[p.id].length : 0;
-            handInfo.innerHTML = `<span class="opacity-70 mr-0.5">🎴</span>${handCount}`;
+            handInfo.innerHTML = `
+             <div class="w-4 h-4 mr-1 border border-gray-500 rounded-[2px] overflow-hidden shadow-sm opacity-80" 
+             style="background-image: url('images/normal_card_back.webp'); background-size: cover; background-position: center;">
+             </div>
+             ${handCount}
+             `;
             rightsEl.appendChild(handInfo);
 
             // 3. 既存の追加移動権利（ダッシュアイコン）の表示（既存ロジックを維持）
@@ -718,23 +723,37 @@ function updatePhaseIndicator() {
 function updateTimerVisual() { 
     const bar = document.getElementById('timer-bar');
     const textEl = document.getElementById('instruction-text');
+    const timerText = document.getElementById('timer-text'); // ★追加
     if(!bar || !players[turn]) return;
 
     const p = players[turn];
-    // ★修正：PHASE_TIME_SEC を currentPhaseMaxTime に置換
     const totalCurrent = useGlobalTimer ? (timeLeft + p.totalTimeLeft) : timeLeft;
     const maxPossible = useGlobalTimer ? (currentPhaseMaxTime + 180) : currentPhaseMaxTime;
     
-    const pct = (totalCurrent / maxPossible) * 100;
+    // バーの更新（100%を超えないよう安全策）
+    const pct = Math.min(100, (totalCurrent / maxPossible) * 100);
     bar.style.width = `${pct}%`; 
-    bar.className = `h-full w-full transition-all duration-1000 ease-linear ${pct>50 ? 'bg-green-500' : pct>20 ? 'bg-yellow-500' : 'bg-red-600'}`; 
 
-    // ★追加：数字での時間表示（全体時間制がONの時のみ）
+    // --- バーの色をプレイヤーの色に変更 ---
+    const playerBgClass = p.color.bg; 
+    bar.className = `h-full w-full transition-all duration-1000 ease-linear ${playerBgClass}`; 
+
+    // ★追加：タイマーバーの下の小さな数字（確認用）
+    if (timerText) {
+        timerText.textContent = `${totalCurrent.toFixed(1)}s`;
+        // 通常モードで15秒を超えていたら赤字にする（デバッグ用）
+        if (!useGlobalTimer && timeLeft > (window.PHASE_TIME_SEC || 15)) {
+            timerText.classList.add('text-red-500');
+        } else {
+            timerText.classList.remove('text-red-500');
+        }
+    }
+
+    // 既存：指示テキスト横の分：秒表示（全体時間制がONの時のみ）
     if (useGlobalTimer && textEl) {
         const minutes = Math.floor(p.totalTimeLeft / 60);
         const seconds = p.totalTimeLeft % 60;
         const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-        // 既存の指示テキストの横に持ち時間を追記
         const baseText = textEl.innerHTML.split(' | ')[0];
         textEl.innerHTML = `${baseText} | <span class="text-blue-400">⏳${timeStr}</span>`;
     }

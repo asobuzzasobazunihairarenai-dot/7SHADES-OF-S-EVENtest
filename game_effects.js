@@ -18,6 +18,12 @@ function canPlayHandEffect(card, p) {
     // 【修正】カードが存在しない、または現在処理中の場合は使用不可
     if (!card || !card.handEffect || card.isProcessing) return false;
 
+    // 「1ターンに1度」制限があるカードID（11:ヴァーディアンなど）の判定
+    const oncePerTurnIDs = [11]; 
+    if (oncePerTurnIDs.includes(card.id)) {
+        if (usedOnceEffectsThisTurn.includes(card.id)) return false;
+    }
+
     // ID 15: ダッシュ - 移動できるマスがない場合はグレーアウト
     if (card.id === 15) {
         // checkStuck(p) が true = どこにも動けない状態
@@ -192,8 +198,17 @@ function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = 
     
     const wrappedSuccess = (res) => {
         isHandEffectProcessing = false;
+        
+        // 【追加】1ターンに1度制限のカード（ID 11: ヴァーディアンなど）なら記録
+        const oncePerTurnIDs = [11]; 
+        if (contextCard && oncePerTurnIDs.includes(contextCard.id)) {
+            usedOnceEffectsThisTurn.push(contextCard.id);
+        }
+
         if (onSuccess) onSuccess(res);
     };
+
+    
 
     if (def.cost) {
         const candidates = hands[p.id].filter(c => (c.colorId === def.cost.color || c.colorId === 'rainbow') && c !== activeHandCard);
@@ -252,6 +267,13 @@ function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = 
 
 function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     if (!act) { if (onSuccess) onSuccess({}); return; }
+
+    // ★追加：発動回数の記録（contextCardが存在する場合のみ）
+    if (contextCard && contextCard.name) {
+        if (!cardUsageStats[p.id]) cardUsageStats[p.id] = {};
+        cardUsageStats[p.id][contextCard.name] = (cardUsageStats[p.id][contextCard.name] || 0) + 1;
+    }
+
     const forceNoCancel = true;
 
     if (act.type === 'apocalypse_hand') {

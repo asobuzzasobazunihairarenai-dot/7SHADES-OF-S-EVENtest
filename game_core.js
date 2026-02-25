@@ -209,6 +209,11 @@ async function startTurn() {
 function nextTurn() { 
     if (!players || players.length === 0) return;
     turn = (turn + 1) % players.length; 
+    // ★追加：ターン数を加算
+    if (typeof totalTurnCount !== 'undefined') {
+        totalTurnCount++;
+    }
+    usedOnceEffectsThisTurn = []; // ターンが変わったので制限をリセット
     startTurn(); 
 }
 
@@ -275,6 +280,8 @@ function resetTimer() {
 function updateTimerTick() { 
     if(winner || isTimerPaused) return; // ★修正：一時停止中は処理をスキップ
 
+    if (isAutoProcessing) return;
+
     const p = players[turn];
     if (!p) return;
 
@@ -324,9 +331,8 @@ function updateTimerTick() {
                     if (typeof renderHand === 'function') renderHand();
                     if (typeof checkWin === 'function') checkWin(p.id);
 
-                    // ★追加：1枚ロックしたらこのティックの処理を完全に終了し、
-                    // 次のフェイズへ移行させるために handleTimeOut を呼んでから return する
-                    isAutoProcessing = false; // ★追加：処理が終わったら戻す
+                    // ★修正：isAutoProcessing の解除は triggerLockEffect 内の setTimeout で行うため、ここでは消さない
+                    // isAutoProcessing = false; 
             handleTimeOut(); 
             return;
         }
@@ -517,7 +523,6 @@ const processExile = (tSlot) => {
     }
 };
 
-// 2. 次に handleHandClick を定義します
 function handleHandClick(cardIndex, lockedCard = null) {
     if (isPeekingMode || !players || !players[turn]) return;
 
@@ -588,22 +593,25 @@ function handleHandClick(cardIndex, lockedCard = null) {
     } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime) { 
         // --- ハンドフェイズ（または割込使用）の処理：復旧箇所 ---
         showDetailModal(card.handEffect?.anytime ? "割込使用確認" : "手札使用確認", "このカードを使用しますか？", card, "使用する", () => { 
-            activeHandCard = card; 
-            executeCardEffect(card.handEffect, p, (res) => { 
-                // 手札から使用された場合の処理
-                if (!lockedCard && hands[p.id]) { 
-                    const curIdx = hands[p.id].indexOf(card); 
-                    if (curIdx > -1) {
-                        const removedCard = hands[p.id].splice(curIdx, 1)[0]; 
-                        // 修正：呪いや花のように、別の場所に移動(stayOnBoard)した場合は捨て札に入れない
-                        if (!(res && res.stayOnBoard)) {
-                            discardPile.push(removedCard); 
+          // 全プレイヤーにカード使用を通知するモーダルを表示
+            showCardModal(card, () => {
+                // モーダルが閉じられた後に実際の効果を実行
+                activeHandCard = card; 
+                executeCardEffect(card.handEffect, p, (res) => { 
+                    // 手札から使用された場合の処理
+                    if (!lockedCard && hands[p.id]) { 
+                        const curIdx = hands[p.id].indexOf(card); 
+                        if (curIdx > -1) {
+                            const removedCard = hands[p.id].splice(curIdx, 1)[0]; 
+                            if (!(res && res.stayOnBoard)) {
+                                discardPile.push(removedCard); 
+                            }
                         }
-                    }
-                } 
-                resetTimer(); 
-                updateGameState(); 
-            }, card); 
+                    } 
+                    resetTimer(); 
+                    updateGameState(); 
+                }, card);
+            }, "手札効果発動！", p.name, "手札から効果を発動しました");
         }); 
     } 
 }
@@ -621,6 +629,11 @@ function checkWin(pid) {
     
     if (lockedColors.length >= 7) { 
         winner = players.find(p => p.id === pid); 
+
+        // ★追加：経過時間を計算（秒単位）
+        const playTimeSec = Math.floor((Date.now() - gameStartTime) / 1000);
+        // showResultModal に時間を渡せるようにします
+        window.currentPlayTime = playTimeSec;
 
         // --- 修正箇所：BGMの停止と勝利SEの再生 ---
         if (window.gameBGM) {
@@ -645,13 +658,7 @@ function checkWin(pid) {
         // 移動距離の表示（データがない場合は 0 を表示してエラーを防ぐ）
         const moveDist = (playerStats[pid] && playerStats[pid].moveCount) ? playerStats[pid].moveCount : 0;
         if (statsDisplay) {
-            statsDisplay.innerHTML = `
-                <div class="py-2 border-y border-gray-100 mb-4">
-                    <p class="text-gray-500 font-bold text-sm">
-                        👟 総移動距離: <span class="text-gray-900 text-lg">${moveDist}</span> マス
-                    </p>
-                </div>
-            `;
+            statsDisplay.innerHTML = ''; // 何も表示しない
         }
 
         // ロックエリア表示
@@ -689,34 +696,103 @@ function checkWin(pid) {
         if (winBtn) {
             winBtn.textContent = "リザルトを確認";
             winBtn.onclick = () => {
-                overlay.classList.add('hidden');
-                showResultModal(winner.id);
-            };
+    overlay.classList.add('hidden');
+    
+    const pStats = (cardUsageStats && cardUsageStats[winner.id]) ? cardUsageStats[winner.id] : {};
+    
+    // 全色のカウントを初期化（BASE_COLORSを基準にする）
+    const colorResults = BASE_COLORS.map(bc => ({
+        id: bc.id,
+        name: bc.name,
+        bg: bc.bg,
+        count: 0
+    }));
+
+    let mvpCardName = "なし";
+    let maxCardCount = 0;
+
+    for (const [name, count] of Object.entries(pStats)) {
+        // MVPカードの特定
+        if (count > maxCardCount) {
+            maxCardCount = count;
+            mvpCardName = `${name} (${count}回)`;
+        }
+
+        // 全色の集計
+        const cardData = CARD_DATABASE.find(c => c.name === name);
+        if (cardData) {
+            const target = colorResults.find(r => r.id === cardData.colorId);
+            if (target) target.count += count;
+        }
+    }
+
+    // 得意な色の特定（1位の色名を取得）
+    const sortedColors = [...colorResults].sort((a, b) => b.count - a.count);
+    const topColorName = sortedColors[0].count > 0 ? `${sortedColors[0].name} (${sortedColors[0].count}回)` : "なし";
+
+    const playTimeSec = Math.floor((Date.now() - gameStartTime) / 1000);
+
+    // まとめたデータを渡す
+    showResultModal(winner.id, {
+        time: playTimeSec,
+        turns: totalTurnCount,
+        mvp: mvpCardName,
+        topColor: topColorName,
+        colorStats: colorResults // ★チャート表示用の全データを追加
+    });
+};
         }
     }
 }
 
-function showResultModal(pid) {
+function showResultModal(pid, stats) {
     const resultOverlay = document.getElementById('result-overlay');
     const container = document.getElementById('result-items-container');
     if (!resultOverlay || !container) return;
 
+    const player = players.find(p => p.id === pid);
     const moveDist = (playerStats[pid] && playerStats[pid].moveCount) ? playerStats[pid].moveCount : 0;
 
-    // 項目を生成（今後ここを増やせば項目が増えます）
-    const results = [
-        { label: "👑 勝者", value: players.find(p => p.id === pid).name, color: "text-yellow-400" },
-        { label: "👟 総移動距離", value: `${moveDist} マス`, color: "text-white" },
-        // { label: "🃏 使用カード数", value: "12 枚", color: "text-white" }, // 今後の追加例
-    ];
+    // 時間の整形
+    const s = stats.time || 0;
+    const timeStr = `${Math.floor(s / 60)}分${(s % 60).toString().padStart(2, '0')}秒`;
 
-    container.innerHTML = results.map(item => `
-        <div class="flex justify-between items-center bg-gray-700/50 p-3 rounded-lg border border-gray-600">
-            <span class="text-xs text-gray-400 font-bold">${item.label}</span>
-            <span class="text-sm font-black ${item.color}">${item.value}</span>
+    // 基本項目のリスト
+    const resultsHtml = [
+        { label: "👑 勝者", value: player ? player.name : "不明", color: "text-yellow-400" },
+        { label: "⏳ タイム", value: timeStr, color: "text-cyan-400" },
+        { label: "🔄 ターン", value: `${stats.turns || 0}`, color: "text-purple-400" },
+        { label: "🌟 MVP", value: stats.mvp || "なし", color: "text-green-400" }
+    ].map(item => `
+        <div class="flex justify-between items-center bg-gray-700/30 p-2 rounded border border-gray-600/50">
+            <span class="text-[10px] text-gray-400 font-bold">${item.label}</span>
+            <span class="text-xs font-black ${item.color}">${item.value}</span>
         </div>
     `).join('');
 
+    // --- バーチャートの生成 ---
+    const maxVal = Math.max(...stats.colorStats.map(s => s.count), 1);
+    const chartHtml = `
+        <div class="mt-6 pt-4 border-t border-gray-700">
+            <p class="text-[9px] text-gray-500 font-bold mb-4 text-center uppercase tracking-widest">Color Usage Chart</p>
+            <div class="flex items-end justify-between h-20 px-1 gap-1">
+                ${stats.colorStats.map(c => {
+                    const height = (c.count / maxVal) * 100;
+                    return `
+                        <div class="flex-1 flex flex-col items-center gap-1">
+                            <div class="relative w-full flex flex-col justify-end h-full">
+                                <div class="w-full ${c.bg} rounded-t-sm shadow-lg animate-grow-up" style="height: ${height}%"></div>
+                            </div>
+                            <span class="text-[8px] text-gray-500 font-bold">${c.name}</span>
+                            <span class="text-[9px] text-white font-mono leading-none">${c.count}</span>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + chartHtml;
     resultOverlay.classList.remove('hidden');
 }
 
@@ -1201,6 +1277,11 @@ function cleanupGame() {
 
 async function initGameInternal(num, isTest = false) { 
 
+    // ★追加：各統計データの初期化
+    gameStartTime = Date.now(); 
+    totalTurnCount = 1; 
+    cardUsageStats = {};
+
     // ライトモードの反映
     if (isLightMode) {
         document.body.classList.add('light-mode');
@@ -1393,6 +1474,7 @@ async function initGameInternal(num, isTest = false) {
 }
 
 async function initGame(n) { 
+    
     await initGameInternal(n); 
 }
 

@@ -123,23 +123,38 @@ function triggerLockEffect(playerId, colorId) {
         playSE('se_lock_success.mp3'); 
     }
 
-    // 2. 描画が完了した直後に演出を開始するため setTimeout(0) を使用
+    isAutoProcessing = true;
+
     setTimeout(() => {
         const slotEl = document.getElementById(`p${playerId}-slot-${colorId}`);
         if (slotEl) {
-            // 色をCSS変数にセット（カードの色に合わせる）
+            // --- 修正箇所：人数に応じた角度計算 ---
+            let deg = 0;
+            if (players.length === 2) {
+                // 2人対戦の場合：P1=0, P2=180
+                deg = (playerId === 2) ? 180 : 0;
+            } else {
+                // 3人・4人対戦の場合：90度刻み
+                deg = (playerId - 1) * 90;
+            }
+            slotEl.style.setProperty('--target-deg', `${deg}deg`);
+            // ------------------------------------
+
             const colorData = BASE_COLORS.find(c => c.id === colorId);
             if (colorData) {
                 slotEl.style.setProperty('--ripple-color', colorData.hex);
             }
 
             slotEl.classList.remove('lock-flash-active');
-            void slotEl.offsetWidth; // リフロー（おまじない）
+            void slotEl.offsetWidth; 
             slotEl.classList.add('lock-flash-active');
-            
-            // ログにも記録
-            console.log(`Lock effect triggered for Player ${playerId}, Color ${colorId}`);
         }
+
+        setTimeout(() => {
+            isAutoProcessing = false; 
+            console.log("余韻終了：操作制限を解除します");
+        }, 1000); 
+
     }, 50);
 }
 
@@ -254,21 +269,19 @@ function triggerLightningEffect() {
 function gainTime(seconds) {
     if (winner) return;
 
+    // 現在の設定値（デバッグ設定等）を取得、なければデフォルトの15秒
+    const maxPhaseTime = window.PHASE_TIME_SEC || 15;
+
     if (useGlobalTimer) {
         const p = players[turn];
         if (p) {
             const maxTimeSetting = parseInt(document.getElementById('setting-max-time')?.value || "180");
-            
-            // ★修正：現在の持ち時間 ＋ 5秒 が、「ターン開始時の持ち時間」を超えないようにする
-            // ただし、もし最初から0秒だった場合などは最低限の回復を許容するか、
-            // 完全に制限するかは戦略によりますが、指示通り「超えない」ように実装します。
+            // 全体時間制の場合は、ターン開始時の時間を上限とする既存ロジックを維持
             p.totalTimeLeft = Math.min(maxTimeSetting, timeAtTurnStart, p.totalTimeLeft + seconds);
-            
-            // 注：もし「減った分を補填するだけ（増えることはない）」という意図であれば
-            // Math.min の引数に timeAtTurnStart を含めることで実現できます。
         }
     } else {
-        timeLeft = Math.min(PHASE_TIME_SEC, timeLeft + seconds);
+        // ★修正：timeLeft（通常タイマー）の回復上限を厳格に適用
+        timeLeft = Math.min(maxPhaseTime, timeLeft + seconds);
     }
     
     if (typeof updateTimerVisual === 'function') updateTimerVisual(); 

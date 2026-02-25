@@ -1127,9 +1127,10 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     color: #4b5563;
 }
 
+/* バーが下から伸びるアニメーション */
 @keyframes grow-up {
     from { height: 0; }
 }
 .animate-grow-up {
-    animation: grow-up 1.2s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+    animation: grow-up 1.0s ease-out forwards;
 }

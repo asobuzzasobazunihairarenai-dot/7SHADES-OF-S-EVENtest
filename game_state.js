@@ -43,6 +43,7 @@ let isTimerPaused = false; // ★追加：タイマー一時停止フラグ
 let gameStartTime = null; // ★追加：ゲーム開始時刻（ミリ秒）
 let totalTurnCount = 0; // ★追加：合計ターン数
 let cardUsageStats = {}; // ★必ず = {} で初期化しておく
+let lockHistory = []; // ★追加: [[p1ロック数, p2ロック数...], [p1, p2...]]
 let timerInterval = null;
 let tempAction = null;
 let selectionState = { 

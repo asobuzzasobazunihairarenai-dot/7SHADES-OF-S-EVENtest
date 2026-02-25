@@ -14,9 +14,9 @@ initGame(): ゲームの初期化、デッキ作成、プレイヤー配置。
 
 nextTurn(): 次のプレイヤーへ手番を移す。
 
-changePhase(newPhase): ロック/ハンド/ムーブのフェイズ切り替え。
+nextPhase(isForced = false): ロック/ハンド/ムーブのフェイズ切り替え。
 
-handleTileClick(x, y): 盤面がクリックされた際のメイン入力処理。
+handleBoardClick(x, y): 盤面がクリックされた際のメイン入力処理。
 
 movePlayer(player, targetX, targetY): 駒の移動処理。
 

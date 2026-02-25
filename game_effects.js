@@ -1362,9 +1362,9 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     hands[p.id].push(stolen);
                     
                     showCardModal(stolen, () => { 
-                        addLog(`${p.name}が${victim.name}から「${stolen.name}」を盗みました。`); 
+                        addLog(`${p.name}が${victim.name}から「${stolen.name}」を奪いました。`); 
                         renderHand(); renderStatus(); onSuccess({}); 
-                    }, "カード強奪", p.name, "盗みました");
+                    }, "カード強奪", p.name, `${victim.name}から奪った`);
                 }, true, null, null, null, p); 
             });
         };

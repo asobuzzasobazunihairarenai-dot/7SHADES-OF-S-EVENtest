@@ -44,28 +44,37 @@ function showMessageOverlay(msg, duration, callback) {
 }
 
 function togglePeek(isPeeking) {
-    const modalIds = ['detail-modal', 'selection-modal', 'arrival-modal', 'discard-modal', 'player-detail-modal', 'test-mode-modal', 'settings-modal'];
+    const modalIds = [
+        'detail-modal', 'selection-modal', 'arrival-modal', 'discard-modal', 
+        'player-detail-modal', 'test-mode-modal', 'settings-modal',
+        'winner-overlay', 'result-overlay' 
+    ];
     const peekBtn = document.getElementById('peek-board-container');
     const restoreBtn = document.getElementById('restore-modal-container');
 
     isPeekingMode = isPeeking;
 
     if (isPeeking) {
+        // 現在開いているモーダルを探して ID を保存する
         activeModalId = modalIds.find(id => {
             const el = document.getElementById(id);
             return el && !el.classList.contains('hidden');
         });
+
         if (activeModalId) {
             document.getElementById(activeModalId).classList.add('hidden');
-            peekBtn.classList.add('hidden');
-            restoreBtn.classList.remove('hidden');
+            if (peekBtn) peekBtn.classList.add('hidden');
+            if (restoreBtn) restoreBtn.classList.remove('hidden');
         }
     } else {
+        // 保存されていた ID のモーダルを再表示する
         if (activeModalId) {
-            document.getElementById(activeModalId).classList.remove('hidden');
+            const el = document.getElementById(activeModalId);
+            if (el) el.classList.remove('hidden');
+            
             activeModalId = null;
-            peekBtn.classList.remove('hidden');
-            restoreBtn.classList.add('hidden');
+            if (peekBtn) peekBtn.classList.remove('hidden');
+            if (restoreBtn) restoreBtn.classList.add('hidden');
         }
     }
 }

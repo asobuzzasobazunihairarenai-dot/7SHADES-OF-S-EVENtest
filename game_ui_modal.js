@@ -1176,7 +1176,7 @@ function isCellSelectable(x, y) {
         'place_self_facedown_empty', 
         'rich_whim_sequential',
         'place_deck_sequential_empty',   // 民の道の建設（到着）を追加
-        'place_deck_sequential_rainbow', // なないろのあめ用を追加
+        // 修正：'place_deck_sequential_rainbow' を削除（カードがあっても選択可能にするため）
         'civil_path_step2_dummy'         // 民の道の建設（手札）用を追加
     ];
     if (emptyRequiredLogics.includes(L)) {
@@ -1264,11 +1264,12 @@ function handleSelectionConfirm() {
     }
 
     switch (logic) {
+        
         case 'fill_line':
-            // 選択された列（selection）に対して順次配置を実行
             executeSelectionLogic('place_deck_sequential_rainbow', selection, callback);
-            return; // 以降の標準処理（renderBoard等）は非同期内で制御するため中断
-        case 'chotto_re_move':
+            return;
+        
+            case 'chotto_re_move':
             // 「ちょっと待った！」専用の非同期コールバック。game_core.js側のロジックへ戻る。
             if (callback) callback(selection);
             break;
@@ -1294,9 +1295,7 @@ function handleSelectionConfirm() {
 
         case 'fill_line':
             // 縦横1列の配置。完了後に手札からこのカードを捨てる。
-            executeSelectionLogic('place_deck_sequential_rainbow', selection, (res) => {
-                if (callback) callback(res);
-            });
+            eexecuteSelectionLogic('place_deck_sequential_rainbow', selection, callback);
             return;
 
         case 'add_all_to_hand':
@@ -1374,33 +1373,33 @@ function executeSelectionLogic(logic, selection, callback) {
                     const target = board[pos.y][pos.x];
                     const card = drawCard();
                     if (card) {
+                        // 修正：既存カードの有無に関わらず「空ではない」状態にし、新しいカードを一番上に置く
                         if (target.empty) {
-                            // 空なら新規配置
                             target.empty = false;
                             target.color = card;
                             target.revealed = false;
                             target.stack = [];
                         } else {
-                            // すでにカードがあればスタックの「下」へ（または現在の色をスタックに押し込んで上に置く）
-                            // ここでは現在のカードをstackに入れ、新しいカードを表面にする
+                            // 既存カードをスタックに退避させてから新しいカードを配置
                             const currentTop = { ...target.color };
                             currentTop.savedRevealedState = target.revealed;
+                            if (!target.stack) target.stack = [];
                             target.stack.push(currentTop);
+                            
                             target.color = card;
                             target.revealed = false;
                         }
                         
                         renderBoard();
                         const cellIdx = pos.y * GRID_SIZE + pos.x;
-                        const cellEl = boardEl.children[cellIdx];
+                        const cellEl = boardEl ? boardEl.children[cellIdx] : null;
                         if (cellEl) cellEl.classList.add('rainbow-rain-flash');
                         
-                        await new Promise(res => setTimeout(res, 400)); // 0.4秒間隔
+                        await new Promise(res => setTimeout(res, 400));
                         if (cellEl) cellEl.classList.remove('rainbow-rain-flash');
                     }
                 }
                 renderBoard();
-                // 演出が完全に終わってからコールバックを呼ぶ
                 if (callback) callback(selection);
             })();
             return;

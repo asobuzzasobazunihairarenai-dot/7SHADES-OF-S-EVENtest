@@ -524,9 +524,31 @@ function renderStatus() {
                 };
                 rightsEl.appendChild(dashIcon);
             }
+
+            // 4. ディメンション権利（紫のキューブ：2マス移動）の表示を追加
+            if (p.dimensionActive && !p.baseMoveUsed) {
+                const dimIcon = document.createElement('div');
+                // 紫色の背景とボーダー
+                dimIcon.className = "rounded-sm border border-white relative overflow-hidden bg-purple-600 cursor-pointer hover:scale-110 transition-transform shadow-sm flex-shrink-0 animate-pulse";
+                dimIcon.style.width = "1.1rem"; dimIcon.style.height = "1.1rem"; dimIcon.style.pointerEvents = "auto"; 
+                // カードID 14 (ディメンション) の画像を使用
+                dimIcon.style.backgroundImage = `url('images/card_14.webp')`; dimIcon.style.backgroundSize = "cover"; dimIcon.style.backgroundPosition = "center";
+                
+                // バッジの代わりに「2マス」を示すテキスト
+                const dimBadge = document.createElement('div');
+                dimBadge.className = "absolute -bottom-0.5 -right-0.5 bg-purple-900/90 text-white text-[5px] px-0.5 rounded-tl-sm border border-white/20 font-bold z-10";
+                dimBadge.textContent = "2step"; 
+                dimIcon.appendChild(dimBadge);
+                
+                dimIcon.onclick = (e) => { 
+                    e.stopPropagation(); 
+                    if (typeof showToast === 'function') showToast("ディメンション発動中：2マス移動が可能です"); 
+                };
+                rightsEl.appendChild(dimIcon);
+            }
         }
 
-        LOCK_ORDER.forEach(color => { 
+        LOCK_ORDER.forEach(color => {
             const slotEl = document.getElementById(`p${p.id}-slot-${color.id}`); if(!slotEl) return; 
             const slotCards = collections[p.id] ? collections[p.id][color.id] : []; slotEl.innerHTML = ''; 
             slotEl.style.pointerEvents = "auto"; 

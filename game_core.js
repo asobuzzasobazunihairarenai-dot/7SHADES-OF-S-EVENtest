@@ -208,6 +208,10 @@ async function startTurn() {
 
 function nextTurn() { 
     if (!players || players.length === 0) return;
+
+    // ★追加：次の人へ回る前に、現在の盤面状況を記録
+    recordLockHistory();
+
     turn = (turn + 1) % players.length; 
     // ★追加：ターン数を加算
     if (typeof totalTurnCount !== 'undefined') {
@@ -485,13 +489,22 @@ function checkAutoSkip() {
 
 function checkStuck(p) { 
     if (!p) return true;
-    const directions = [[0,1], [0,-1], [1,0], [-1,0]]; 
-    for (let d of directions) { 
-        const nx = p.x + d[0], ny = p.y + d[1]; 
-        if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE) { 
-            if (!board[ny][nx].empty || players.some(ep => ep.id !== p.id && ep.x === nx && ep.y === ny)) return false; 
-        } 
-    } 
+    
+    // 修正：ディメンション効果中かつ未使用なら射程2、それ以外は射程1
+    const moveRange = (p.dimensionActive && !p.baseMoveUsed) ? 2 : 1;
+    
+    // 全マスを走査して、現在の射程(moveRange)に移動可能なマスがあるかチェック
+    for (let y = 0; y < GRID_SIZE; y++) {
+        for (let x = 0; x < GRID_SIZE; x++) {
+            const dist = Math.abs(p.x - x) + Math.abs(p.y - y);
+            if (dist === moveRange) {
+                const cell = board[y][x];
+                const hasOpponent = players.some(ep => ep.id !== p.id && ep.x === x && ep.y === y);
+                // カードがある、または他プレイヤーがいれば移動可能
+                if (!cell.empty || hasOpponent) return false; 
+            }
+        }
+    }
     return true; 
 }
 
@@ -658,7 +671,28 @@ function checkWin(pid) {
         // 移動距離の表示（データがない場合は 0 を表示してエラーを防ぐ）
         const moveDist = (playerStats[pid] && playerStats[pid].moveCount) ? playerStats[pid].moveCount : 0;
         if (statsDisplay) {
-            statsDisplay.innerHTML = ''; // 何も表示しない
+            const awards = calculateAwards(winner.id);
+            // モードに応じた共通クラスを定義
+            const cardBg = isLightMode ? 'bg-gray-800' : 'bg-white/10 backdrop-blur-md';
+            const titleColor = isLightMode ? 'text-white' : 'text-white';
+            const descColor = isLightMode ? 'text-gray-300' : 'text-gray-200';
+            const nameColor = isLightMode ? 'text-yellow-400' : 'text-yellow-400';
+
+            statsDisplay.innerHTML = `
+                <div class="flex flex-wrap justify-center gap-2 mt-4 px-2">
+                    ${awards.map(a => {
+                        const p = players.find(pl => pl.id === a.pid);
+                        const isWinner = p.id === winner.id;
+                        return `
+                            <div class="flex flex-col items-center ${cardBg} p-2 rounded-lg border ${isWinner ? 'border-yellow-500' : 'border-white/10'} shadow-xl min-w-[100px] max-w-[140px] transition-transform hover:scale-105">
+                                <span class="text-[8px] ${isWinner ? nameColor : 'text-gray-400'} font-bold mb-1 opacity-90">${p.name}</span>
+                                <span class="text-[11px] font-black ${titleColor} drop-shadow-md text-center leading-tight">${a.name}</span>
+                                <span class="text-[7px] ${descColor} mt-1 text-center leading-none italic">${a.desc}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
         }
 
         // ロックエリア表示
@@ -687,7 +721,13 @@ function checkWin(pid) {
             });
         }
 
-        if(overlay) overlay.classList.remove('hidden'); 
+        if(overlay) overlay.classList.remove('hidden');
+        
+        // ★追加：勝利時にも「盤面を確認する」ボタンを表示状態にする
+        const peekBtn = document.getElementById('peek-board-container');
+        if (peekBtn) {
+        peekBtn.classList.remove('hidden');
+        }
 
         // 勝利モーダルのボタンを「リザルトへ」の役割に変更
         // ※ index.html 内の勝利モーダルにある「戻る」ボタン等のIDを確認してください。
@@ -695,18 +735,31 @@ function checkWin(pid) {
         const winBtn = overlay.querySelector('button');
         if (winBtn) {
             winBtn.textContent = "リザルトを確認";
+            
             winBtn.onclick = () => {
-    overlay.classList.add('hidden');
+            overlay.classList.add('hidden');
+
+            // ★追加：勝利した瞬間の最後の盤面状況を記録
+                recordLockHistory();
     
-    const pStats = (cardUsageStats && cardUsageStats[winner.id]) ? cardUsageStats[winner.id] : {};
+            const pStats = (cardUsageStats && cardUsageStats[winner.id]) ? cardUsageStats[winner.id] : {};
     
-    // 全色のカウントを初期化（BASE_COLORSを基準にする）
-    const colorResults = BASE_COLORS.map(bc => ({
+            // 全色のカウントを初期化（BASE_COLORSを基準にする）
+            const colorResults = BASE_COLORS.map(bc => ({
         id: bc.id,
         name: bc.name,
         bg: bc.bg,
+        hex: bc.hex, // ★ここを追加：カラーコードを保持
         count: 0
-    }));
+         }));
+
+    for (const [name, count] of Object.entries(pStats)) {
+        const cardData = CARD_DATABASE.find(c => c.name === name);
+        if (cardData) {
+            const target = colorResults.find(r => r.id === cardData.colorId);
+            if (target) target.count += count;
+        }
+    }
 
     let mvpCardName = "なし";
     let maxCardCount = 0;
@@ -734,12 +787,13 @@ function checkWin(pid) {
 
     // まとめたデータを渡す
     showResultModal(winner.id, {
-        time: playTimeSec,
-        turns: totalTurnCount,
-        mvp: mvpCardName,
-        topColor: topColorName,
-        colorStats: colorResults // ★チャート表示用の全データを追加
-    });
+                    time: playTimeSec,
+                    turns: totalTurnCount,
+                    mvp: mvpCardName,
+                    topColor: topColorName,
+                    colorStats: colorResults,
+                    lockHistory: lockHistory // ★追加
+                });
 };
         }
     }
@@ -751,40 +805,74 @@ function showResultModal(pid, stats) {
     if (!resultOverlay || !container) return;
 
     const player = players.find(p => p.id === pid);
-    const moveDist = (playerStats[pid] && playerStats[pid].moveCount) ? playerStats[pid].moveCount : 0;
-
-    // 時間の整形
     const s = stats.time || 0;
     const timeStr = `${Math.floor(s / 60)}分${(s % 60).toString().padStart(2, '0')}秒`;
 
-    // 基本項目のリスト
+    // 1. 基本項目のリスト生成
     const resultsHtml = [
-        { label: "👑 勝者", value: player ? player.name : "不明", color: "text-yellow-400" },
-        { label: "⏳ タイム", value: timeStr, color: "text-cyan-400" },
-        { label: "🔄 ターン", value: `${stats.turns || 0}`, color: "text-purple-400" },
-        { label: "🌟 MVP", value: stats.mvp || "なし", color: "text-green-400" }
+        { label: "👑 勝者", value: player ? player.name : "不明" },
+        { label: "⏳ タイム", value: timeStr },
+        { label: "🔄 ターン", value: `${stats.turns || 0}` },
+        { label: "🌟 MVP", value: stats.mvp || "なし" }
     ].map(item => `
-        <div class="flex justify-between items-center bg-gray-700/30 p-2 rounded border border-gray-600/50">
-            <span class="text-[10px] text-gray-400 font-bold">${item.label}</span>
-            <span class="text-xs font-black ${item.color}">${item.value}</span>
+        <div class="flex justify-between items-center bg-white/90 p-2 rounded border border-gray-300 shadow-sm">
+            <span class="text-[10px] text-gray-600 font-bold">${item.label}</span>
+            <span class="text-xs font-black text-black">${item.value}</span>
         </div>
     `).join('');
 
-    // --- バーチャートの生成 ---
-    const maxVal = Math.max(...stats.colorStats.map(s => s.count), 1);
+    // 2. 「逆転の兆し」グラフの生成
+    const history = stats.lockHistory || [];
+    const turnCount = history.length;
+    const padding = 10;
+    const width = 280;
+    const height = 60;
+
+    const linesHtml = players.map((p, pIdx) => {
+        if (turnCount < 2) return "";
+        const points = history.map((counts, tIdx) => {
+            const x = (tIdx / (turnCount - 1)) * (width - padding * 2) + padding;
+            const y = height - (counts[pIdx] / 7) * (height - padding * 2) - padding;
+            return `${x},${y}`;
+        }).join(" ");
+        return `<polyline points="${points}" fill="none" stroke="${p.color.hex}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`;
+    }).join("");
+
+    const lineChartHtml = `
+        <div class="mt-6 pt-4 border-t border-gray-700">
+            <p class="text-[9px] text-gray-500 font-bold mb-2 text-center uppercase tracking-widest">Signs of Reversal (Lock Progress)</p>
+            <div class="bg-gray-900/50 rounded p-1 border border-gray-700">
+                <svg viewBox="0 0 ${width} ${height}" class="w-full h-auto">
+                    ${[0, 1, 2, 3, 4, 5, 6, 7].map(i => {
+                        const y = height - (i / 7) * (height - padding * 2) - padding;
+                        return `<line x1="${padding}" y1="${y}" x2="${width-padding}" y2="${y}" stroke="#374151" stroke-width="0.5" />`;
+                    }).join("")}
+                    ${linesHtml}
+                </svg>
+            </div>
+            <div class="flex justify-center gap-2 mt-2">
+                ${players.map(p => `<span class="text-[8px] flex items-center gap-1"><span class="w-2 h-0.5" style="background-color:${p.color.hex}"></span> ${p.name}</span>`).join("")}
+            </div>
+        </div>
+    `;
+
+    // 3. バーチャートの生成
+    const maxVal = Math.max(...(stats.colorStats?.map(s => s.count) || [1]), 1);
     const chartHtml = `
         <div class="mt-6 pt-4 border-t border-gray-700">
-            <p class="text-[9px] text-gray-500 font-bold mb-4 text-center uppercase tracking-widest">Color Usage Chart</p>
-            <div class="flex items-end justify-between h-20 px-1 gap-1">
-                ${stats.colorStats.map(c => {
-                    const height = (c.count / maxVal) * 100;
+            <p class="text-[9px] text-gray-500 font-bold mb-4 text-center uppercase tracking-widest italic">Color Usage Stats</p>
+            <div class="flex items-end justify-between h-24 px-1 gap-2">
+                ${(stats.colorStats || []).map(c => {
+                    const heightPercent = (c.count / maxVal) * 100;
                     return `
-                        <div class="flex-1 flex flex-col items-center gap-1">
-                            <div class="relative w-full flex flex-col justify-end h-full">
-                                <div class="w-full ${c.bg} rounded-t-sm shadow-lg animate-grow-up" style="height: ${height}%"></div>
+                        <div class="flex-1 h-full flex flex-col justify-end items-center group">
+                            <div class="w-full bg-gray-800/50 rounded-t-sm flex flex-col justify-end h-full overflow-hidden">
+                                <div class="${c.bg} w-full rounded-t-sm animate-grow-up shadow-lg" 
+                                     style="height: ${heightPercent}%; background-color: ${c.hex} !important;">
+                                </div>
                             </div>
-                            <span class="text-[8px] text-gray-500 font-bold">${c.name}</span>
-                            <span class="text-[9px] text-white font-mono leading-none">${c.count}</span>
+                            <span class="text-[8px] text-gray-600 font-bold mt-1 truncate w-full text-center">${c.name}</span>
+                            <span class="text-[9px] text-black font-mono font-bold">${c.count}</span>
                         </div>
                     `;
                 }).join('')}
@@ -792,7 +880,8 @@ function showResultModal(pid, stats) {
         </div>
     `;
 
-    container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + chartHtml;
+    // 4. すべてをまとめて一度に描画
+    container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + lineChartHtml + chartHtml;
     resultOverlay.classList.remove('hidden');
 }
 
@@ -1280,7 +1369,8 @@ async function initGameInternal(num, isTest = false) {
     // ★追加：各統計データの初期化
     gameStartTime = Date.now(); 
     totalTurnCount = 1; 
-    cardUsageStats = {};
+    cardUsageStats = {}; 
+    lockHistory = []; // ★追加: リセット
 
     // ライトモードの反映
     if (isLightMode) {
@@ -1433,7 +1523,11 @@ async function initGameInternal(num, isTest = false) {
     players.forEach(p => {
         playerStats[p.id] = { moveCount: 0 };
     });
-    turn = 0; currentPhase = PHASE.LOCK; winner = null; collections = {}; hands = {}; invasionQueue = []; 
+
+    
+
+    turn = 0; currentPhase = PHASE.LOCK; winner = null; 
+    collections = {}; hands = {}; invasionQueue = []; 
     players.forEach((p, idx) => {
         collections[p.id] = {};
         [...new Set(CARD_DATABASE.map(c => c.colorId))].forEach(cId => collections[p.id][cId] = []);
@@ -1453,6 +1547,9 @@ async function initGameInternal(num, isTest = false) {
             });
         }
     });
+
+    // ★ collections の初期化が完全に終わった「ここ」で呼び出す
+    recordLockHistory();
 
     if (typeof generateUI === 'function') generateUI();
 
@@ -1730,3 +1827,96 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+function recordLockHistory() {
+    if (!players || players.length === 0) return;
+    const currentCounts = players.map(p => {
+        // 安全装置：collections[p.id] が無ければ 0 を返す
+        if (!collections || !collections[p.id]) return 0;
+
+        return LOCK_ORDER.filter(col => {
+            const slot = collections[p.id][col.id];
+            // slot 自体の存在チェックも追加
+            return slot && slot.length > 0 && 
+                   slot.some(c => c.colorId !== 'white' && c.colorId !== 'black') && 
+                   !slot.some(c => c.id === 34);
+        }).length;
+    });
+    lockHistory.push(currentCounts);
+}
+
+function calculateAwards(winnerId) {
+    const awards = [];
+    if (!players || players.length === 0) return awards;
+
+    // 1. 電光石火 (Lightning Fast)
+    if (totalTurnCount <= 15) {
+        awards.push({ pid: winnerId, name: "⚡ 電光石火", desc: "15ターン以内の電撃決着" });
+    }
+
+    // 2. 韋駄天 (Idaten) & 3. 不動の精神 (Immovable)
+    let maxDist = -1, fastestId = null;
+    let minDist = Infinity, slowestId = null;
+    let maxTypes = -1, collectorId = null;
+
+    players.forEach(p => {
+        const d = (playerStats[p.id] && playerStats[p.id].moveCount) || 0;
+        if (d > maxDist) { maxDist = d; fastestId = p.id; }
+        if (d < minDist) { minDist = d; slowestId = p.id; }
+
+        const stats = cardUsageStats[p.id] || {};
+        const typesCount = Object.keys(stats).length;
+        if (typesCount > maxTypes) { maxTypes = typesCount; collectorId = p.id; }
+    });
+
+    if (fastestId) awards.push({ pid: fastestId, name: "👟 韋駄天", desc: "戦場を最も駆け抜けた" });
+    if (slowestId && slowestId !== fastestId) awards.push({ pid: slowestId, name: "🧘 不動の精神", desc: "一歩も無駄にせぬ支配" });
+    if (collectorId && maxTypes >= 3) awards.push({ pid: collectorId, name: "📚 カード愛好家", desc: "誰よりも多彩な技を披露" });
+
+    // 4. 特定色のスペシャリスト & 5. 一点突破
+    const wStats = cardUsageStats[winnerId] || {};
+    const cardEntries = Object.entries(wStats);
+    if (cardEntries.length > 0) {
+        // 一点突破
+        const totalUsages = cardEntries.reduce((a, b) => a + b[1], 0);
+        const avgUsage = totalUsages / cardEntries.length;
+        for (const [name, count] of cardEntries) {
+            if (count >= avgUsage * 3 && count >= 3) {
+                awards.push({ pid: winnerId, name: "🎯 一点突破", desc: `「${name}」を極めし者` });
+                break;
+            }
+        }
+        // スペシャリスト
+        const colorUsage = {};
+        BASE_COLORS.forEach(c => colorUsage[c.id] = 0);
+        cardEntries.forEach(([name, count]) => {
+            const data = CARD_DATABASE.find(d => d.name === name);
+            if (data && colorUsage[data.colorId] !== undefined) colorUsage[data.colorId] += count;
+        });
+        const colorVals = Object.values(colorUsage);
+        const avgColor = colorVals.reduce((a, b) => a + b, 0) / 7;
+        for (const [colId, count] of Object.entries(colorUsage)) {
+            if (count >= avgColor * 2 && count >= 4) {
+                const cName = BASE_COLORS.find(bc => bc.id === colId).name;
+                awards.push({ pid: winnerId, name: `🎨 ${cName}職人`, desc: `${cName}の力を引き出した` });
+                break;
+            }
+        }
+    }
+
+    // 6. 逆転の覇者 & 堅実な守り手
+    if (lockHistory && lockHistory.length >= 4) {
+        const wIdx = players.findIndex(p => p.id === winnerId);
+        let alwaysFirst = true, wasLastFirstHalf = false;
+        const mid = Math.floor(lockHistory.length / 2);
+        lockHistory.forEach((counts, tIdx) => {
+            const wC = counts[wIdx], maxC = Math.max(...counts), minC = Math.min(...counts);
+            if (wC < maxC) alwaysFirst = false;
+            if (tIdx <= mid && wC === minC && counts.some(c => c > minC)) wasLastFirstHalf = true;
+        });
+        if (alwaysFirst) awards.push({ pid: winnerId, name: "🛡️ 堅実な守り手", desc: "一度も首位を譲らぬ完封" });
+        else if (wasLastFirstHalf) awards.push({ pid: winnerId, name: "🔄 逆転の覇者", desc: "絶望から這い上がった伝説" });
+    }
+
+    return awards;
+}

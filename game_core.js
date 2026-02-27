@@ -579,28 +579,32 @@ function handleHandClick(cardIndex, lockedCard = null) {
 
             // --- 通常カードの処理部分 (270行目付近) ---
             const slot = collections[p.id][card.colorId];
-            if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
+            const hasCurse = slot.some(c => c.id === 34);
+            // 呪いがあれば3枚まで、なければ空(0枚)の時のみロック可能
+            const isSlotAvailable = slot.length === 0 || (hasCurse && slot.length < 3);
+
+            if (!isSlotAvailable) {
+                addLog("そのスロットは既に埋まっています。");
+                return;
+            }
+
+            // 手札から削除
+            if(!lockedCard && hands[p.id]) {
+                hands[p.id].splice(cardIndex, 1);
+            }
+
+            // ロックエリアに追加（一度きり）
             slot.push(card);
             
-            // ここで演出を呼ぶ
+            // 演出の実行
             if (typeof triggerLockEffect === 'function') {
                 triggerLockEffect(p.id, card.colorId);
             }
             
             addLog(`${p.name}が「${card.name}」をロック！`);
+
+            // 追放判定（一度きり）
             processExile(slot);
-
-            // --- エターナル/通常カードの処理 ---
-            // 呪い(34)が含まれているスロットなら、合計3枚になるまでロックを許可
-            const hasCurse = slot.some(c => c.id === 34);
-            const isSlotAvailable = slot.length === 0 || (hasCurse && slot.length < 3);
-            
-            if (!isSlotAvailable) return;
-
-            if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
-            slot.push(card);
-            addLog(`${p.name}が「${card.name}」をロック！`);
-            processExile(slot); 
         });
 
     } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime) { 
@@ -678,15 +682,16 @@ function checkWin(pid) {
             const descColor = isLightMode ? 'text-gray-300' : 'text-gray-200';
             const nameColor = isLightMode ? 'text-yellow-400' : 'text-yellow-400';
 
+            // 修正箇所：flex-wrap を grid に変更。grid-cols-3 で1行最大3個に制限。
             statsDisplay.innerHTML = `
-                <div class="flex flex-wrap justify-center gap-2 mt-4 px-2">
+                <div class="grid grid-cols-3 gap-2 mt-4 px-2 justify-items-center">
                     ${awards.map(a => {
                         const p = players.find(pl => pl.id === a.pid);
                         const isWinner = p.id === winner.id;
                         return `
-                            <div class="flex flex-col items-center ${cardBg} p-2 rounded-lg border ${isWinner ? 'border-yellow-500' : 'border-white/10'} shadow-xl min-w-[100px] max-w-[140px] transition-transform hover:scale-105">
-                                <span class="text-[8px] ${isWinner ? nameColor : 'text-gray-400'} font-bold mb-1 opacity-90">${p.name}</span>
-                                <span class="text-[11px] font-black ${titleColor} drop-shadow-md text-center leading-tight">${a.name}</span>
+                            <div class="flex flex-col items-center ${cardBg} p-2 rounded-lg border ${isWinner ? 'border-yellow-500' : 'border-white/10'} shadow-xl w-full max-w-[100px] transition-transform hover:scale-105">
+                                <span class="text-[8px] ${isWinner ? nameColor : 'text-gray-400'} font-bold mb-1 opacity-90 truncate w-full text-center">${p.name}</span>
+                                <span class="text-[10px] font-black ${titleColor} drop-shadow-md text-center leading-tight">${a.name}</span>
                                 <span class="text-[7px] ${descColor} mt-1 text-center leading-none italic">${a.desc}</span>
                             </div>
                         `;
@@ -914,11 +919,17 @@ function handleBoardClick(x, y) {
     if (!isTarget) return; 
     
     const cell = board[y][x], epOn = players.find(ep => ep.id !== p.id && ep.x === x && ep.y === y); 
+    
+    // 【修正箇所】追加移動（extraMoves消費）であるか判定
+    const isExtra = p.baseMoveUsed && p.extraMoves > 0;
+
+    // 【修正箇所】追加移動時は「接触」を禁止する。他プレイヤーがいる場合はクリックを無効化。
+    if (isExtra && epOn) return;
+
     if (cell.empty && !epOn) return; 
     if (p.konohanaPenalty && epOn) return; 
     if (p.marmegoPenalty && !epOn) return;
     
-    const isExtra = p.baseMoveUsed && p.extraMoves > 0;
     showDetailModal(epOn ? "接触確認" : (isExtra ? "追加移動確認" : "移動確認"), epOn ? "接触して手札を奪いますか？" : (isExtra ? "<b>追加移動</b> 権利を消費して移動しますか？" : "ここへ移動しますか？"), (!epOn && cell.revealed) ? cell.color : null, "実行", () => executeMove(x, y, cell, epOn)); 
 }
 

@@ -325,7 +325,7 @@ function updateBGMVolumeFromSlider(valStr) {
 }
 
 /**
- * 修正概要：効果音（SE）を再生する共通関数
+ * 効果音（SE）を再生する共通関数
  */
 function playSE(fileName) {
     if (!fileName) return;
@@ -345,7 +345,7 @@ function playSE(fileName) {
 }
 
 /**
- * 修正概要：設定画面のスライダーから効果音の音量をテスト再生する
+ * 設定画面のスライダーから効果音の音量をテスト再生する
  * HTML側の oninput="updateSEVolumeFromSlider(this.value)" と完全に一致させます
  */
 // 修正: スライダー操作時に音量を保存する機能を追加

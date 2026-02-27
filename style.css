@@ -1134,3 +1134,31 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 .animate-grow-up {
     animation: grow-up 1.0s ease-out forwards;
 }
+
+/* 山札一覧グリッドレイアウト */
+.deck-list-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    padding: 2px;
+    background-color: transparent;
+    align-content: start;
+    margin-bottom: 8px; /* カテゴリー間の余白 */
+}
+
+.deck-list-item {
+    width: 100%;
+    aspect-ratio: 1 / 1; /* 正方形を維持 */
+    background-color: #222;
+    border-radius: 1px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.deck-list-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}

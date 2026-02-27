@@ -518,11 +518,15 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false) {
         // 手札効果のコストチェック（canPlayHandEffect）をバイパスする
         const isLocking = (currentPhase === PHASE.LOCK && title.includes("ロック"));
         
+        // 【修正箇所】移動や接触の確認時は、盤面のカードを表示しているだけなのでチェック不要
+        const isMoving = title.includes("移動") || title.includes("接触");
+
         // 反撃(ID:22) または タイトルが「確認」以外（割り込み等の特殊な確認）の場合は、
         // ターンプレイヤー以外の使用も許可する
         const isReaction = (card.id === 22 || title.includes("確認") === false || title.includes("反撃"));
         
-        if (!isReaction && !isLocking) {
+        // 移動中、ロック中、または反撃中ではない「通常の手札使用」の時だけチェックする
+        if (!isReaction && !isLocking && !isMoving) {
             if (typeof canPlayHandEffect === 'function') {
                 isPlayable = canPlayHandEffect(card, p);
             }
@@ -2039,3 +2043,97 @@ function showStealActionModal(thief, victim, onComplete) {
         }, 800);
     }, 3500);
 }
+
+
+/**
+ * 2026/02/27 10:15 修正
+ * 山札確認画面にて、初期山札の全112枚をルールに基づいた枚数で描画するよう修正。
+ */
+window.showFullDeckListModal = function() {
+    const colorOrder = ['red', 'orange', 'yellow', 'green', 'blue', 'pink', 'purple', 'rainbow', 'white', 'black'];
+    const appContainer = document.getElementById('app');
+
+    let firstPile = [];
+    let eternalPile = [];
+    let normalPile = [];
+    let specialPile = [];
+
+    if (typeof CARD_DATABASE !== 'undefined') {
+        CARD_DATABASE.forEach(data => {
+            // --- 枚数決定ロジックの修正 ---
+            let num = 0;
+            const specialCounts = { 30: 2, 31: 2, 32: 1, 33: 1, 34: 1 };
+
+            if (data.type === 'FIRST' || data.type === 'ETERNAL') {
+                num = 1; // 各1枚
+            } else if (specialCounts[data.id] !== undefined) {
+                num = specialCounts[data.id]; // 白・黒の個別枚数（30-34）を最優先
+            } else if (data.type === 'NORMAL') {
+                num = 7; // それ以外の通常カード（ダッシュ、反撃、レインボー等）
+            }
+
+            for(let i=0; i < num; i++) {
+                const cardImgHTML = `<div class="deck-list-item"><img src="images/card_${data.id}.webp" loading="lazy"></div>`;
+                
+                if (data.type === 'FIRST') {
+                    firstPile.push({ colorId: data.colorId, id: data.id, html: cardImgHTML });
+                } else if (data.type === 'ETERNAL') {
+                    eternalPile.push({ colorId: data.colorId, id: data.id, html: cardImgHTML });
+                } else if (data.colorId === 'white' || data.colorId === 'black') {
+                    specialPile.push({ colorId: data.colorId, id: data.id, html: cardImgHTML });
+                } else {
+                    normalPile.push({ colorId: data.colorId, id: data.id, html: cardImgHTML });
+                }
+            }
+        });
+    }
+
+    // （以下、ソート処理やHTML組み立て部分は変更なしのため省略します。既存のコードをそのまま維持してください）
+    const sorter = (a, b) => {
+        const colorDiff = colorOrder.indexOf(a.colorId) - colorOrder.indexOf(b.colorId);
+        return colorDiff !== 0 ? colorDiff : a.id - b.id;
+    };
+    firstPile.sort(sorter);
+    eternalPile.sort(sorter);
+    normalPile.sort(sorter);
+    specialPile.sort(sorter);
+
+    const overlay = document.createElement('div');
+    overlay.className = "absolute inset-0 z-[5000] flex items-center justify-center bg-black/80";
+
+    const createSection = (title, pile) => {
+        if (pile.length === 0) return '';
+        return `
+            <div class="mb-4">
+                <div class="text-yellow-500 text-[10px] font-bold mb-1 px-1 border-l-2 border-yellow-600">${title} (${pile.length}枚)</div>
+                <div class="deck-list-grid">
+                    ${pile.map(p => p.html).join('')}
+                </div>
+            </div>
+        `;
+    };
+
+    const sectionsHTML = 
+        createSection("【ファーストカード】", firstPile) +
+        createSection("【エターナルカード】", eternalPile) +
+        createSection("【通常カード】", normalPile) +
+        createSection("【無色（白・黒）】", specialPile);
+
+    overlay.innerHTML = `
+        <div class="bg-gray-900 border-2 border-yellow-600 w-[90%] h-[85%] flex flex-col rounded-lg overflow-hidden shadow-2xl">
+            <div class="p-2 border-b border-gray-700 flex justify-between items-center bg-gray-800 shrink-0">
+                <span class="text-yellow-500 font-bold text-[10px]">全山札構成 (計112枚)</span>
+                <button onclick="this.closest('.absolute').remove()" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-bold">閉じる</button>
+            </div>
+            <div class="flex-grow overflow-y-auto p-2 bg-gray-950">
+                ${sectionsHTML}
+            </div>
+        </div>
+    `;
+
+    if (appContainer) {
+        appContainer.appendChild(overlay);
+    } else {
+        document.body.appendChild(overlay);
+    }
+};

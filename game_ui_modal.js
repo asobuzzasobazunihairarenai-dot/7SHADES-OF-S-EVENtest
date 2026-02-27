@@ -917,6 +917,7 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
         if (!card) return;
         let txtCls = card.colorId === 'white' ? 'text-gray-800' : (card.colorId === 'black' ? 'text-gray-200' : 'text-white');
         const cardEl = document.createElement('div'); 
+        // クラスは modal-large-card を維持（CSS側で2枚以上の時の縮小を制御）
         cardEl.className = "modal-large-card perspective-1000 shrink-0 relative mb-4";
         
         const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
@@ -1655,12 +1656,46 @@ function executeSelectionLogic(logic, selection, callback) {
             })();
             return;
 
-        case 'open_facedown':
-            selection.forEach(pos => {
-                const target = board[pos.y][pos.x];
-                if (!target.empty && !target.revealed) target.revealed = true;
-            });
-            break;
+        /* 2026/02/27 22:30 修正：サフラン等のカードオープン効果に演出と到達連鎖を追加 */
+case 'open_facedown':
+    // 非同期で1枚ずつ処理するための即時実行関数
+    (async () => {
+        // 処理中は操作をロック
+        isHandEffectProcessing = true; 
+
+        for (const pos of selection) {
+            const targetCell = board[pos.y][pos.x];
+            if (!targetCell || targetCell.empty || targetCell.revealed) continue;
+
+            // 1. 裏向きをオープンに
+            targetCell.revealed = true;
+            addLog(`オープン：(${pos.x}, ${pos.y}) の「${targetCell.color.name}」を公開。`);
+
+            // 2. 盤面再描画と発光演出
+            if (typeof renderBoard === 'function') renderBoard();
+            if (typeof triggerCellFlash === 'function') {
+                triggerCellFlash(pos.x, pos.y, targetCell.color.hex || '#ffffff');
+            }
+
+            // 3. めくった先に誰かいるかチェック
+            const pOnCell = players.find(pl => pl.x === pos.x && pl.y === pos.y);
+            if (pOnCell) {
+                // 到達処理（モーダル）が終わるまで待機
+                await new Promise(resolve => {
+                    handleArrivalLogic(targetCell, pOnCell, resolve, targetCell.color, false);
+                });
+            } else {
+                // 誰もいない場合は演出の余韻として少し待機
+                await new Promise(r => setTimeout(r, 600));
+            }
+        }
+        
+        // 全てのカードをめくり終えたら完了
+        if (onSuccess) onSuccess({});
+    })();
+    // async関数を抜けた直後の break は必須。 
+    // onSuccess は async 内で呼ばれるため、ここでは return しないよう注意。
+    break;
 
         case 'place_deck_facedown':
         case 'place_deck_facedown_empty':
@@ -2145,3 +2180,43 @@ window.showFullDeckListModal = function() {
         document.body.appendChild(overlay);
     }
 };
+
+// --- 演出用：プレゼントモーダル ---
+function showPresentFlowerModal(giver, receiver, card, onComplete) {
+    const modal = document.createElement('div');
+    modal.className = "fixed inset-0 z-[1000] bg-black/95 flex flex-col items-center justify-center p-2";
+    
+    modal.innerHTML = `
+        <h2 class="text-xl font-black text-pink-400 mb-8 italic tracking-tighter animate-pulse">FLOWER PRESENT!!</h2>
+        <div class="steal-display-container" style="width: 100%; max-width: 350px;">
+            <div class="steal-player-unit">
+                <img src="${giver.icon}" class="steal-prof-img" style="border-color: ${giver.color.hex}">
+                <span class="text-[10px] font-bold text-white truncate w-full text-center">${giver.name}</span>
+            </div>
+
+            <div class="flex flex-col items-center shrink-0 w-12">
+                <div class="text-2xl text-pink-400">▶</div>
+                <img src="${card.image}" class="w-10 h-10 object-contain animate-bounce" style="filter: drop-shadow(0 0 8px #f472b6);">
+            </div>
+
+            <div class="steal-player-unit">
+                <img src="${receiver.icon}" class="steal-prof-img" style="border-color: ${receiver.color.hex}">
+                <span class="text-[10px] font-bold text-white truncate w-full text-center">${receiver.name}</span>
+            </div>
+        </div>
+        <p class="text-gray-300 text-[12px] mt-10 px-6 text-center leading-tight">
+            ${giver.name} から ${receiver.name} へ<br>「${card.name}」が贈られました
+        </p>
+    `;
+
+    document.body.appendChild(modal);
+
+    setTimeout(() => {
+        modal.classList.add('opacity-0');
+        modal.style.transition = "opacity 0.8s ease";
+        setTimeout(() => {
+            modal.remove();
+            if (onComplete) onComplete();
+        }, 800);
+    }, 3000); // 3秒間表示
+}

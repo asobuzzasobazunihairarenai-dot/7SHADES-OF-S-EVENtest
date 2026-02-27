@@ -2220,3 +2220,59 @@ function showPresentFlowerModal(giver, receiver, card, onComplete) {
         }, 800);
     }, 3000); // 3秒間表示
 }
+
+/**
+ * カラフルホール用：ロックカード奪取の演出モーダル
+ */
+function showLockStealModal(thief, victim, onComplete) {
+    const modal = document.createElement('div');
+    modal.className = "fixed inset-0 z-[1000] bg-black/95 flex flex-col items-center justify-center p-2";
+    
+    // ロックカードをイメージしたアイコン（または背面画像）を並べる
+    let lockHTML = '';
+    for(let i = 0; i < 7; i++) {
+        // 外科手術的修正：w-3 h-3 に縮小し、shrink-0 で潰れを防止。mt-3 で少し下げる
+        lockHTML += `<div class="w-3 h-3 border border-gray-600 rounded-sm mx-0.5 bg-gray-800 shrink-0 mt-3"></div>`;
+    }
+
+    modal.innerHTML = `
+        <h2 class="text-2xl font-black mb-8 italic tracking-tighter animate-pulse" style="text-shadow: 0 0 15px rgba(255,255,255,0.8), 0 0 5px rgba(250,204,21,1);">
+            <span class="text-white">COLORFUL</span> <span class="text-yellow-400">HOLE!!</span>
+        </h2>
+        <div class="steal-display-container" style="width: 100%; max-width: 350px;">
+            <div class="steal-player-unit">
+                <img src="${thief.icon}" class="steal-prof-img" style="border-color: ${thief.color.hex}">
+                <span class="text-[10px] font-bold text-white truncate w-full text-center">${thief.name}</span>
+            </div>
+
+            <div class="flex flex-col items-center shrink-0 w-12">
+                <div class="text-2xl text-yellow-500">◀</div>
+                <div class="steal-card-blinking w-12 h-12 aspect-square flex items-center justify-center text-4xl font-black rounded-lg" 
+                     style="background: linear-gradient(45deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); background-size: 200% 200%; color: #000; text-shadow: 0 0 10px #fff;">？</div>
+            </div>
+
+            <div class="steal-player-unit">
+                <img src="${victim.icon}" class="steal-prof-img" style="border-color: ${victim.color.hex}">
+                <span class="text-[10px] font-bold text-white truncate w-full text-center">${victim.name}</span>
+                <div class="flex items-center justify-center px-1 w-full overflow-visible">
+                    ${lockHTML}
+                </div>
+                <span class="text-[8px] text-yellow-500 mt-1 font-bold">LOCK AREA</span>
+            </div>
+        </div>
+        <p class="text-gray-300 text-[12px] mt-10 px-6 text-center leading-tight">
+            ${thief.name} が ${victim.name} の<br>ロックエリアからカードを奪おうとしています...
+        </p>
+    `;
+
+    document.body.appendChild(modal);
+
+    setTimeout(() => {
+        modal.classList.add('opacity-0');
+        modal.style.transition = "opacity 0.8s ease";
+        setTimeout(() => {
+            modal.remove();
+            if (onComplete) onComplete();
+        }, 800);
+    }, 3000); // 3秒間表示
+}

@@ -584,7 +584,10 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false) {
     const handEl = document.getElementById('detail-hand-text');
 
     if (card) {
-        // 古いリスナーを消すためのクローン
+        // カードの表示サイズを大きくする
+        view.classList.add('modal-large-card');
+        view.classList.remove('w-24', 'h-24'); // もし既存の小さいサイズクラスがあれば除去
+
         const newView = view.cloneNode(true);
         view.parentNode.replaceChild(newView, view);
         newView.classList.remove('hidden');
@@ -878,7 +881,7 @@ function showSelectionResult(cards, onComplete, effectName, cancelCallback = nul
 /**
  * カード獲得・到達モーダル
  */
-function showCardModal(cards, onComplete, titleText = "カード獲得", playerName = "", actionVerbiage = "到達しました") { 
+function showCardModal(cards, onComplete, titleText = "カード獲得", playerName = "", actionVerbiage = "到達しました") {
 
 // SE再生。文字列が含まれているかを柔軟に判定
     if (titleText && (titleText.includes("到達効果") || titleText.includes("到達時"))) {
@@ -914,12 +917,12 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
         if (!card) return;
         let txtCls = card.colorId === 'white' ? 'text-gray-800' : (card.colorId === 'black' ? 'text-gray-200' : 'text-white');
         const cardEl = document.createElement('div'); 
-        cardEl.className = "w-32 h-32 perspective-1000 shrink-0 relative";
+        cardEl.className = "modal-large-card perspective-1000 shrink-0 relative mb-4";
         
         const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
         
         cardEl.innerHTML = `
-            <div class="flip-card-inner relative w-full h-full" style="width: 8rem; height: 8rem;">
+            <div class="flip-card-inner relative w-full h-full">
                 <div class="flip-card-back ${card.type === 'ETERNAL' ? 'eternal-back-pattern' : 'card-back-pattern'} border-2 rounded-lg flex items-center justify-center w-full h-full"></div>
                 <div class="flip-card-front border-2 border-white rounded-lg w-full h-full flex flex-col items-center justify-center absolute inset-0 overflow-hidden ${card.bg}" ${imgPath ? `style="background-image: url('${imgPath}'); background-size: cover; background-position: center;"` : ""}>
                     <span class="${imgPath ? 'hidden' : ''} font-bold text-4xl ${txtCls} z-10">${card.name ? card.name[0] : '?'}</span>
@@ -970,32 +973,41 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
     modal.classList.remove('hidden'); 
     managePeekUI(true);
 
-    // ★自動処理(isAutoAction)がONの場合の処理
+    let isFinalized = false;
+    const finalize = () => {
+        if (isFinalized) return; // 二重実行防止
+        isFinalized = true;
+
+        if (autoProcessTimeout) {
+            clearTimeout(autoProcessTimeout);
+            autoProcessTimeout = null;
+        }
+
+        modal.classList.add('hidden');
+        managePeekUI(false);
+
+        // タイマーの再開と、次の処理(フェイズ移行等)への通知
+        if (typeof resumeTimer === 'function') resumeTimer();
+        if (onComplete) {
+            // 少しだけ遅延させて UI 更新との競合を防ぐ
+            setTimeout(() => onComplete(), 50);
+        }
+    };
+
+    btnEl.onclick = () => {
+        if (typeof gainTime === 'function') gainTime(5);
+        finalize();
+    };
+
     if (isAutoAction) {
-        // 補充時間の残り（timeLeft）に関わらず、
-        // フリップ演出(0.4s+1.2s)を完遂させ、内容を確認させるため4秒固定で待つ
         const drawWaitTime = 4000;
-
-        // タイマーを一時停止（カウントダウンをストップ）
         if (typeof pauseTimer === 'function') pauseTimer();
-
-        setTimeout(() => {
-            modal.classList.add('hidden');
-            managePeekUI(false);
-            
-            // タイマーを再開
-            if (typeof resumeTimer === 'function') resumeTimer();
-            
-            if (onComplete) onComplete();
+        
+        // タイマーをグローバル変数に格納
+        autoProcessTimeout = setTimeout(() => {
+            autoProcessTimeout = null;
+            finalize();
         }, drawWaitTime);
-    } else {
-        // 手動操作時（ボタンクリックを待つ）
-        btnEl.onclick = () => { 
-            if (typeof gainTime === 'function') gainTime(5); 
-            modal.classList.add('hidden'); 
-            managePeekUI(false); 
-            onComplete(); 
-        }; 
     }
 }
 
@@ -1788,22 +1800,18 @@ function executeSelectionLogic(logic, selection, callback) {
                 const card = cell.empty ? null : cell.color;
                 
                 if (card) {
-                    // --- 修正箇所：まずカードをオープンし、盤面を再描画 ---
-                    cell.revealed = true;
-                    if (typeof renderBoard === 'function') renderBoard();
+    // 演出としてオープンと波紋だけを行い、ロジック自体は moveToCell 側の自動到達判定に任せる
+    cell.revealed = true;
+    if (typeof renderBoard === 'function') renderBoard();
 
-                    // --- 修正箇所：到達時のド派手な発光演出を実行 ---
-                    if (typeof triggerArrivalRipple === 'function') {
-                        triggerArrivalRipple(destPos.x, destPos.y, card.hex);
-                    }
+    if (typeof triggerArrivalRipple === 'function') {
+        triggerArrivalRipple(destPos.x, destPos.y, card.hex);
+    }
 
-                    // --- 修正箇所：発光の余韻（0.7秒）を待ってから handleArrivalLogic を呼ぶ ---
-                    // handleArrivalLogic 内部で showCardModal が呼ばれるため、ここでは直接呼びません
-                    setTimeout(() => {
-                        handleArrivalLogic(cell, victim, () => {
-                            if (callback) callback(selection);
-                        }, card, true);
-                    }, 700);
+    // handleArrivalLogic を直接呼ばず、少し待機してからコールバック（選択モード終了）のみ実行
+    setTimeout(() => {
+        if (callback) callback(selection);
+    }, 700);
 
                 } else {
                     if (callback) callback(selection);

@@ -201,6 +201,12 @@ function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = 
     
     const wrappedSuccess = (res) => {
         isHandEffectProcessing = false;
+
+        // 【追加】自動処理によって発動していた場合、効果解決が終わった時点でフラグを解除
+        if (isAutoProcessing) {
+            isAutoProcessing = false;
+            isAutoAction = false;
+        }
         
         // 【追加】1ターンに1度制限のカード（ID 11: ヴァーディアンなど）なら記録
         const oncePerTurnIDs = [11]; 
@@ -1067,9 +1073,17 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             }
 
             if (validCells.length > 0) {
-                // 第11引数(restrictedCells)に validCells を渡し、第13引数(highlightCells)にも同じものを渡して光らせる
-                startSelectionMode('select_cell', 1, 'force_move_logic', "移動先の空きマスを選択", () => onSuccess({}), null, null, true, p, false, validCells, "おまかせ", validCells, victim);
-                activeTargetPos = victim;
+                // 移動完了後の到達処理が終わったときに初めて onSuccess を呼ぶように修正
+                startSelectionMode('select_cell', 1, 'force_move_logic', "移動先の空きマスを選択", 
+                    () => {
+                        // 駒の移動アニメーション自体は開始されているが、
+                        // 到達処理のQueueが空になるまで待つ必要があるため、ここでは何もしないか、
+                        // システムに「まだ継続中」であることを明示する。
+                        // movePlayerWithArrival側で最終的な解決が行われるため、
+                        // onSuccessは連鎖の最後で呼ばれるようにします。
+                    }, 
+                    null, null, true, p, false, validCells, "おまかせ", validCells, victim);
+                       activeTargetPos = victim;
             } 
             else {
                 addLog("移動できる有効な空きマスがないため移動できませんでした。");

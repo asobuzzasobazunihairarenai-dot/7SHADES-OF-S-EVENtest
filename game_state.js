@@ -28,6 +28,7 @@ let isPlacingCard = false;
 let isAutoAction = false;
 let isAutoProcessing = false; 
 let invasionQueue = [];
+let autoProcessTimeout = null; // 【追加】自動処理の待機タイマー保持用
 let isEndingTurn = false; 
 let isProcessingMove = false; 
 let isPeekingMode = false; // 盤面確認中フラグ

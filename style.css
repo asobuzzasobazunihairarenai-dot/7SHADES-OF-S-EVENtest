@@ -1162,3 +1162,39 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     height: 100%;
     object-fit: cover;
 }
+
+/* 2026/02/27 19:30 修正：モーダル内のカード画像をプレイマット級に巨大化 */
+.modal-large-card {
+    width: 70vw !important;        /* 画面横幅の70%（プレイマットに近いサイズ感） */
+    max-width: 280px !important;   /* PCなどの大画面でも大きくなりすぎないよう制限 */
+    aspect-ratio: 1 / 1;           /* 正方形を維持 */
+    object-fit: cover;
+    border: 3px solid #fbbf24;     /* 金枠で強調 */
+    border-radius: 12px;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.8), 0 0 15px rgba(250, 204, 21, 0.4);
+    margin: 10px auto !important;  /* 中央寄せ */
+    display: block;
+}
+
+/* 画像が大きくなる分、テキストエリアとの間隔を調整 */
+#arrival-card-info, #detail-card-info {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* 2026/02/27 21:00 修正：モーダル内カード画像の巨大化対応 */
+.modal-large-card {
+    width: 260px !important;  /* プレイマットに近いサイズ感（約2倍） */
+    height: 260px !important;
+    max-width: 70vw;         /* 画面からはみ出さないようガード */
+    max-height: 70vw;
+    margin: 0 auto;
+}
+
+/* flip-card-inner も親のサイズに追従するように修正 */
+.modal-large-card .flip-card-inner {
+    width: 100% !important;
+    height: 100% !important;
+}

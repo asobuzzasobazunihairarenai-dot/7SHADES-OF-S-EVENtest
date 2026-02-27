@@ -282,9 +282,11 @@ function resetTimer() {
 }
 
 function updateTimerTick() { 
-    if(winner || isTimerPaused) return; // ★修正：一時停止中は処理をスキップ
+    if(winner || isTimerPaused) return;
 
-    if (isAutoProcessing) return;
+    // ★修正：自動処理中、手札効果の解決中、または駒の移動演出中はタイマー処理を完全に停止する
+    // これにより、フォース等の効果で相手が移動・到達処理をしている間、自分のタイムアウトが発動するのを防ぐ
+    if (isAutoProcessing || isHandEffectProcessing || isProcessingMove) return;
 
     const p = players[turn];
     if (!p) return;
@@ -333,12 +335,23 @@ function updateTimerTick() {
 
                     // 他の描画更新
                     if (typeof renderHand === 'function') renderHand();
-                    if (typeof checkWin === 'function') checkWin(p.id);
+                    
+                    // 【修正】自動ロック完了後、演出時間を待ってから次へ進む
+                    setTimeout(() => {
+                        isAutoProcessing = false; 
+                        isAutoAction = false;
+                        
+                        // 追放判定と勝利判定を行い、その中で nextPhase() が呼ばれるようにする
+                        // ※ random-lock で選ばれた slot (collections[p.id][targetCard.colorId]) を渡す
+                        processExile(collections[p.id][targetCard.colorId]);
+                        
+                        // 念のため、追放が発生しなかった場合でも確実にフェイズを移行させる
+                        if (currentPhase === PHASE.LOCK && !winner) {
+                            nextPhase();
+                        }
+                    }, 1200);
 
-                    // ★修正：isAutoProcessing の解除は triggerLockEffect 内の setTimeout で行うため、ここでは消さない
-                    // isAutoProcessing = false; 
-            handleTimeOut(); 
-            return;
+                    return; // handleTimeOut() の実行を防ぎ、タイマーの多重進行を止める
         }
         isAutoProcessing = false; // ★追加：対象がなかった場合も戻す
             }
@@ -360,9 +373,10 @@ function updateTimerTick() {
                     
                     handleHandClick(hands[p.id].indexOf(usable[0]));
                     
-                    // 実行後はフラグを戻す
-                    isAutoProcessing = false; 
-                    return; 
+                    // 【修正】ここでは isAutoProcessing を false に戻さない。
+                    // 手札効果側の終端（resolve系）でフラグが管理されるのを待つ。
+                    // ただし return してこのターンのタイマー減算を終了させる。
+                    return;
                 }
                 isAutoAction = false;
             }
@@ -376,7 +390,15 @@ function updateTimerTick() {
 }
 
 function handleTimeOut() { 
-    if (isEndingTurn) return; 
+    if (isEndingTurn || winner) return; 
+    
+    // 門番の強化：移動中、手札効果中、連鎖待ち(Queue)がある、またはモーダルが開いている場合は何もしない
+    // ただし、タイムアウト状態は継続しているため、少し後に自分自身を再呼び出ししてチェックを継続する
+    if (isHandEffectProcessing || isProcessingMove || (invasionQueue && invasionQueue.length > 0) || activeModalId) {
+        if (autoProcessTimeout) clearTimeout(autoProcessTimeout);
+        autoProcessTimeout = setTimeout(handleTimeOut, 500); 
+        return;
+    }
 
     // ★追加：時間切れペナルティの判定
     if (useGlobalTimer) {
@@ -429,19 +451,21 @@ function handleTimeOut() {
         if (btn) { btn.click(); return; } 
     }
     
-    if (isProcessingMove) return; 
+    if (isProcessingMove || isHandEffectProcessing) return; // 【修正】手札効果演出中も中断
     if(timerInterval) { clearInterval(timerInterval); timerInterval = null; } 
     
     if (currentPhase === PHASE.MOVE) { 
         if (isStuck) autoPlace(players[turn]); 
         else autoMove(players[turn]); 
     } else { 
+        // 【重要】もし自動処理中(isAutoProcessing)なら、演出終了後にタイマー側で処理されるため、ここでは移行しない
+        if (isAutoProcessing) return; 
         nextPhase(true); 
-    } 
+    }
 }
 
 function autoMove(p) { 
-    if (!p || !players) return;
+    if (!p || !players || isProcessingMove || isHandEffectProcessing) return;
     const enemies = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
     const directions = [[0,1], [0,-1], [1,0], [-1,0]]; 
     let bestMove = null, minDist = Infinity; 
@@ -460,7 +484,7 @@ function autoMove(p) {
 }
 
 function autoPlace(p) { 
-    if (!p || !players) return;
+    if (!p || !players || isProcessingMove || isHandEffectProcessing) return;
     const enemies = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
     const directions = [[0,1], [0,-1], [1,0], [-1,0]]; 
     let bestPlace = null, minDist = Infinity; 
@@ -511,6 +535,12 @@ function checkStuck(p) {
 
 // 1. 先に processExile を定義します（アロー関数形式を維持）
 const processExile = (tSlot) => {
+    // 【追加】タイマーが動いていればクリアして二重実行を防ぐ
+    if (autoProcessTimeout) {
+        clearTimeout(autoProcessTimeout);
+        autoProcessTimeout = null;
+    }
+
     if (!players || !players[turn]) return;
     const p = players[turn];
     
@@ -572,7 +602,12 @@ function handleHandClick(cardIndex, lockedCard = null) {
                     }
                     
                     addLog(`${p.name}が「${card.name}」を${sel[0].name}としてロック！`);
-                    processExile(tSlot);
+                    
+                    setTimeout(() => {
+                        isAutoProcessing = false; // フラグ解除
+                        processExile(tSlot);
+                        if (currentPhase === PHASE.LOCK && !winner) nextPhase();
+                    }, 1000);
                 }, false, null, null, null, p);
                 return;
             }
@@ -603,8 +638,19 @@ function handleHandClick(cardIndex, lockedCard = null) {
             
             addLog(`${p.name}が「${card.name}」をロック！`);
 
-            // 追放判定（一度きり）
-            processExile(slot);
+            // 【重要】演出時間を待って、フラグを解除し、次のフェイズへ
+            setTimeout(() => {
+                isAutoProcessing = false; // 自動処理ガードを解除
+                isAutoAction = false;     // 自動アクションフラグを掃除
+                
+                // 追放判定（この中で nextPhase() が呼ばれ、フェイズが移行する）
+                processExile(slot);
+                
+                // 万が一 processExile で移行しなかった場合のために念押し
+                if (currentPhase === PHASE.LOCK && !winner) {
+                    nextPhase();
+                }
+            }, 1200);
         });
 
     } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime) { 

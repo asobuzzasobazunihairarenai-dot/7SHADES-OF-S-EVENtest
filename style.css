@@ -1186,11 +1186,30 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 
 /* 2026/02/27 21:00 修正：モーダル内カード画像の巨大化対応 */
 .modal-large-card {
-    width: 260px !important;  /* プレイマットに近いサイズ感（約2倍） */
+    /* 1枚の時の基本サイズ */
+    width: 260px !important;
     height: 260px !important;
-    max-width: 70vw;         /* 画面からはみ出さないようガード */
+    max-width: 70vw;
     max-height: 70vw;
     margin: 0 auto;
+    transition: all 0.3s ease; /* サイズ変化を滑らかに */
+}
+
+/* 到達モーダルなどで複数枚並ぶ場合の親コンテナ設定 */
+#arrival-cards-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: nowrap; /* 折り返さず横に並べる */
+    gap: 10px;
+    width: 100%;
+    overflow-x: auto; /* 万が一入り切らない場合は横スクロール可能に */
+}
+
+/* 2枚以上ある時、個々のカードを自動縮小 */
+#arrival-cards-container:has(> :nth-child(2)) .modal-large-card {
+    width: 140px !important;  /* 2枚以上の時はサイズを落とす */
+    height: 140px !important;
 }
 
 /* flip-card-inner も親のサイズに追従するように修正 */
@@ -1198,3 +1217,4 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     width: 100% !important;
     height: 100% !important;
 }
+

@@ -483,6 +483,35 @@ function closeDiscardPile() {
  * 詳細確認モーダルの表示
  */
 function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false) { 
+    
+    // ★追加：自動処理(isAutoAction)がON かつ スキップ設定がONの場合、かつ実行アクション(onOk)がある場合
+    if (isAutoAction && isSkipSelectionOnAuto && onOk) {
+        // 条件チェック（使用不可のカードを自動で使わないようにするため、isPlayableの判定ロジックを一部先読み）
+        let isPlayable = true;
+        const p = players[turn];
+        if (card) {
+            const isLocking = (currentPhase === PHASE.LOCK && title.includes("ロック"));
+            const isMoving = title.includes("移動") || title.includes("接触");
+            const isReaction = (card.id === 22 || title.includes("確認") === false || title.includes("反撃"));
+            
+            if (!isReaction && !isLocking && !isMoving) {
+                if (typeof canPlayHandEffect === 'function') isPlayable = canPlayHandEffect(card, p);
+                if (card.id === 11 && p.viridianUsed) isPlayable = false;
+            }
+        }
+
+        if (isPlayable) {
+            addLog(`[Auto] ${title} を自動実行します`);
+            // 演出のために少し待機して実行
+            setTimeout(() => {
+                isHandEffectProcessing = true;
+                if (typeof hideHoverPreview === 'function') hideHoverPreview(true);
+                onOk();
+            }, 300);
+            return; // モーダルを表示せずに終了
+        }
+    }
+
     const modal = document.getElementById('detail-modal');
     if (!modal) return;
     
@@ -679,8 +708,8 @@ function closeDetailModal() {
  */
 function showSelectionModal(title, dummy, source, back, count, onComplete, isBlind = false, cancelCallback = null, autoBtnText = null, restrictedCells = null, actingPlayer = null) { 
     
-    // ★自動処理(isAutoAction)がONの場合のバイパス処理（強化版）
-    if (isAutoAction) {
+    // ★自動処理(isAutoAction)がON かつ スキップ設定がONの場合のみバイパス
+    if (isAutoAction && isSkipSelectionOnAuto) {
         addLog(`[Auto] ${title} を自動選択中...`);
 
         // 1. 有効な選択肢（disabledでないもの）を抽出
@@ -757,10 +786,11 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
     const createItemEl = (item) => {
         if(!item) return null;
         const el = document.createElement('div');
+        
+        // After: 常に 'selection-option' を付与することで、AIが handleTimeOut 経由でクリックできるようにします
         if (item.type === "PLAYER_SELECT") { 
-            el.className = `w-40 p-2 rounded border-2 border-gray-600 bg-gray-800 cursor-pointer hover:border-yellow-500 transition-all flex flex-col items-center shrink-0`; 
-            el.innerHTML = `<span class="text-white font-bold text-sm mb-1">${item.name}</span><div class="flex gap-0.5 justify-center" id="mini-locks-${item.id}"></div>`; 
-            const lockContainer = el.querySelector(`#mini-locks-${item.id}`); 
+            el.className = `selection-option w-40 p-2 rounded border-2 border-gray-600 bg-gray-800 cursor-pointer hover:border-yellow-500 transition-all flex flex-col items-center shrink-0`; 
+            el.innerHTML = `<span class="text-white font-bold text-sm mb-1">${item.name}</span><div class="flex gap-0.5 justify-center" id="mini-locks-${item.id}"></div>`;         const lockContainer = el.querySelector(`#mini-locks-${item.id}`); 
             const targetPl = players.find(pl => pl.id === item.id); 
             if (targetPl) {
                 LOCK_ORDER.forEach(color => { 
@@ -786,7 +816,9 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
         } else {
             let cardCls = isBlind ? back : (item.type === "ETERNAL" ? "eternal-card-face" : (item.bg || 'bg-gray-700'));
             let txtCls = (!isBlind && item.colorId === 'white' ? 'text-gray-800' : (item.colorId === 'black' ? 'text-gray-200' : 'text-white'));
-            el.className = `card-shape w-12 h-12 ${cardCls} border-2 border-gray-400 rounded cursor-pointer hover-zoom transition-all flex items-center justify-center relative shrink-0 overflow-hidden`;
+            
+            // After: カード要素にも確実に selection-option を付与
+            el.className = `selection-option card-shape w-12 h-12 ${cardCls} border-2 border-gray-400 rounded cursor-pointer hover-zoom transition-all flex items-center justify-center relative shrink-0 overflow-hidden`;
             
             if (!isBlind) {
                 const imgPath = item.image || (item.id ? `images/card_${item.id}.webp` : null);

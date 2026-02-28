@@ -437,7 +437,13 @@ function renderBoard() {
                 div.style.setProperty('--player-color', whimInfo.player.color.hex);
                 const label = document.createElement('div');
                 label.className = 'whim-label';
-                label.textContent = whimInfo.player.name;
+                
+                // After: 名前を最大3文字に制限。4文字以上の場合は末尾に ".." を付加して省略。
+                const originalName = whimInfo.player.name || "";
+                label.textContent = originalName.length > 3 
+                    ? originalName.substring(0, 3) + ".." 
+                    : originalName;
+                
                 div.appendChild(label);
             }
 
@@ -827,8 +833,17 @@ function updatePhaseIndicator() {
     else if (currentPhase === PHASE.MOVE) { document.getElementById('phase-lock').classList.add('passed'); document.getElementById('phase-hand').classList.add('passed'); document.getElementById('phase-move').classList.add('active'); } 
     
     if(actionsContainer) actionsContainer.classList.remove('hidden');
-    if(skipBtn) skipBtn.classList.toggle('hidden', selectionState.active || currentPhase === PHASE.MOVE); 
+
+    // After: 
+    // スキップボタンの非表示条件に「P1固定表示中 かつ P1以外のターン」を追加
+    const isForbiddenNonP1Action = isP1HandOnlyView && turn !== 0;
+    if(skipBtn) {
+        skipBtn.classList.toggle('hidden', selectionState.active || currentPhase === PHASE.MOVE || isForbiddenNonP1Action); 
+    }
+
     if(skipBtn && currentPhase !== PHASE.MOVE) skipBtn.textContent = currentPhase === PHASE.LOCK ? "ロックしない" : "ムーブへ"; 
+    
+    // (以下、stuckBtn や textEl の処理は変更なし)
     if(stuckBtn) stuckBtn.classList.toggle('hidden', selectionState.active || !(currentPhase === PHASE.MOVE && isStuck && !isPlacingCard && !p.baseMoveUsed)); 
     
     const anyAnytimeCard = players.some(pl => hands[pl.id] && hands[pl.id].some(c => c.handEffect?.anytime));

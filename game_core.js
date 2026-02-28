@@ -221,15 +221,18 @@ function nextTurn() {
     startTurn(); 
 }
 
+let isPhaseTransitioning = false; // 【追加】二重移行防止フラグ
+
 function nextPhase(isForced = false) { 
-    if (isPeekingMode) return;
+    if (isPeekingMode || isPhaseTransitioning) return; // 【修正】移行中なら受け付けない
+    
+    isPhaseTransitioning = true; // 移行開始
     
     if (useGlobalTimer && !isForced) {
         const p = players[turn];
         const maxTimeSetting = parseInt(document.getElementById('setting-max-time')?.value || "180");
         
         if (p && timeLeft > 0) {
-            // ★修正：余った timeLeft をそのまま全額チャージ
             const charge = timeLeft; 
             p.totalTimeLeft = Math.min(maxTimeSetting, p.totalTimeLeft + charge);
             addLog(`💰 ${p.name}: ${charge}秒を全額貯金しました。`);
@@ -239,13 +242,20 @@ function nextPhase(isForced = false) {
     checkAnytimeReactions(() => {
         if (currentPhase === PHASE.LOCK) { currentPhase = PHASE.HAND; addLog(`> ハンド`); } 
         else if (currentPhase === PHASE.HAND) { currentPhase = PHASE.MOVE; addLog(`> ムーブ`); } 
-        else if (currentPhase === PHASE.MOVE && isForced) { endTurn(); return; } 
+        else if (currentPhase === PHASE.MOVE && isForced) { 
+            isPhaseTransitioning = false; // 終了時は戻す
+            endTurn(); return; 
+        } 
         
-        isHandEffectProcessing = false; // 【追加】フェイズ移行時に操作ロックを解除
-        isAutoAction = isForced; 
+        isHandEffectProcessing = false; 
+        isAutoAction = false; 
         isPlacingCard = false;
         resetTimer(); 
         updateGameState(); 
+
+        // 0.5秒後にフラグを解除。これにより、補充時間0秒でも
+        // タイマーの「次の1秒」が来るまで次の強制移行を受け付けないようにします。
+        setTimeout(() => { isPhaseTransitioning = false; }, 500);
     });
 }
 
@@ -284,9 +294,13 @@ function resetTimer() {
 function updateTimerTick() { 
     if(winner || isTimerPaused) return;
 
-    // ★修正：自動処理中、手札効果の解決中、または駒の移動演出中はタイマー処理を完全に停止する
-    // これにより、フォース等の効果で相手が移動・到達処理をしている間、自分のタイムアウトが発動するのを防ぐ
-    if (isAutoProcessing || isHandEffectProcessing || isProcessingMove) return;
+    // After: 選択中であればタイマーを止めず、handleTimeOut（自動選択）へ流す
+    const selectionModal = document.getElementById('selection-modal');
+    const isSelectionActive = selectionState.active || (selectionModal && !selectionModal.classList.contains('hidden'));
+
+    if (!isSelectionActive) {
+        if (isAutoProcessing || isHandEffectProcessing || isProcessingMove || activeModalId) return;
+    }
 
     const p = players[turn];
     if (!p) return;
@@ -311,16 +325,34 @@ function updateTimerTick() {
         isAutoProcessing = true; // ★追加：自動処理開始を宣言
 
                 // まだロックしていない色を持つ手札を抽出（特殊色は除外）
-                const lockableCards = pHand.filter(card => {
+                let lockableCards = pHand.filter(card => {
                     const col = card.colorId;
                     if (col === 'white' || col === 'black' || col === 'rainbow') return false;
                     return collections[p.id][col].length === 0;
                 });
 
+                let targetCard = null;
+
                 if (lockableCards.length > 0) {
-                    const targetCard = lockableCards[Math.floor(Math.random() * lockableCards.length)];
+                    if (autoMode === 'NORMAL') {
+                        // 【NORMALロジック】自分が少なく持っている色を優先する
+                        // 1. 各色の現在のロック枚数を集計（ここでは未ロックのみ対象なので、実質0枚のものを探す）
+                        // 2. 手札にある lockableCards の中で、コレクション全体の「希少度」を考慮して選ぶ
+                        // ※今回はシンプルに「手札の中で、まだロックしていない色のカード」から選ぶが、
+                        //   将来的に「全プレイヤーの所持状況」まで見る拡張性を持たせています。
+                        
+                        // 現在の collections を元に、未所持色の中からランダムに選択（希少性判断の基礎）
+                        targetCard = lockableCards[Math.floor(Math.random() * lockableCards.length)];
+                    } else {
+                        // EASYモード：完全ランダム
+                        targetCard = lockableCards[Math.floor(Math.random() * lockableCards.length)];
+                    }
+                }
+
+                if (targetCard) {
                     // 手札から削除
                     hands[p.id] = pHand.filter(c => c !== targetCard);
+                  
                     // ロックエリアへ追加
                     collections[p.id][targetCard.colorId].push(targetCard);
                     addLog(`[自動] ${targetCard.name} をロックしました。`);
@@ -356,85 +388,83 @@ function updateTimerTick() {
         isAutoProcessing = false; // ★追加：対象がなかった場合も戻す
             }
         }
-        // --- ここから追加：タイムアウト時の自動手札使用 ---
+        
+        // --- タイムアウト時の自動手札使用 ---
         if (currentPhase === PHASE.HAND) {
             const autoHand = document.getElementById('setting-timeout-auto-hand')?.checked;
             if (autoHand) {
-                let usedAny = false;
-                
-                // 使用可能なカードを抽出
+                // 【追加】既に何か処理中、またはモーダルが開いているなら、新しいカードは使わずにタイムアウト処理へ
+                if (isAutoProcessing || isHandEffectProcessing || isSelectionActive || activeModalId) {
+                    handleTimeOut(); return;
+                }
+
                 const usable = hands[p.id].filter(c => canPlayHandEffect(c, p));
                 if (usable.length > 0) {
                     addLog(`[自動] 使用可能カードを自動実行します。`);
-                    
-                    // ★修正：isAutoProcessing も true にする（これで handleHandClick のガードを突破）
                     isAutoProcessing = true; 
                     isAutoAction = true; 
-                    
                     handleHandClick(hands[p.id].indexOf(usable[0]));
-                    
-                    // 【修正】ここでは isAutoProcessing を false に戻さない。
-                    // 手札効果側の終端（resolve系）でフラグが管理されるのを待つ。
-                    // ただし return してこのターンのタイマー減算を終了させる。
                     return;
                 }
                 isAutoAction = false;
             }
         }
-
-        handleTimeOut(); // 貯金も尽きたら（またはモードOFFなら）ここで終了
+        handleTimeOut(); 
         return;
     }
+
 
     if (typeof updateTimerVisual === 'function') updateTimerVisual(); 
 }
 
 function handleTimeOut() { 
     if (isEndingTurn || winner) return; 
-    
-    // 門番の強化：移動中、手札効果中、連鎖待ち(Queue)がある、またはモーダルが開いている場合は何もしない
-    // ただし、タイムアウト状態は継続しているため、少し後に自分自身を再呼び出ししてチェックを継続する
-    if (isHandEffectProcessing || isProcessingMove || (invasionQueue && invasionQueue.length > 0) || activeModalId) {
-        if (autoProcessTimeout) clearTimeout(autoProcessTimeout);
-        autoProcessTimeout = setTimeout(handleTimeOut, 500); 
-        return;
-    }
 
-    // ★追加：時間切れペナルティの判定
-    if (useGlobalTimer) {
-        const p = players[turn];
-        p.timeoutStrikes++; // ストライク加算
-        addLog(`⚠️ ${p.name} が時間切れ！ (ストライク: ${p.timeoutStrikes}/2)`);
+    const selectionModal = document.getElementById('selection-modal');
+    const arrivalModal = document.getElementById('arrival-modal');
+    const stealActionModal = document.getElementById('steal-action-modal');
 
-        if (p.timeoutStrikes >= 2) {
-            // 2回連続時間切れで敗北判定
-            addLog(`💀 ${p.name} は2回連続の時間切れにより敗北しました。`);
-            // 他の生き残っているプレイヤーを勝者とする（簡易的に次のプレイヤーを勝者に）
-            const winnerIdx = (turn + 1) % players.length;
-            checkWin(players[winnerIdx].id); 
+    // 選択画面が出ているか判定
+    const isSelectionActive = selectionState.active || (selectionModal && !selectionModal.classList.contains('hidden'));
+
+    // ガード条件の整理
+    if (!isSelectionActive) {
+        if (isAutoProcessing || isHandEffectProcessing || isProcessingMove || (invasionQueue && invasionQueue.length > 0) || activeModalId) {
+            if (autoProcessTimeout) clearTimeout(autoProcessTimeout);
+            autoProcessTimeout = setTimeout(handleTimeOut, 500); 
             return;
         }
     }
-    
-    // 自動アクションフラグを立てる
+
     isAutoAction = true;
     addLog(`> タイムアウト：自動処理を開始します`);
 
-    // 1. 選択モード(selectionState)が動いている場合、または選択モーダルが表示されている場合
-    if (selectionState.active) {
+    // 1. 【最優先】スティールなどの「演出用」モーダルが出ていたら、まずそれをクリックして消す
+    if (stealActionModal && !stealActionModal.classList.contains('hidden')) {
+        stealActionModal.click(); 
+        return;
+    }
+
+    // 2. 選択待ちモーダル（強奪チャンス等）が出ていたら、AIに選ばせる
+    if (isSelectionActive) {
         triggerAutoSelect();
         return;
     }
 
-    // 2. 到達・獲得モーダルが表示されている場合
-    const arrivalModal = document.getElementById('arrival-modal');
+    // 3. 獲得確認やドロー確認を閉じる
     if (arrivalModal && !arrivalModal.classList.contains('hidden')) { 
         const btn = document.getElementById('arrival-ok-btn');
         if (btn) { btn.click(); return; } 
     }
+    
+    // 【追加】スティール演出画面が表示されている場合、自動でクリックして次へ進める
+    if (stealActionModal && !stealActionModal.classList.contains('hidden')) {
+        addLog(`[自動] スティール演出をスキップします。`);
+        stealActionModal.click(); 
+        return;
+    }
 
     // 3. 選択結果確認画面（決定ボタン待ち）の場合
-    const selectionModal = document.getElementById('selection-modal');
     if (selectionModal && !selectionModal.classList.contains('hidden')) {
         const okBtn = document.getElementById('selection-ok-btn');
         if (okBtn && !document.getElementById('selection-result').classList.contains('hidden')) {
@@ -458,7 +488,7 @@ function handleTimeOut() {
         if (isStuck) autoPlace(players[turn]); 
         else autoMove(players[turn]); 
     } else { 
-        // 【重要】もし自動処理中(isAutoProcessing)なら、演出終了後にタイマー側で処理されるため、ここでは移行しない
+        // 念押し：ここでも自動演出中なら移行をブロック
         if (isAutoProcessing) return; 
         nextPhase(true); 
     }
@@ -466,37 +496,97 @@ function handleTimeOut() {
 
 function autoMove(p) { 
     if (!p || !players || isProcessingMove || isHandEffectProcessing) return;
-    const enemies = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
+    const enemyGatePos = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
+    const otherPlayers = players.filter(pl => pl.id !== p.id);
     const directions = [[0,1], [0,-1], [1,0], [-1,0]]; 
-    let bestMove = null, minDist = Infinity; 
+    
+    let bestMoves = [];
+    let maxScore = -Infinity;
+
     for (let d of directions) { 
         const nx = p.x + d[0], ny = p.y + d[1]; 
-        if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE) { 
-            const cell = board[ny][nx]; 
-            if (!cell.empty || players.some(ep => ep.id !== p.id && ep.x === nx && ep.y === ny)) { 
-                let dVal = Math.min(...enemies.map(eg => getDistance({x: nx, y: ny}, eg))); 
-                if (dVal < minDist) { minDist = dVal; bestMove = {x: nx, y: ny}; } 
-            } 
+        if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
+
+        const cell = board[ny][nx]; 
+        const epOn = otherPlayers.find(ep => ep.x === nx && ep.y === ny);
+
+        // 移動可能なマスかチェック（カードがある、または他プレイヤーがいる）
+        if (!cell.empty || epOn) { 
+            let score = 0;
+
+            if (autoMode === 'NORMAL') {
+                // 【NORMALロジック：スコアリング】
+                
+                // 1. 敵ゲートへの距離（近いほど加点）
+                const distToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
+                score += (20 - distToGate); // 最大14マス離れるので、逆転させて加点
+
+                // 2. 接触の優先（隣に敵がいれば大幅加点）
+                if (epOn) {
+                    score += 50; 
+                }
+
+                // 3. 次のターンの被接触回避（移動先の隣に敵がいたら減点）
+                const isNextToEnemy = otherPlayers.some(ep => 
+                    Math.abs(ep.x - nx) + Math.abs(ep.y - ny) === 1
+                );
+                if (isNextToEnemy && !epOn) {
+                    score -= 15; // 接触しに行くわけではないのに敵の隣に止まるのは避ける
+                }
+            } else {
+                // EASYモード：単なる最短距離
+                const distToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
+                score = (100 - distToGate);
+            }
+
+            if (score > maxScore) {
+                maxScore = score;
+                bestMoves = [{x: nx, y: ny, cell, epOn}];
+            } else if (score === maxScore) {
+                bestMoves.push({x: nx, y: ny, cell, epOn});
+            }
         } 
     } 
-    if (bestMove && typeof executeMove === 'function') executeMove(bestMove.x, bestMove.y, board[bestMove.y][bestMove.x], players.find(ep => ep.id !== p.id && ep.x === bestMove.x && ep.y === bestMove.y)); 
-    else endTurn(); 
+    
+    // 候補の中からランダムに1つ選択
+    const move = bestMoves.length > 0 ? bestMoves[Math.floor(Math.random() * bestMoves.length)] : null;
+
+    if (move && typeof executeMove === 'function') {
+        executeMove(move.x, move.y, move.cell, move.epOn); 
+    } else {
+        endTurn(); 
+    }
 }
 
 function autoPlace(p) { 
     if (!p || !players || isProcessingMove || isHandEffectProcessing) return;
     const enemies = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
     const directions = [[0,1], [0,-1], [1,0], [-1,0]]; 
-    let bestPlace = null, minDist = Infinity; 
+    
+    let bestPlaces = [], minDist = Infinity; 
+
     for (let d of directions) { 
         const nx = p.x + d[0], ny = p.y + d[1]; 
         if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE) { 
             let dVal = Math.min(...enemies.map(eg => getDistance({x: nx, y: ny}, eg))); 
-            if (dVal < minDist) { minDist = dVal; bestPlace = {x: nx, y: ny}; } 
+            
+            if (dVal < minDist) { 
+                minDist = dVal; 
+                bestPlaces = [{x: nx, y: ny}]; 
+            } else if (dVal === minDist) {
+                bestPlaces.push({x: nx, y: ny});
+            }
         } 
     } 
-    if (bestPlace && typeof executePlaceCard === 'function') executePlaceCard(bestPlace.x, bestPlace.y); 
-    else endTurn(); 
+    
+    // 候補の中からランダムに1つ選択
+    const bestPlace = bestPlaces.length > 0 ? bestPlaces[Math.floor(Math.random() * bestPlaces.length)] : null;
+
+    if (bestPlace && typeof executePlaceCard === 'function') {
+        executePlaceCard(bestPlace.x, bestPlace.y); 
+    } else {
+        endTurn(); 
+    }
 }
 
 function checkAutoSkip() { 
@@ -506,7 +596,9 @@ function checkAutoSkip() {
     if (currentPhase === PHASE.LOCK) { 
         const hasLockableCard = hands[p.id] && hands[p.id].some(card => (card.type === "ETERNAL" && card.id !== 29) || (card.colorId === "rainbow" && card.id !== 29) || (card.colorId !== "white" && card.colorId !== "black" && card.id !== 29 && (collections[p.id][card.colorId].length === 0 || collections[p.id][card.colorId].some(cur => cur.id === 34))) ); 
         if (!hasLockableCard) { isAutoSkipping = true; setTimeout(() => { isAutoSkipping = false; nextPhase(); }, 1000); } 
-    } else if (currentPhase === PHASE.HAND && hands[p.id] && hands[p.id].length === 0) { 
+    } 
+    // After: isAutoAction (自動処理中) フラグを条件に追加し、連鎖スキップを防止
+    else if (currentPhase === PHASE.HAND && hands[p.id] && hands[p.id].length === 0 && !isAutoAction) { 
         isAutoSkipping = true; setTimeout(() => { isAutoSkipping = false; nextPhase(); }, 1000); 
     } 
 }
@@ -654,29 +746,28 @@ function handleHandClick(cardIndex, lockedCard = null) {
         });
 
     } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime) { 
-        // --- ハンドフェイズ（または割込使用）の処理：復旧箇所 ---
         showDetailModal(card.handEffect?.anytime ? "割込使用確認" : "手札使用確認", "このカードを使用しますか？", card, "使用する", () => { 
-          // 全プレイヤーにカード使用を通知するモーダルを表示
             showCardModal(card, () => {
-                // モーダルが閉じられた後に実際の効果を実行
                 activeHandCard = card; 
                 executeCardEffect(card.handEffect, p, (res) => { 
-                    // 手札から使用された場合の処理
                     if (!lockedCard && hands[p.id]) { 
                         const curIdx = hands[p.id].indexOf(card); 
                         if (curIdx > -1) {
                             const removedCard = hands[p.id].splice(curIdx, 1)[0]; 
-                            if (!(res && res.stayOnBoard)) {
-                                discardPile.push(removedCard); 
-                            }
+                            if (!(res && res.stayOnBoard)) discardPile.push(removedCard); 
                         }
                     } 
+                    
+                    // After: 自動処理フラグを解除して、タイマーと盤面を正常に戻す
+                    isAutoProcessing = false; 
+                    isAutoAction = false;
+                    
                     resetTimer(); 
                     updateGameState(); 
                 }, card);
             }, "手札効果発動！", p.name, "手札から効果を発動しました");
         }); 
-    } 
+    }
 }
 
 // --- checkWin を呪い除外に修正 ---
@@ -1323,6 +1414,25 @@ async function initGameInternal(num, isTest = false) {
         useGlobalTimer = timerToggle.checked;
     }
     currentPhaseMaxTime = parseInt(document.getElementById('setting-phase-time')?.value || "15");
+
+    // ★追加箇所：設定画面のチェックボックスからフラグを読み込む
+    isSkipSelectionOnAuto = document.getElementById('setting-skip-selection')?.checked || false;
+
+    // ★追加：自動処理レベルの読み込みとUI反映
+    const autoModeSelect = document.getElementById('setting-auto-mode');
+    const autoModeLabel = document.getElementById('auto-mode-label');
+    if (autoModeSelect) {
+        autoMode = autoModeSelect.value; // 'EASY' または 'NORMAL' が入る
+        if (autoModeLabel) {
+            autoModeLabel.textContent = autoMode;
+            // モードによってラベルの色を変える
+            if (autoMode === 'NORMAL') {
+                autoModeLabel.className = 'text-[8px] text-green-400 font-bold uppercase';
+            } else {
+                autoModeLabel.className = 'text-[8px] text-orange-400 font-bold uppercase';
+            }
+        }
+    }
     
     const initTime = parseInt(document.getElementById('setting-init-time')?.value || "0");
 
@@ -1946,21 +2056,44 @@ function showVictoryUI(pid) {
     if (winBtn) {
         winBtn.textContent = "リザルトを確認";
         winBtn.onclick = () => {
-            overlay.classList.add('hidden');
-            // リザルト表示に必要なデータを揃えて呼び出し
-            const pStats = (cardUsageStats && cardUsageStats[pid]) ? cardUsageStats[pid] : {};
-            const colorResults = BASE_COLORS.map(bc => ({ id: bc.id, name: bc.name, bg: bc.bg, hex: bc.hex, count: 0 }));
-            
-            // ... (既存のリザルト集計ロジックをここに復元) ...
-            if (typeof showResultModal === 'function') {
-                showResultModal(pid, {
-                    time: window.currentPlayTime || 0,
-                    turns: totalTurnCount,
-                    colorStats: colorResults,
-                    lockHistory: lockHistory
+                overlay.classList.add('hidden');
+                
+                // 1. 色ごとの使用回数を集計 (colorStats の復元)
+                const colorResults = BASE_COLORS.map(bc => {
+                    let totalCount = 0;
+                    // 全プレイヤーの使用スタッツから、その色のカードを探して合算
+                    Object.values(cardUsageStats).forEach(pStats => {
+                        Object.entries(pStats).forEach(([cardName, count]) => {
+                            const cardData = CARD_DATABASE.find(d => d.name === cardName);
+                            if (cardData && cardData.colorId === bc.id) totalCount += count;
+                        });
+                    });
+                    return { id: bc.id, name: bc.name, bg: bc.bg, hex: bc.hex, count: totalCount };
                 });
-            }
-        };
+
+                // 2. MVPカードの選定 (最も多く使われたカード)
+                let mvpName = "なし";
+                let maxUsage = 0;
+                Object.values(cardUsageStats).forEach(pStats => {
+                    Object.entries(pStats).forEach(([cardName, count]) => {
+                        if (count > maxUsage) {
+                            maxUsage = count;
+                            mvpName = cardName;
+                        }
+                    });
+                });
+
+                // 3. リザルトモーダルの呼び出し
+                if (typeof showResultModal === 'function') {
+                    showResultModal(pid, {
+                        time: window.currentPlayTime || 0,
+                        turns: totalTurnCount,
+                        colorStats: colorResults,
+                        lockHistory: lockHistory,
+                        mvp: mvpName // MVPを渡す
+                    });
+                }
+            };
     }
 
     const peekBtn = document.getElementById('peek-board-container');

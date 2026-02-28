@@ -23,6 +23,23 @@ function canPlayHandEffect(card, p) {
 
     // 「1ターンに1度」制限があるカードID（11:ヴァーディアンなど）の判定
     const oncePerTurnIDs = [11]; 
+
+    // ★追加：NORMALモード時の温存ロジック
+    if (typeof autoMode !== 'undefined' && autoMode === 'NORMAL') {
+        const col = card.colorId;
+        // 7色の通常色（赤・橙・黄・緑・青・桃・紫）が対象
+        const isBasicColor = ['red', 'orange', 'yellow', 'green', 'blue', 'pink', 'purple'].includes(col);
+        
+        if (isBasicColor) {
+            const slot = collections[p.id][col];
+            // まだその色がロックされていない（スロットが空、または呪いのみ）場合は温存する
+            const isNotLocked = !slot || slot.length === 0 || (slot.length === 1 && slot[0].id === 34);
+            if (isNotLocked) {
+                return false; // ロック用に取っておくため、自動では使わない
+            }
+        }
+    }
+
     if (oncePerTurnIDs.includes(card.id)) {
         if (usedOnceEffectsThisTurn.includes(card.id)) return false;
     }
@@ -660,12 +677,12 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }
 
     else if (act.type === 'rainbow_fragment_choice') {
-        const pHand = hands[p.id] || [];
+    const pHand = hands[p.id] || [];
         // 修正：手札にある「なないろの欠片」の総数をカウント
-        const fragsInHand = pHand.filter(c => Number(c.id) === 29);
-        const canDouble = fragsInHand.length >= 2; // 自分を含めて2枚以上必要
+        const otherFragsCount = pHand.filter(c => Number(c.id) === 29 && c !== contextCard).length;
+    const canDouble = (otherFragsCount + 1) >= 2; 
 
-        const startFlow = () => {
+    const startFlow = () => {
             const choiceModal = document.createElement('div');
             choiceModal.className = "fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4";
             choiceModal.innerHTML = `
@@ -689,12 +706,13 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             // --- ここから追加：自動処理時の挙動 ---
             if (isAutoAction) {
                 setTimeout(() => {
-                    // --- 修正箇所：ボタンをクリックする「前」にフラグをオフにする ---
-                    isAutoAction = false; 
+                    // isAutoAction = false;  <-- ここを削除（外科手術的削除）
                     if (canDouble) {
-                        choiceModal.querySelector('#btn-choice-double').click();
+                        const btnDouble = choiceModal.querySelector('#btn-choice-double');
+                        if (btnDouble) btnDouble.click();
                     } else {
-                        choiceModal.querySelector('#btn-choice-single').click();
+                        const btnSingle = choiceModal.querySelector('#btn-choice-single');
+                        if (btnSingle) btnSingle.click();
                     }
                 }, 600);
             }

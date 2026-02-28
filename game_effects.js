@@ -59,8 +59,8 @@ function canPlayHandEffect(card, p) {
                 const slot = collections[pl.id][col.id];
                 if (slot && slot.length > 0) {
                     const topC = slot[slot.length - 1];
-                    // エターナル、ファースト、および白・黒（呪い等）は対象外
-                    return topC.type !== 'ETERNAL' && topC.type !== 'FIRST' && topC.colorId !== 'white' && topC.colorId !== 'black';
+                    // エターナル、ファースト、ブースト、および白・黒（呪い等）は対象外
+                    return topC.type !== 'ETERNAL' && topC.type !== 'FIRST' && topC.type !== 'BOOST' && topC.colorId !== 'white' && topC.colorId !== 'black';
                 }
                 return false;
             });
@@ -75,7 +75,8 @@ function canPlayHandEffect(card, p) {
                 const slot = collections[opp.id][col.id];
                 if (slot && slot.length > 0) {
                     const topCard = slot[slot.length - 1];
-                    return topCard.type !== 'ETERNAL' && topCard.type !== 'FIRST' && topCard.colorId !== 'white' && topCard.colorId !== 'black';
+                    // エターナル、ファースト、ブースト、および白・黒は対象外
+                    return topCard.type !== 'ETERNAL' && topCard.type !== 'FIRST' && topCard.type !== 'BOOST' && topCard.colorId !== 'white' && topCard.colorId !== 'black';
                 }
                 return false;
             });
@@ -1257,8 +1258,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 if (slot && slot.length > 0) {
                     total += slot.length;
                     const top = slot[slot.length - 1];
-                    // ETERNAL, FIRST, 白, 黒 以外をカウント
-                    if (top.type !== 'ETERNAL' && top.type !== 'FIRST' && top.colorId !== 'white' && top.colorId !== 'black') targetable++;
+                    // ETERNAL, FIRST, BOOST, 白, 黒 以外をカウント
+                    if (top.type !== 'ETERNAL' && top.type !== 'FIRST' && top.type !== 'BOOST' && top.colorId !== 'white' && top.colorId !== 'black') targetable++;
                 }
             });
             return { id: pl.id, name: pl.name, total, targetable };
@@ -1284,7 +1285,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     const slot = collections[victim.id][col.id];
                     if (slot && slot.length > 0) {
                         const top = slot[slot.length - 1];
-                        if (top.type !== 'ETERNAL' && top.type !== 'FIRST' && top.colorId !== 'white' && top.colorId !== 'black') {
+                        if (top.type !== 'ETERNAL' && top.type !== 'FIRST' &&top.type !== 'BOOST' && top.colorId !== 'white' && top.colorId !== 'black') {
                             victimLocks.push(top);
                         }
                     }

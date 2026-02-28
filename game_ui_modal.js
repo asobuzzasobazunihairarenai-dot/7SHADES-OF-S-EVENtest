@@ -654,12 +654,21 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false) {
 }
 
 function closeDetailModal() { 
-    document.getElementById('detail-modal').classList.add('hidden'); 
+    const modal = document.getElementById('detail-modal');
+    if (modal) modal.classList.add('hidden');
+    
     tempAction = null; 
     
-    // 【追加】拡大画面が開いたままなら閉じる
+    // 拡大画面（ホバープレビュー）を確実に閉じる
     if (typeof hideHoverPreview === 'function') {
-        hideHoverPreview(true);
+        // 引数なしで呼び出し、かつ念のためDOMを直接操作して確実に消す
+        hideHoverPreview();
+    }
+    
+    const previewEl = document.getElementById('hover-preview');
+    if (previewEl) {
+        previewEl.classList.add('hidden');
+        previewEl.style.display = 'none'; // 強制的に非表示
     }
     
     managePeekUI(false); 
@@ -2275,4 +2284,103 @@ function showLockStealModal(thief, victim, onComplete) {
             if (onComplete) onComplete();
         }, 800);
     }, 3000); // 3秒間表示
+}
+
+/**
+ * 勝利確定時のズーム・カメラワーク演出を実行する
+ * @param {number} winnerId 勝利したプレイヤーのID
+ * @param {Function} onComplete 演出終了後のコールバック
+ */
+/**
+ * 勝利確定時のズーム・カメラワーク演出を実行する
+ */
+function performVictoryCameraWork(winnerId, onComplete) {
+    const appEl = document.getElementById('app');
+    if (!appEl) return;
+
+    // 0. 暗転レイヤー
+    const overlay = document.createElement('div');
+    overlay.className = 'final-v-overlay';
+    appEl.appendChild(overlay);
+
+    // 1. 振動（エラー防止のため存在チェック）
+    if (typeof triggerHeartbeatHaptic === 'function') triggerHeartbeatHaptic();
+
+    // 2. 代表して赤のスロットをターゲットに
+    const slotEl = document.getElementById(`p${winnerId}-slot-red`);
+    let rotate = 0;
+    if (winnerId === 2) rotate = 180;
+    else if (winnerId === 3) rotate = 90;
+    else if (winnerId === 4) rotate = 270;
+
+    if (slotEl) {
+        const rect = slotEl.getBoundingClientRect();
+        const appRect = appEl.getBoundingClientRect();
+        const slotCenterX = rect.left - appRect.left + rect.width / 2;
+        const slotCenterY = rect.top - appRect.top + rect.height / 2;
+        const moveX = (appRect.width / 2) - slotCenterX;
+        const moveY = (appRect.height / 2) - slotCenterY;
+
+        requestAnimationFrame(() => {
+            appEl.classList.add('final-v-zoom-active');
+            overlay.classList.add('active');
+            appEl.style.transformOrigin = `${slotCenterX}px ${slotCenterY}px`;
+            // PCでの見切れ防止のため倍率を 1.5倍 に設定
+            appEl.style.transform = `translate(${moveX}px, ${moveY}px) scale(1.5) rotate(${rotate}deg)`;
+            
+            BASE_COLORS.forEach(col => {
+                const s = document.getElementById(`p${winnerId}-slot-${col.id}`);
+                if (s) s.classList.add('victory-slot-highlight');
+            });
+        });
+    }
+
+    // 3. 衝撃波とバナー（2.5秒後）
+    setTimeout(() => {
+        const nova = document.createElement('div');
+        nova.className = 'rainbow-nova';
+        nova.style.top = '50%';
+        nova.style.left = '50%';
+        document.body.appendChild(nova);
+        
+        requestAnimationFrame(() => nova.classList.add('nova-animate'));
+
+        const winner = players.find(pl => pl.id === winnerId);
+        const banner = document.createElement('div');
+        banner.className = 'victory-banner';
+        
+        // 【修正】いかなるプレイヤーが勝利しても、バナー自体は回転させず常に正面(0deg)を向かせる
+        const finalTransform = `translate(-50%, -50%) scale(1.2) rotate(0deg)`;
+        banner.style.transform = finalTransform;
+        
+        banner.innerHTML = `
+            <div class="text-5xl font-black italic text-yellow-400 drop-shadow-[0_4px_10px_rgba(0,0,0,1)] mb-4">WINNER!!</div>
+            <div class="flex flex-col items-center">
+                <img src="${winner.icon}" class="w-32 h-32 rounded-full border-4 border-yellow-400 shadow-2xl mb-4 bg-gray-900">
+                <div class="text-3xl font-bold text-white drop-shadow-lg">${winner.name}</div>
+            </div>
+        `;
+        document.body.appendChild(banner);
+        
+        setTimeout(() => {
+            banner.style.opacity = "1";
+            // ここも 0deg で固定
+            banner.style.transform = `translate(-50%, -50%) scale(1.2) rotate(0deg)`;
+        }, 50);
+
+        setTimeout(() => {
+            if (nova) nova.remove();
+            if (banner) banner.remove(); 
+            
+            // ★重要：盤面全体（#app）の回転・拡大・マージンを完全に消去して標準状態に戻す
+            appEl.style.transform = "none";
+            appEl.style.transformOrigin = "center";
+            appEl.classList.remove('final-v-zoom-active');
+            const ov = document.querySelector('.final-v-overlay');
+            if (ov) ov.remove();
+
+            // 演出が完全に終わってから、次の処理（リザルト表示）へ
+            if (onComplete) onComplete();
+        }, 3000); // 演出をしっかり見せるため3秒確保
+    }, 2500);
 }

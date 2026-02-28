@@ -24,10 +24,20 @@ function injectGuardLayer(parent) {
         guard.style.zIndex = '90';
         parent.appendChild(guard);
         
-        // 【重要】ガード層をクリックした時、親要素（カード全体）のクリックイベントを発火させる
         guard.addEventListener('click', (e) => {
-            // ダブルタップ判定（attachHoverEvents側）を邪魔しない程度に親へ流す
+            // シングルクリックはそのまま親に流す（遅延なしで快適に動作）
             parent.click();
+        });
+
+        // 右クリックでカード拡大表示
+        guard.addEventListener('contextmenu', (e) => {
+            e.preventDefault(); // ブラウザ標準の右クリックメニューを禁止
+            e.stopPropagation();
+
+            const cardData = parent.__cardData;
+            if (cardData && typeof showCardModal === 'function') {
+                showCardModal(cardData);
+            }
         });
     }
     return guard;
@@ -45,7 +55,17 @@ function attachHoverEvents(el, card, isForceMobile = false) {
     const guard = injectGuardLayer(el);
     const target = guard || el;
 
-    target.oncontextmenu = (e) => { e.preventDefault(); return false; };
+    // 右クリック（コンテキストメニュー）で拡大表示を実行
+    target.oncontextmenu = (e) => { 
+        e.preventDefault(); 
+        e.stopPropagation();
+        // スマホのダブルタップ時と同じ「拡大プレビュー」を呼び出します
+        // 第3引数に true を渡すことで、マウスでも「スマホ風の拡大固定表示」を行います
+        if (typeof showHoverPreview === 'function') {
+            showHoverPreview(null, card, true);
+        }
+        return false; 
+    };
 
     // 既存の onclick は el.onclick で設定されているため、それを一度無効化して制御下に置きます
     const originalOnClick = el.onclick;
@@ -114,19 +134,86 @@ function attachHoverEvents(el, card, isForceMobile = false) {
 }
 
 // --- showHoverPreview も修正（引数追加に対応） ---
+/**
+ * 2026/02/28 修正
+ * 閉じるボタンが反応しない問題を解決するため、ボタンに直接クリックイベントを再設定。
+ */
 function showHoverPreview(e, card, isForceMobile = false) {
     if(!card || hoverTemporarilyDisabled) return;
     const preview = document.getElementById('hover-preview'), 
           previewBox = document.getElementById('hover-preview-box'),
           charEl = document.getElementById('hover-char'), 
-          nameEl = document.getElementById('hover-name'),
-          closeBtn = document.getElementById('close-preview-btn');
+          nameEl = document.getElementById('hover-name');
     
-    if(!preview || !previewBox || !closeBtn) return;
+    if(!preview || !previewBox) return;
 
-    // 前の情報を完全にクリア
+    // --- 【外科手術】既存のボタンを完全に削除して作り直す ---
+    let oldBtn = document.getElementById('close-preview-btn');
+    if (oldBtn) oldBtn.remove();
+
+    const closeBtn = document.createElement('div');
+    closeBtn.id = 'close-preview-btn';
+    // 丸の中にバツ印のデザイン
+    closeBtn.innerHTML = '×';
+    
+    // ボタンのスタイル（丸型・バツ印）
+    Object.assign(closeBtn.style, {
+        position: 'absolute',
+        bottom: '30px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: '60px',
+        height: '60px',
+        backgroundColor: '#ef4444', // 赤色
+        color: 'white',
+        fontSize: '32px',
+        fontWeight: 'bold',
+        display: 'none', // 初期は非表示
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: '50%', // 正円
+        border: '3px solid white',
+        boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+        cursor: 'pointer',
+        zIndex: '20000',
+        pointerEvents: 'auto'
+    });
+
+    // クリックイベントを確実に登録
+    closeBtn.onclick = (event) => {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        // コンソールログで動作確認ができるようにします（不要なら消してください）
+        console.log("Close button clicked");
+        
+        // 全身全霊で閉じる
+        hideHoverPreview(true);
+        
+        // 念押し：親要素を物理的に隠す
+        preview.classList.add('hidden');
+        preview.style.display = 'none';
+        return false;
+    };
+
+    // z-index をさらに引き上げ（ブラウザのいかなる要素よりも前へ）
+    closeBtn.style.zIndex = "99999";
+
+    preview.appendChild(closeBtn);
+
+    preview.appendChild(closeBtn);
+    // --------------------------------------------------
+
+    // 親要素のレイアウト設定
+    preview.style.display = "flex";
+    preview.style.flexDirection = "column";
+    preview.style.alignItems = "center";
+    preview.style.justifyContent = "center";
+
+    // 情報クリアと画像設定
     previewBox.style.backgroundImage = 'none';
-    previewBox.style.backgroundColor = '#111827'; // 暗い色で塗りつぶし
+    previewBox.style.backgroundColor = '#111827'; 
     charEl.textContent = ""; 
     nameEl.textContent = "";
     nameEl.classList.add('hidden');
@@ -144,20 +231,23 @@ function showHoverPreview(e, card, isForceMobile = false) {
 
     preview.classList.remove('hidden');
 
-    // PCかスマホかの判定（isForceMobile が true の場合は強制的にスマホ表示）
     const isMouse = (e !== null && !window.matchMedia('(pointer: coarse)').matches && !isForceMobile);
 
     if (isMouse) {
         preview.classList.add('pointer-events-none'); 
-        closeBtn.classList.add('hidden');
+        preview.style.pointerEvents = "none";
+        closeBtn.style.display = 'none';
         updatePreviewPosition(e);
     } else {
+        // 右クリック拡大またはスマホ時のみ表示・有効化
         preview.classList.remove('pointer-events-none');
+        preview.style.pointerEvents = "auto";
+        
         previewBox.style.left = '50%';
         previewBox.style.top = '50%';
-        previewBox.style.transform = 'translate(-50%, -50%) scale(1.1)';
-        closeBtn.classList.remove('hidden');
-        closeBtn.classList.add('animate-slide-up');
+        previewBox.style.transform = 'translate(-50%, -50%) scale(1.0)';
+        
+        closeBtn.style.display = 'flex'; // ここで表示
     }
 }
 
@@ -178,14 +268,22 @@ function hideHoverPreview(fromTap = false) {
     const el = document.getElementById('hover-preview');
     if(!el) return;
 
+    // クラスだけでなく、style属性で物理的に消去
     el.classList.add('hidden'); 
-    isLongPressActive = false; 
+    el.style.display = 'none'; 
+    el.style.pointerEvents = "none"; 
+    
+    // 拡大中のボックスもリセット
+    const box = document.getElementById('hover-preview-box');
+    if(box) box.style.pointerEvents = "none";
 
-    // 重要：閉じた瞬間に「今閉じたばかり」というフラグを立てる
+    isLongPressActive = false; 
+    
+    // 一時的にホバーを無効化（閉じた直後に指が触れて再発火するのを防ぐ）
     hoverTemporarilyDisabled = true;
     setTimeout(() => { 
         hoverTemporarilyDisabled = false; 
-    }, 500); // 0.5秒間は再表示を禁止して混線を防ぐ
+    }, 500);
 }
 
 function generateUI() {
@@ -228,7 +326,7 @@ function generateUI() {
         // 修正箇所：手札枚数の前にプレイヤーアイコン(icon)を追加
         // 重複を避けるため、名前以外の情報は renderStatus で動的に生成するように変更
         const infoHTML = `
-            <div class="flex ${isVertical ? 'flex-col' : 'flex-row'} items-center gap-1 text-[8px] justify-center relative">
+            <div class="flex ${isVertical ? 'flex-col' : 'flex-row'} items-center gap-1 text-[12px] justify-center relative">
                 <span class="font-bold text-gray-300">${p.name}</span>
             </div>
             <div id="p${p.id}-rights" class="flex gap-0.5 mt-0.5 items-center justify-center"></div>`;
@@ -496,7 +594,8 @@ function renderStatus() {
 
             // 2. 手札枚数の追加
             const handInfo = document.createElement('div');
-            handInfo.className = "flex items-center text-[10px] font-bold text-gray-300 mr-1";
+            //ステータスエリアの手札枚数のフォントサイズ
+            handInfo.className = "flex items-center text-[12px] font-bold text-gray-300 mr-1";
             const handCount = hands[p.id] ? hands[p.id].length : 0;
             handInfo.innerHTML = `
              <div class="w-4 h-4 mr-1 border border-gray-500 rounded-[2px] overflow-hidden shadow-sm opacity-80" 
@@ -563,7 +662,8 @@ function renderStatus() {
                     slotEl.style.backgroundSize = 'cover';
                     slotEl.innerHTML = ""; 
                 } else {
-                    slotEl.innerHTML = `<span class="font-bold ${txtCls} z-10" style="font-size: 6px;">${topC.name[0]}</span>`;
+                    // 【修正】Card -> slotEl に直し、サイズを14pxに
+                    slotEl.innerHTML = `<span class="font-bold ${txtCls} z-10" style="font-size: 14px;">${topC.name[0]}</span>`;
                 }
                 if (slotCards.length > 1) { 
                     const numBadge = document.createElement('div'); 

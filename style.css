@@ -259,7 +259,8 @@ body {
     white-space: nowrap;
     z-index: 100;
     text-shadow: 0 0 6px rgba(0,0,0,1), 0 0 2px rgba(0,0,0,1);
-    font-size: 10px;
+    /* ステータスエリアのプレイヤー名のフォントサイズ */
+    font-size: 16px !important;
     font-weight: bold;
     color: #fff;
     pointer-events: none;
@@ -270,8 +271,9 @@ body {
     gap: 4px;
 }
 
-.area-top .player-area-box > div:first-child { top: -20px; left: 50%; transform: translateX(-50%); }
-.area-bottom .player-area-box > div:first-child { bottom: -20px; left: 50%; transform: translateX(-50%); }
+/* ステータスエリアの位置調整 */
+.area-top .player-area-box > div:first-child { top: -25px; left: 50%; transform: translateX(-50%); }
+.area-bottom .player-area-box > div:first-child { bottom: -25px; left: 50%; transform: translateX(-50%); }
 .area-left .player-area-box > div:first-child { left: -30px; top: 50%; transform: translateY(-50%) rotate(90deg); }
 .area-right .player-area-box > div:first-child { right: -30px; top: 50%; transform: translateY(-50%) rotate(-90deg); }
 
@@ -504,7 +506,7 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 
     /* 縮小に伴い、カード枚数などのテキストが重ならないよう調整 */
     .player-area-box > div:first-child {
-        font-size: 8px; /* 文字を少し小さく */
+        font-size: 14px !important; /* 強制的に14pxにする */
     }
 }
 
@@ -1218,3 +1220,72 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     height: 100% !important;
 }
 
+/* --- 最終ロック演出：ズーム・カメラワーク --- */
+.final-v-zoom-active {
+    transition: transform 2.5s cubic-bezier(0.4, 0, 0.2, 1), filter 2.0s ease !important;
+    pointer-events: none;
+    /* PCで見切れるのを防ぐため、親のbodyで溢れた分を隠す */
+    overflow: hidden !important;
+}
+
+/* ズーム時の背景暗転用レイヤー */
+.final-v-overlay {
+    position: fixed;
+    inset: 0;
+    background: black;
+    opacity: 0;
+    z-index: 500;
+    pointer-events: none;
+    transition: opacity 2.0s ease;
+}
+
+.final-v-overlay.active {
+    opacity: 0.7;
+}
+
+/* 勝利スロットへの強調（後ほどJSで動的に制御） */
+.victory-slot-highlight {
+    z-index: 1001 !important;
+    box-shadow: 0 0 50px rgba(255, 255, 255, 0.8), 0 0 20px rgba(250, 204, 21, 1) !important;
+    transition: box-shadow 1s ease;
+}
+
+/* --- 勝利の衝撃波：レインボー・ノヴァ --- */
+.rainbow-nova {
+    position: fixed;
+    pointer-events: none;
+    border-radius: 50%;
+    border: 8px solid white;
+    box-shadow: 0 0 20px #f00, 0 0 40px #ff0, 0 0 60px #0f0, 0 0 80px #0ff, 0 0 100px #00f;
+    opacity: 0;
+    z-index: 2000;
+    transform: translate(-50%, -50%) scale(0);
+}
+
+@keyframes nova-expand {
+    0% { transform: translate(-50%, -50%) scale(0); opacity: 1; border-width: 20px; }
+    100% { transform: translate(-50%, -50%) scale(10); opacity: 0; border-width: 0px; }
+}
+
+.nova-animate {
+    animation: nova-expand 1.5s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+
+/* 勝利メッセージのスタイル */
+.victory-banner {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 3000;
+    opacity: 0;
+    text-align: center;
+    width: 90%;
+    pointer-events: none;
+    /* transformはJSで制御するため、opacityのみアニメーションさせる */
+    transition: opacity 0.8s ease;
+}
+
+.victory-banner.show {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+}

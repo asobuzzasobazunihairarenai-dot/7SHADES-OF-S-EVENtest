@@ -132,6 +132,12 @@ function triggerLockEffect(playerId, colorId) {
         playSE('se_lock_success.mp3'); 
     }
 
+    // 外科手術的修正：アニメーション開始と同時にステータス（ロックエリア）を再描画する
+    // これにより、光る演出と同時にカードがスロットにハマったように見えます
+    if (typeof renderStatus === 'function') {
+        renderStatus();
+    }
+
     isAutoProcessing = true;
 
     setTimeout(() => {
@@ -353,4 +359,22 @@ function updateSEVolumeFromSlider(valStr) {
     localStorage.setItem('shades_se_volume', valStr);
     // テスト再生（動作確認用）
     playSE('se_arrival_trigger.mp3'); 
+}
+
+/**
+ * デバイスを振動させる（ハプティクスフィードバック）
+ * @param {number|number[]} pattern 振動時間(ms)またはパターン [振動, 休止, 振動...]
+ */
+function triggerHaptic(pattern = 50) {
+    if (typeof window.navigator.vibrate === 'function') {
+        window.navigator.vibrate(pattern);
+    }
+}
+
+/**
+ * 鼓動のような二段振動（ドックン）
+ */
+function triggerHeartbeatHaptic() {
+    // 60ms振動 - 100ms休止 - 150ms振動
+    triggerHaptic([60, 100, 150]);
 }

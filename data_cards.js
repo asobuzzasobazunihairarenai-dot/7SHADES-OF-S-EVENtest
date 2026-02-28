@@ -62,6 +62,14 @@ const CARD_DATABASE = [
     { id: 32, name: "いろ落ちガエル", colorId: "black", type: "NORMAL", arrival: "全員手札全捨て。最少ロック者へこのカードを渡す。", arrivalEffect: { action: { type: 'frog_arrival' } }, hand: "最多ロック者はロックを1枚捨てる。自身は手札をすべて捨てる。このカードを捨てる。", handEffect: { action: { type: 'frog_hand' } } },
     { id: 33, name: "強欲なパレット", colorId: "black", type: "NORMAL", arrival: "手札全捨て。", arrivalEffect: { action: { type: 'discard_all_hand' } }, hand: "【いつでも可】色を1色宣言。相手全員は「宣言色の手札1枚を渡す」か「手札3枚捨てる」か選ぶ。", handEffect: { action: { type: 'greedy_palette_hand' }, anytime: true } },
     { id: 34, name: "にじいろの呪い", colorId: "black", type: "NORMAL", arrival: "空きスロットへ自動ロック。2枚ロックで追放。", arrivalEffect: { action: { type: 'rainbow_curse_logic' } }, hand: "最多ロック者1名へ呪いを押し付ける。このカードを捨てる。", handEffect: { action: { type: 'rainbow_curse_hand' } } },
+
+    { id: "B1", name: "赤のブーストカード", colorId: "red", type: "BOOST", arrival: "-", hand: "-", arrivalEffect: null, handEffect: null },
+    { id: "B2", name: "橙のブーストカード", colorId: "orange", type: "BOOST", arrival: "-", hand: "-", arrivalEffect: null, handEffect: null },
+    { id: "B3", name: "黄のブーストカード", colorId: "yellow", type: "BOOST", arrival: "-", hand: "-", arrivalEffect: null, handEffect: null },
+    { id: "B4", name: "緑のブーストカード", colorId: "green", type: "BOOST", arrival: "-", hand: "-", arrivalEffect: null, handEffect: null },
+    { id: "B5", name: "青のブーストカード", colorId: "blue", type: "BOOST", arrival: "-", hand: "-", arrivalEffect: null, handEffect: null },
+    { id: "B6", name: "桃のブーストカード", colorId: "pink", type: "BOOST", arrival: "-", hand: "-", arrivalEffect: null, handEffect: null },
+    { id: "B7", name: "紫のブーストカード", colorId: "purple", type: "BOOST", arrival: "-", hand: "-", arrivalEffect: null, handEffect: null }
 ];
 
 

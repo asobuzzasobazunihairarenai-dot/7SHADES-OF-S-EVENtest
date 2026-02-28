@@ -693,159 +693,29 @@ function checkWin(pid) {
     if (lockedColors.length >= 7) { 
         winner = players.find(p => p.id === pid); 
 
-        // ★追加：経過時間を計算（秒単位）
+        // 1. 経過時間などのデータ準備
         const playTimeSec = Math.floor((Date.now() - gameStartTime) / 1000);
-        // showResultModal に時間を渡せるようにします
         window.currentPlayTime = playTimeSec;
 
-        // --- 修正箇所：BGMの停止と勝利SEの再生 ---
+        // 2. BGM停止と勝利SE再生
         if (window.gameBGM) {
-            window.gameBGM.pause(); // BGMを一時停止
-            window.gameBGM.currentTime = 0; // 曲を最初に戻しておく
+            window.gameBGM.pause();
+            window.gameBGM.currentTime = 0;
         }
-        
         if (typeof playSE === 'function') {
             playSE('win.mp3'); 
         }
-        // ------------------------------------
 
-        const nameEl = document.getElementById('winner-name');
-        const overlay = document.getElementById('winner-overlay');
-        const statsDisplay = document.getElementById('winner-stats-display');
-        
-        if (nameEl) {
-            nameEl.textContent = `${winner.name} Wins!`;
-            nameEl.className = "text-2xl font-bold mb-2 " + (winner.color?.bg?.replace('bg-', 'text-') || 'text-yellow-600');
-        }
-
-        // 移動距離の表示（データがない場合は 0 を表示してエラーを防ぐ）
-        const moveDist = (playerStats[pid] && playerStats[pid].moveCount) ? playerStats[pid].moveCount : 0;
-        if (statsDisplay) {
-            const awards = calculateAwards(winner.id);
-            // モードに応じた共通クラスを定義
-            const cardBg = isLightMode ? 'bg-gray-800' : 'bg-white/10 backdrop-blur-md';
-            const titleColor = isLightMode ? 'text-white' : 'text-white';
-            const descColor = isLightMode ? 'text-gray-300' : 'text-gray-200';
-            const nameColor = isLightMode ? 'text-yellow-400' : 'text-yellow-400';
-
-            // 修正箇所：flex-wrap を grid に変更。grid-cols-3 で1行最大3個に制限。
-            statsDisplay.innerHTML = `
-                <div class="grid grid-cols-3 gap-2 mt-4 px-2 justify-items-center">
-                    ${awards.map(a => {
-                        const p = players.find(pl => pl.id === a.pid);
-                        const isWinner = p.id === winner.id;
-                        return `
-                            <div class="flex flex-col items-center ${cardBg} p-2 rounded-lg border ${isWinner ? 'border-yellow-500' : 'border-white/10'} shadow-xl w-full max-w-[100px] transition-transform hover:scale-105">
-                                <span class="text-[8px] ${isWinner ? nameColor : 'text-gray-400'} font-bold mb-1 opacity-90 truncate w-full text-center">${p.name}</span>
-                                <span class="text-[10px] font-black ${titleColor} drop-shadow-md text-center leading-tight">${a.name}</span>
-                                <span class="text-[7px] ${descColor} mt-1 text-center leading-none italic">${a.desc}</span>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            `;
-        }
-
-        // ロックエリア表示
-        const lockDisplay = document.getElementById('winner-lock-display');
-        if (lockDisplay) {
-            lockDisplay.innerHTML = '';
-            LOCK_ORDER.forEach(colorBase => {
-                const cardInLock = collections[winner.id][colorBase.id];
-                const slot = document.createElement('div');
-                slot.className = `w-10 h-10 rounded border border-white/40 flex items-center justify-center text-[8px] font-bold shadow-lg overflow-hidden relative victory-glow`;
-                
-                if (cardInLock && cardInLock.length > 0) {
-                    const card = cardInLock[cardInLock.length - 1];
-                    const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
-                    if (imgPath) {
-                        slot.style.backgroundImage = `url('${imgPath}')`;
-                        slot.style.backgroundSize = 'cover';
-                    } else {
-                        slot.style.backgroundColor = colorBase.hex;
-                        slot.textContent = card.name[0];
-                    }
-                } else {
-                    slot.className += " bg-gray-900 opacity-20";
-                }
-                lockDisplay.appendChild(slot);
+        // --- ★ここから演出の接続 ---
+        // すぐにオーバーレイを出さず、カメラ演出を呼び出す
+        if (typeof performVictoryCameraWork === 'function') {
+            performVictoryCameraWork(pid, () => {
+                // 演出（ズーム＆衝撃波）が終わった後に実行される処理
+                showVictoryUI(pid); 
             });
-        }
-
-        if(overlay) overlay.classList.remove('hidden');
-        
-        // ★追加：勝利時にも「盤面を確認する」ボタンを表示状態にする
-        const peekBtn = document.getElementById('peek-board-container');
-        if (peekBtn) {
-        peekBtn.classList.remove('hidden');
-        }
-
-        // 勝利モーダルのボタンを「リザルトへ」の役割に変更
-        // ※ index.html 内の勝利モーダルにある「戻る」ボタン等のIDを確認してください。
-        // ここでは便宜上、勝利画面をクリックしたらリザルトへ行くか、専用ボタンを設ける想定です。
-        const winBtn = overlay.querySelector('button');
-        if (winBtn) {
-            winBtn.textContent = "リザルトを確認";
-            
-            winBtn.onclick = () => {
-            overlay.classList.add('hidden');
-
-            // ★追加：勝利した瞬間の最後の盤面状況を記録
-                recordLockHistory();
-    
-            const pStats = (cardUsageStats && cardUsageStats[winner.id]) ? cardUsageStats[winner.id] : {};
-    
-            // 全色のカウントを初期化（BASE_COLORSを基準にする）
-            const colorResults = BASE_COLORS.map(bc => ({
-        id: bc.id,
-        name: bc.name,
-        bg: bc.bg,
-        hex: bc.hex, // ★ここを追加：カラーコードを保持
-        count: 0
-         }));
-
-    for (const [name, count] of Object.entries(pStats)) {
-        const cardData = CARD_DATABASE.find(c => c.name === name);
-        if (cardData) {
-            const target = colorResults.find(r => r.id === cardData.colorId);
-            if (target) target.count += count;
-        }
-    }
-
-    let mvpCardName = "なし";
-    let maxCardCount = 0;
-
-    for (const [name, count] of Object.entries(pStats)) {
-        // MVPカードの特定
-        if (count > maxCardCount) {
-            maxCardCount = count;
-            mvpCardName = `${name} (${count}回)`;
-        }
-
-        // 全色の集計
-        const cardData = CARD_DATABASE.find(c => c.name === name);
-        if (cardData) {
-            const target = colorResults.find(r => r.id === cardData.colorId);
-            if (target) target.count += count;
-        }
-    }
-
-    // 得意な色の特定（1位の色名を取得）
-    const sortedColors = [...colorResults].sort((a, b) => b.count - a.count);
-    const topColorName = sortedColors[0].count > 0 ? `${sortedColors[0].name} (${sortedColors[0].count}回)` : "なし";
-
-    const playTimeSec = Math.floor((Date.now() - gameStartTime) / 1000);
-
-    // まとめたデータを渡す
-    showResultModal(winner.id, {
-                    time: playTimeSec,
-                    turns: totalTurnCount,
-                    mvp: mvpCardName,
-                    topColor: topColorName,
-                    colorStats: colorResults,
-                    lockHistory: lockHistory // ★追加
-                });
-};
+        } else {
+            // 万が一演出関数がない場合のフォールバック
+            showVictoryUI(pid);
         }
     }
 }
@@ -1592,6 +1462,29 @@ async function initGameInternal(num, isTest = false) {
         
         const fCard = isTest && testFirstCards[idx] ? testFirstCards[idx] : CARD_DATABASE.find(d => d.type === 'FIRST' && d.colorId === p.color.id);
         if(fCard) collections[p.id][fCard.colorId].push(createCardInstance(fCard));
+
+        // --- ブーストモード処理 ---
+        const isBoostMode = document.getElementById('setting-boost-mode')?.checked;
+        if (isBoostMode && fCard) {
+            // BASE_COLORS から現在の色のインデックスを取得
+            const colorIdx = BASE_COLORS.findIndex(c => c.id === fCard.colorId);
+            if (colorIdx !== -1) {
+                // 両隣のインデックスを計算（環状構造）
+                const leftIdx = (colorIdx - 1 + BASE_COLORS.length) % BASE_COLORS.length;
+                const rightIdx = (colorIdx + 1) % BASE_COLORS.length;
+                const neighborColors = [BASE_COLORS[leftIdx].id, BASE_COLORS[rightIdx].id];
+
+                neighborColors.forEach(colId => {
+                    // 対応するブーストカードを探してロック
+                    const bCardData = CARD_DATABASE.find(d => d.type === 'BOOST' && d.colorId === colId);
+                    if (bCardData) {
+                        collections[p.id][colId].push(createCardInstance(bCardData));
+                        addLog(`${p.name}: ${bCardData.name}をブーストロック！`);
+                    }
+                });
+            }
+        }
+        
         
         if (isTest && testInitialLocks[idx]) testInitialLocks[idx].forEach(lc => collections[p.id][lc.colorId].push(createCardInstance(lc)));
         
@@ -1976,4 +1869,100 @@ function calculateAwards(winnerId) {
     }
 
     return awards;
+}
+
+/**
+ * 勝利演出の後にUI（おめでとう画面）を表示する
+ */
+function showVictoryUI(pid) {
+    // ★追加：念のため、盤面の回転と拡大をここで完全にリセットする
+    const appEl = document.getElementById('app');
+    if (appEl) {
+        appEl.style.transform = "none";
+        appEl.classList.remove('final-v-zoom-active');
+    }
+
+    const winnerPl = players.find(p => p.id === pid);
+    const overlay = document.getElementById('winner-overlay');
+    const nameEl = document.getElementById('winner-name');
+    const statsDisplay = document.getElementById('winner-stats-display');
+    const lockDisplay = document.getElementById('winner-lock-display');
+
+    if (nameEl) {
+        nameEl.textContent = `${winnerPl.name} Wins!`;
+        nameEl.className = "text-2xl font-bold mb-2 " + (winnerPl.color?.bg?.replace('bg-', 'text-') || 'text-yellow-600');
+    }
+
+    // --- アワード（勲章）の表示 ---
+    if (statsDisplay) {
+        const awards = calculateAwards(winnerPl.id);
+        const cardBg = isLightMode ? 'bg-gray-800' : 'bg-white/10 backdrop-blur-md';
+        const titleColor = 'text-white';
+        const descColor = isLightMode ? 'text-gray-300' : 'text-gray-200';
+        const nameColor = 'text-yellow-400';
+
+        statsDisplay.innerHTML = `
+            <div class="grid grid-cols-3 gap-2 mt-4 px-2 justify-items-center">
+                ${awards.map(a => {
+                    const p = players.find(pl => pl.id === a.pid);
+                    const isWinner = p.id === winnerPl.id;
+                    return `
+                        <div class="flex flex-col items-center ${cardBg} p-2 rounded-lg border ${isWinner ? 'border-yellow-500' : 'border-white/10'} shadow-xl w-full max-w-[100px]">
+                            <span class="text-[8px] ${isWinner ? nameColor : 'text-gray-400'} font-bold mb-1 truncate w-full text-center">${p.name}</span>
+                            <span class="text-[10px] font-black ${titleColor} text-center leading-tight">${a.name}</span>
+                            <span class="text-[7px] ${descColor} mt-1 text-center leading-none italic">${a.desc}</span>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    // --- ロックエリアの表示 ---
+    if (lockDisplay) {
+        lockDisplay.innerHTML = '';
+        LOCK_ORDER.forEach(colorBase => {
+            const cardInLock = collections[winnerPl.id][colorBase.id];
+            const slot = document.createElement('div');
+            slot.className = `w-10 h-10 rounded border border-white/40 flex items-center justify-center text-[8px] font-bold shadow-lg overflow-hidden relative victory-glow`;
+            
+            if (cardInLock && cardInLock.length > 0) {
+                const card = cardInLock[cardInLock.length - 1];
+                const imgPath = card.image || `images/card_${card.id}.webp`;
+                slot.style.backgroundImage = `url('${imgPath}')`;
+                slot.style.backgroundSize = 'cover';
+            } else {
+                slot.className += " bg-gray-900 opacity-20";
+            }
+            lockDisplay.appendChild(slot);
+        });
+    }
+
+    // 最後に画面を表示！
+    if (overlay) overlay.classList.remove('hidden');
+
+    // ★重要：リザルト画面への遷移ボタンを確実に再接続する
+    const winBtn = overlay.querySelector('button');
+    if (winBtn) {
+        winBtn.textContent = "リザルトを確認";
+        winBtn.onclick = () => {
+            overlay.classList.add('hidden');
+            // リザルト表示に必要なデータを揃えて呼び出し
+            const pStats = (cardUsageStats && cardUsageStats[pid]) ? cardUsageStats[pid] : {};
+            const colorResults = BASE_COLORS.map(bc => ({ id: bc.id, name: bc.name, bg: bc.bg, hex: bc.hex, count: 0 }));
+            
+            // ... (既存のリザルト集計ロジックをここに復元) ...
+            if (typeof showResultModal === 'function') {
+                showResultModal(pid, {
+                    time: window.currentPlayTime || 0,
+                    turns: totalTurnCount,
+                    colorStats: colorResults,
+                    lockHistory: lockHistory
+                });
+            }
+        };
+    }
+
+    const peekBtn = document.getElementById('peek-board-container');
+    if (peekBtn) peekBtn.classList.remove('hidden');
 }

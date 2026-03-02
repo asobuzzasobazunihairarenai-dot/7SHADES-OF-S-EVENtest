@@ -302,12 +302,17 @@ function updateTimerTick() {
         if (isAutoProcessing || isHandEffectProcessing || isProcessingMove || activeModalId) return;
     }
 
-    const p = players[turn];
+    // --- 修正箇所：タイマー対象を判定 ---
+    // activeTimerPlayerId があればそのプレイヤーを、なければ現在のターンプレイヤーを対象にする
+    const p = activeTimerPlayerId 
+        ? players.find(pl => pl.id === activeTimerPlayerId) 
+        : players[turn];
+        
     if (!p) return;
 
-    // 追加：P1（先手）かつタイマー無視設定がONの場合は、これ以降の減算処理を行わない
+    // --- 修正箇所：タイマー無視設定の判定を「現在の対象(p)」に基づかせます ---
     const ignoreP1 = document.getElementById('setting-p1-timer-ignore')?.checked;
-    if (ignoreP1 && turn === 0) {
+    if (ignoreP1 && p.id === 1) { // ターンではなく、タイマー対象(p)がP1かどうかで判定
         return; 
     }
 
@@ -423,11 +428,24 @@ function handleTimeOut() {
     const selectionModal = document.getElementById('selection-modal');
     const arrivalModal = document.getElementById('arrival-modal');
     const stealActionModal = document.getElementById('steal-action-modal');
+    const detailModal = document.getElementById('detail-modal');
 
-    // 選択画面が出ているか判定
+    // 現在の実行対象プレイヤー（相手プレイヤーを含む）を特定
+    const actingP = activeTimerPlayerId 
+        ? players.find(pl => pl.id === activeTimerPlayerId) 
+        : players[turn];
+
+    // 選択画面（盤面マス選択 または カード等のアイテム選択）が出ているか判定
     const isSelectionActive = selectionState.active || (selectionModal && !selectionModal.classList.contains('hidden'));
 
-    // ガード条件の整理
+    // 1. 【最優先】スティールなどの演出用モーダルをスキップ
+    if (stealActionModal && !stealActionModal.classList.contains('hidden')) {
+        addLog(`> タイムアウト：${actingP.name}が演出をスキップします`);
+        stealActionModal.click(); 
+        return;
+    }
+
+    // 2. ガード条件（選択待ちでない場合のみ、他の処理が終わるのを待つ）
     if (!isSelectionActive) {
         if (isAutoProcessing || isHandEffectProcessing || isProcessingMove || (invasionQueue && invasionQueue.length > 0) || activeModalId) {
             if (autoProcessTimeout) clearTimeout(autoProcessTimeout);
@@ -436,59 +454,58 @@ function handleTimeOut() {
         }
     }
 
+    // ここまで来たら自動アクション実行
     isAutoAction = true;
-    addLog(`> タイムアウト：自動処理を開始します`);
+    addLog(`> タイムアウト：${actingP.name}の自動処理を開始します`);
 
-    // 1. 【最優先】スティールなどの「演出用」モーダルが出ていたら、まずそれをクリックして消す
-    if (stealActionModal && !stealActionModal.classList.contains('hidden')) {
-        stealActionModal.click(); 
-        return;
-    }
-
-    // 2. 選択待ちモーダル（強奪チャンス等）が出ていたら、AIに選ばせる
+    // 3. 選択待ちモーダル（強奪チャンス、気まぐれ配置、エターナル獲得等）への対応
     if (isSelectionActive) {
-        triggerAutoSelect();
+        const okBtn = document.getElementById('selection-ok-btn');
+        const resArea = document.getElementById('selection-result');
+
+        // A. 既に決定画面（結果確認）ならOKボタンを押す
+        if (okBtn && resArea && !resArea.classList.contains('hidden')) {
+            okBtn.click();
+            return;
+        }
+
+        // B. カード選択モーダル内の選択肢（selection-option）がある場合
+        if (selectionModal && !selectionModal.classList.contains('hidden')) {
+            const options = Array.from(document.querySelectorAll('.selection-option'));
+            // まだ選択されていない（光っていない）選択肢を抽出
+            const unselected = options.filter(opt => !opt.classList.contains('selected-card-glow'));
+            if (unselected.length > 0) {
+                // ランダムに1つ選んでクリック（複数枚選択が必要な場合も、毎秒クリックされることで解決）
+                unselected[Math.floor(Math.random() * unselected.length)].click();
+                return;
+            }
+        }
+
+        // C. 盤面マス選択モード（selectionState）が有効ならそちらを実行
+        if (selectionState.active) {
+            triggerAutoSelect();
+        }
         return;
     }
 
-    // 3. 獲得確認やドロー確認を閉じる
+    // 4. 到達獲得・ドロー確認・詳細確認を閉じる
     if (arrivalModal && !arrivalModal.classList.contains('hidden')) { 
         const btn = document.getElementById('arrival-ok-btn');
         if (btn) { btn.click(); return; } 
     }
-    
-    // 【追加】スティール演出画面が表示されている場合、自動でクリックして次へ進める
-    if (stealActionModal && !stealActionModal.classList.contains('hidden')) {
-        addLog(`[自動] スティール演出をスキップします。`);
-        stealActionModal.click(); 
-        return;
-    }
-
-    // 3. 選択結果確認画面（決定ボタン待ち）の場合
-    if (selectionModal && !selectionModal.classList.contains('hidden')) {
-        const okBtn = document.getElementById('selection-ok-btn');
-        if (okBtn && !document.getElementById('selection-result').classList.contains('hidden')) {
-            okBtn.click(); return;
-        }
-        triggerAutoSelect(); // まだ選んでいない場合はおまかせ
-        return;
-    }
-
-    // 4. 確認ダイアログが表示されている場合
-    const detailModal = document.getElementById('detail-modal');
     if (detailModal && !detailModal.classList.contains('hidden')) { 
         const btn = document.getElementById('detail-ok-btn');
         if (btn) { btn.click(); return; } 
     }
     
-    if (isProcessingMove || isHandEffectProcessing) return; // 【修正】手札効果演出中も中断
+    // 5. フェイズ進行の自動化
+    if (isProcessingMove || isHandEffectProcessing) return; 
     if(timerInterval) { clearInterval(timerInterval); timerInterval = null; } 
     
     if (currentPhase === PHASE.MOVE) { 
         if (isStuck) autoPlace(players[turn]); 
         else autoMove(players[turn]); 
     } else { 
-        // 念押し：ここでも自動演出中なら移行をブロック
         if (isAutoProcessing) return; 
         nextPhase(true); 
     }

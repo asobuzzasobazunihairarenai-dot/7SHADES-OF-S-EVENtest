@@ -708,6 +708,14 @@ function closeDetailModal() {
  */
 function showSelectionModal(title, dummy, source, back, count, onComplete, isBlind = false, cancelCallback = null, autoBtnText = null, restrictedCells = null, actingPlayer = null) { 
     
+    // --- 修正箇所：タイマー譲渡とリセット ---
+    if (actingPlayer) {
+        activeTimerPlayerId = actingPlayer.id;
+        // 相手に渡す際、フェイズ残り時間をリセットする
+        const phaseMax = parseInt(document.getElementById('setting-phase-time')?.value || "30");
+        timeLeft = phaseMax;
+    }
+    
     // ★自動処理(isAutoAction)がON かつ スキップ設定がONの場合のみバイパス
     if (isAutoAction && isSkipSelectionOnAuto) {
         addLog(`[Auto] ${title} を自動選択中...`);
@@ -762,10 +770,11 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
             cancelBtn.classList.remove('hidden'); 
             cancelBtn.textContent = "おまかせ"; 
             cancelBtn.onclick = () => { 
+                activeTimerPlayerId = null; // タイマーを手番プレイヤーに戻す
                 modal.classList.add('hidden'); 
                 managePeekUI(false); 
                 cancelCallback(); 
-            }; 
+            };
         } else { 
             cancelBtn.classList.add('hidden'); 
         }
@@ -904,11 +913,12 @@ function showSelectionResult(cards, onComplete, effectName, cancelCallback = nul
     const okBtn = document.getElementById('selection-ok-btn');
     if (okBtn) {
         okBtn.onclick = () => { 
+            activeTimerPlayerId = null; // タイマーを手番プレイヤーに戻す
             if (typeof gainTime === 'function') gainTime(5); 
             document.getElementById('selection-modal').classList.add('hidden'); 
             managePeekUI(false); 
             onComplete(cards); 
-        }; 
+        };
 
         // 追加：自動処理中なら 500ms 後に自動クリック
         if (isAutoAction) {

@@ -861,9 +861,14 @@ function updateTimerVisual() {
     const bar = document.getElementById('timer-bar');
     const textEl = document.getElementById('instruction-text');
     const timerText = document.getElementById('timer-text'); // ★追加
-    if(!bar || !players[turn]) return;
+    
+    // --- 修正箇所：描画対象プレイヤーを判定 ---
+    const p = activeTimerPlayerId 
+        ? players.find(pl => pl.id === activeTimerPlayerId) 
+        : players[turn];
 
-    const p = players[turn];
+    if(!bar || !p) return;
+
     const totalCurrent = useGlobalTimer ? (timeLeft + p.totalTimeLeft) : timeLeft;
     const maxPossible = useGlobalTimer ? (currentPhaseMaxTime + 180) : currentPhaseMaxTime;
     

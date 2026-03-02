@@ -25,7 +25,8 @@ function canPlayHandEffect(card, p) {
     const oncePerTurnIDs = [11]; 
 
     // ★追加：NORMALモード時の温存ロジック
-    if (typeof autoMode !== 'undefined' && autoMode === 'NORMAL') {
+    // ★修正：NORMALモード時の温存ロジック（自動処理時のみ適用）
+    if (typeof autoMode !== 'undefined' && autoMode === 'NORMAL' && (isAutoAction || isAutoProcessing)) {
         const col = card.colorId;
         // 7色の通常色（赤・橙・黄・緑・青・桃・紫）が対象
         const isBasicColor = ['red', 'orange', 'yellow', 'green', 'blue', 'pink', 'purple'].includes(col);
@@ -1176,110 +1177,102 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }
 
     else if (act.type === 'greedy_palette_hand') {
-        // 【修正】自動処理が重ならないようフラグを立てる
         isHandEffectProcessing = true;
 
-        // 【追加】まずはパレット発動自体のモーダルを表示
-        showCardModal(contextCard || {id: 33, name: "強欲なパレット"}, () => {
-            
-            showSelectionModal("色宣言", "相手が対処すべき色を選択してください", BASE_COLORS, "card-back-pattern", 1, (selCols) => {
-                const declaredColor = selCols[0];
-                addLog(`${p.name}が「${declaredColor.name}」を宣言！`);
+        // 【修正】独自の showCardModal を削除し、直接色宣言を開始
+        showSelectionModal("色宣言", "相手が対処すべき色を選択してください", BASE_COLORS, "card-back-pattern", 1, (selCols) => {
+            const declaredColor = selCols[0];
+            addLog(`${p.name}が「${declaredColor.name}」を宣言！`);
 
-                // 【追加】何色が宣言されたかを全プレイヤーに知らしめるモーダル
-                showMessageOverlay(`${p.name} の宣言：【${declaredColor.name}】\n\n相手全員はカードを渡すか、3枚捨ててください。`, 2000, () => {
+            showMessageOverlay(`${p.name} の宣言：【${declaredColor.name}】\n\n相手全員はカードを渡すか、3枚捨ててください。`, 2000, () => {
+                
+                const pIdx = players.indexOf(p);
+                const ordered = [];
+                for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
+                const opponents = ordered.filter(pl => pl.id !== p.id);
+
+                const processOpponentPalette = (idx) => {
+                    if (idx >= opponents.length) { 
+                        isHandEffectProcessing = false;
+                        onSuccess({}); 
+                        return; 
+                    }
                     
-                    const pIdx = players.indexOf(p);
-                    const ordered = [];
-                    for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
-                    const opponents = ordered.filter(pl => pl.id !== p.id);
+                    const opp = opponents[idx];
+                    const matchCards = (hands[opp.id] || []).filter(c => c.colorId === declaredColor.id || c.colorId === 'rainbow');
+                    const handCount = (hands[opp.id] || []).length;
 
-                    const processOpponentPalette = (idx) => {
-                        if (idx >= opponents.length) { 
-                            isHandEffectProcessing = false; // フラグ解除
-                            onSuccess({}); 
-                            return; 
-                        }
-                        
-                        const opp = opponents[idx];
-                        const matchCards = (hands[opp.id] || []).filter(c => c.colorId === declaredColor.id || c.colorId === 'rainbow');
-                        const handCount = (hands[opp.id] || []).length;
-
-                        const performDiscard3 = () => {
-        const dCount = Math.min(handCount, 3);
-        if (dCount > 0) {
-            setTimeout(() => {
-                showSelectionModal("手札破棄", `${opp.name}: 破棄するカードを${dCount}枚選んでください`, hands[opp.id], "card-back-pattern", dCount, (sel) => {
-                    sel.forEach(c => { hands[opp.id].splice(hands[opp.id].indexOf(c), 1); discardPile.push(c); });
-                    
-                    // 【追加】破棄したことを全員に通知
-                    showMessageOverlay(`${opp.name} は【手札を ${dCount} 枚破棄】することを選びました。`, 2000, () => {
-                        addLog(`${opp.name}は手札を${dCount}枚破棄しました。`);
-                        renderHand(); renderDeckAndDiscard();
-                        setTimeout(() => processOpponentPalette(idx + 1), 1500);
-                    });
-                }, false, null, null, null, opp);
-            }, 1500);
-        } else {
-            addLog(`${opp.name}は手札がないため、何も起こりませんでした。`);
-            setTimeout(() => processOpponentPalette(idx + 1), 1000);
-        }
-    };
-                        if (matchCards.length > 0) {
-                            const canChooseDiscard = handCount >= 3;
-                            
-                            // 1.5秒待ってから相手の選択モーダルを表示
+                    const performDiscard3 = () => {
+                        const dCount = Math.min(handCount, 3);
+                        if (dCount > 0) {
                             setTimeout(() => {
-                                // 【修正箇所】タイポを修正 (sshowDetailModal -> showDetailModal)
-                                showDetailModal(`${opp.name}の選択`, `強欲なパレット：【${declaredColor.name}】\nカードを1枚渡すか、3枚捨ててください。`, null, "カードを渡す", () => {
-                                    showSelectionModal("譲渡カード選択", `譲渡する${declaredColor.name}のカードを選んでください`, matchCards, "card-back-pattern", 1, (selCards) => {
-                                        const c = selCards[0];
-                                        hands[opp.id].splice(hands[opp.id].indexOf(c), 1);
-                                        hands[p.id].push(c);
-
-                                        // カードを渡したことを全員に通知
-                                        showMessageOverlay(`${opp.name} は ${p.name} に\n【カードを 1 枚譲渡】しました。`, 2000, () => {
-                                            addLog(`${opp.name}が${p.name}に「${c.name}」を渡しました。`);
-                                            renderHand();
-                                            setTimeout(() => processOpponentPalette(idx + 1), 500);
-                                        });
-                                    }, false, null, null, null, opp);
-                                });
-
-                                const cnl = document.getElementById('detail-cancel-btn');
-                                if (canChooseDiscard) {
-                                    cnl.textContent = "3枚捨てる";
-                                    cnl.style.display = "block";
-                                    cnl.onclick = () => { closeDetailModal(); performDiscard3(); };
-                                } else {
-                                    cnl.style.display = "none";
-                                }
+                                showSelectionModal("手札破棄", `${opp.name}: 破棄するカードを${dCount}枚選んでください`, hands[opp.id], "card-back-pattern", dCount, (sel) => {
+                                    sel.forEach(c => { hands[opp.id].splice(hands[opp.id].indexOf(c), 1); discardPile.push(c); });
+                                    
+                                    showMessageOverlay(`${opp.name} は【手札を ${dCount} 枚破棄】することを選びました。`, 2000, () => {
+                                        addLog(`${opp.name}は手札を${dCount}枚破棄しました。`);
+                                        renderHand(); renderDeckAndDiscard();
+                                        setTimeout(() => processOpponentPalette(idx + 1), 1500);
+                                    });
+                                }, false, null, null, null, opp);
                             }, 1500);
-
                         } else {
-                            // 対象色がない場合
-                            showMessageOverlay(`${opp.name} は【${declaredColor.name}】を持っていません。\n手札を3枚破棄します。`, 2500, performDiscard3);
+                            addLog(`${opp.name}は手札がないため、何も起こりませんでした。`);
+                            setTimeout(() => processOpponentPalette(idx + 1), 1000);
                         }
                     };
-                    processOpponentPalette(0);
-                });
+
+                    if (matchCards.length > 0) {
+                        const canChooseDiscard = handCount >= 3;
+                        
+                        setTimeout(() => {
+                            showDetailModal(`${opp.name}の選択`, `強欲なパレット：【${declaredColor.name}】\nカードを1枚渡すか、3枚捨ててください。`, null, "カードを渡す", () => {
+                                showSelectionModal("譲渡カード選択", `譲渡する${declaredColor.name}のカードを選んでください`, matchCards, "card-back-pattern", 1, (selCards) => {
+                                    const c = selCards[0];
+                                    hands[opp.id].splice(hands[opp.id].indexOf(c), 1);
+                                    hands[p.id].push(c);
+
+                                    showMessageOverlay(`${opp.name} は ${p.name} に\n【カードを 1 枚譲渡】しました。`, 2000, () => {
+                                        addLog(`${opp.name}が${p.name}に「${c.name}」を渡しました。`);
+                                        renderHand();
+                                        setTimeout(() => processOpponentPalette(idx + 1), 500);
+                                    });
+                                }, false, null, null, null, opp);
+                            });
+
+                            const cnl = document.getElementById('detail-cancel-btn');
+                            if (canChooseDiscard) {
+                                cnl.textContent = "3枚捨てる";
+                                cnl.style.display = "block";
+                                cnl.onclick = () => { closeDetailModal(); performDiscard3(); };
+                            } else {
+                                cnl.style.display = "none";
+                            }
+                        }, 1500);
+
+                    } else {
+                        showMessageOverlay(`${opp.name} は【${declaredColor.name}】を持っていません。\n手札を3枚破棄します。`, 2500, performDiscard3);
+                    }
+                };
+                processOpponentPalette(0);
             });
-        }, "強欲なパレット", p.name, "手札効果発動！");
+        });
         return;
     }
-
     else if (act.type === 'colorful_hall_hand') {
-        const lockCounts = players.map(pl => {
-            let total = 0, targetable = 0;
-            LOCK_ORDER.forEach(col => {
-                const slot = collections[pl.id][col.id];
-                if (slot && slot.length > 0) {
-                    total += slot.length;
-                    const top = slot[slot.length - 1];
-                    // ETERNAL, FIRST, BOOST, 白, 黒 以外をカウント
-                    if (top.type !== 'ETERNAL' && top.type !== 'FIRST' && top.type !== 'BOOST' && top.colorId !== 'white' && top.colorId !== 'black') targetable++;
+    const lockCounts = players.map(pl => {
+        let total = 0, targetable = 0;
+        LOCK_ORDER.forEach(col => {
+            const slot = collections[pl.id][col.id]; // pl.id に修正
+            if (slot && slot.length > 0) {
+                total += slot.length;
+                const top = slot[slot.length - 1];
+                // 対象外カードを考慮して targetable カウントを増やす
+                if (top.type !== 'ETERNAL' && top.type !== 'FIRST' && top.type !== 'BOOST' && top.colorId !== 'white' && top.colorId !== 'black') {
+                    targetable++;
                 }
-            });
+            }
+        });
             return { id: pl.id, name: pl.name, total, targetable };
         });
 
@@ -1447,7 +1440,18 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         const discardLocksSequence = (vIdx) => {
             if (vIdx >= victims.length) { if (hands[p.id].length > 0) { hands[p.id].forEach(c => discardPile.push(c)); hands[p.id] = []; addLog(`${p.name}が自身の手札をすべて破棄しました。`); } onSuccess({}); return; }
             const victim = victims[vIdx]; const lockedCards = [];
-            LOCK_ORDER.forEach(bc => { const slot = collections[victim.id][bc.id]; if (slot && slot.length > 0) { const topC = slot[slot.length - 1]; if (topC.colorId === 'white' || topC.colorId === 'black' || topC.type === 'FIRST' || topC.type === 'ETERNAL') { lockedCards.push({ ...topC, disabled: true }); } else { lockedCards.push(topC); } } });
+            LOCK_ORDER.forEach(bc => { 
+    const slot = collections[victim.id][bc.id]; 
+    if (slot && slot.length > 0) { 
+        const topC = slot[slot.length - 1]; 
+        // ブーストカード(BOOST)も選択不可に設定
+        if (topC.colorId === 'white' || topC.colorId === 'black' || topC.type === 'FIRST' || topC.type === 'ETERNAL' || topC.type === 'BOOST') { 
+            lockedCards.push({ ...topC, disabled: true }); 
+        } else { 
+            lockedCards.push(topC); 
+        } 
+    } 
+});
             if (lockedCards.length === 0 || lockedCards.every(c => c.disabled)) { discardLocksSequence(vIdx + 1); return; }
             showSelectionModal(`${victim.name}のロック破棄`, "破棄するロックカードを1枚選んでください", lockedCards, "card-back-pattern", 1, (sel) => {
                 const c = sel[0]; collections[victim.id][c.colorId].splice(collections[victim.id][c.colorId].indexOf(c), 1); discardPile.push(c); addLog(`${victim.name}がロックされていた「${c.name}」を破棄しました。`); renderStatus(); renderMyLockArea(); renderDeckAndDiscard(); discardLocksSequence(vIdx + 1);
@@ -1455,6 +1459,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         };
         discardLocksSequence(0); return;
     }
+    
     else if (act.type === 'steal_hand_logic') {
         const lockCounts = players.map(pl => ({ id: pl.id, count: LOCK_ORDER.reduce((sum, col) => sum + collections[pl.id][col.id].filter(c => c.colorId !== 'white' && c.colorId !== 'black').length, 0) }));
         const maxL = Math.max(...lockCounts.map(l => l.count)); 

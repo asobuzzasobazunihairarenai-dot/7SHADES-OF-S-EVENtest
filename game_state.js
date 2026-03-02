@@ -36,6 +36,7 @@ let isProcessingMove = false;
 let isPeekingMode = false; // 盤面確認中フラグ
 let isHandEffectProcessing = false; // 【追加】手札効果の演出・処理中フラグ
 let isBoostMode = false; // ★追加：ブーストモードフラグ
+let activeTimerPlayerId = null; // 【追加】現在タイマーを減らしている対象プレイヤーのID (nullなら手番プレイヤー)
 
 let timeLeft = PHASE_TIME_SEC;
 

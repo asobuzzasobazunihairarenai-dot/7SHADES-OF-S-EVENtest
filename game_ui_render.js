@@ -860,30 +860,39 @@ function updatePhaseIndicator() {
 function updateTimerVisual() { 
     const bar = document.getElementById('timer-bar');
     const textEl = document.getElementById('instruction-text');
-    const timerText = document.getElementById('timer-text'); // ★追加
+    const timerText = document.getElementById('timer-text'); 
     
-    // --- 修正箇所：描画対象プレイヤーを判定 ---
-    const p = activeTimerPlayerId 
-        ? players.find(pl => pl.id === activeTimerPlayerId) 
-        : players[turn];
+    let p = null;
+    if (typeof activeTimerPlayerId !== 'undefined' && activeTimerPlayerId !== null) {
+        p = players.find(pl => pl.id === activeTimerPlayerId);
+    }
+    if (!p) p = players[turn];
 
     if(!bar || !p) return;
 
     const totalCurrent = useGlobalTimer ? (timeLeft + p.totalTimeLeft) : timeLeft;
     const maxPossible = useGlobalTimer ? (currentPhaseMaxTime + 180) : currentPhaseMaxTime;
     
-    // バーの更新（100%を超えないよう安全策）
-    const pct = Math.min(100, (totalCurrent / maxPossible) * 100);
+    const pct = Math.max(0, Math.min(100, (totalCurrent / maxPossible) * 100));
+
+    // --- 【外科手術的修正】色の変更とアニメーションの分離 ---
+    // 1. 色のクラスを入れ替える（ここは transition の影響を受けない）
+    const currentClasses = bar.className.split(' ');
+    const cleanClasses = currentClasses.filter(cls => !cls.startsWith('bg-'));
+    const newClassName = [...cleanClasses, p.color.bg].join(' ');
+    
+    if (bar.className !== newClassName) {
+        bar.style.transition = 'none'; // 色が変わる瞬間だけアニメを止める
+        bar.className = newClassName;
+        void bar.offsetWidth; // 即時反映
+    }
+
+    // 2. 幅の減少アニメーションを「常に1秒」に設定し直す
+    bar.style.transition = 'width 1s linear'; 
     bar.style.width = `${pct}%`; 
 
-    // --- バーの色をプレイヤーの色に変更 ---
-    const playerBgClass = p.color.bg; 
-    bar.className = `h-full w-full transition-all duration-1000 ease-linear ${playerBgClass}`; 
-
-    // ★追加：タイマーバーの下の小さな数字（確認用）
     if (timerText) {
-        timerText.textContent = `${totalCurrent.toFixed(1)}s`;
-        // 通常モードで15秒を超えていたら赤字にする（デバッグ用）
+        timerText.textContent = `${Math.max(0, totalCurrent).toFixed(0)}s`;
         if (!useGlobalTimer && timeLeft > (window.PHASE_TIME_SEC || 15)) {
             timerText.classList.add('text-red-500');
         } else {
@@ -891,12 +900,11 @@ function updateTimerVisual() {
         }
     }
 
-    // 既存：指示テキスト横の分：秒表示（全体時間制がONの時のみ）
     if (useGlobalTimer && textEl) {
         const minutes = Math.floor(p.totalTimeLeft / 60);
         const seconds = p.totalTimeLeft % 60;
         const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-        const baseText = textEl.innerHTML.split(' | ')[0];
-        textEl.innerHTML = `${baseText} | <span class="text-blue-400">⏳${timeStr}</span>`;
+        const parts = textEl.innerHTML.split(' | ');
+        textEl.innerHTML = `${parts[0]} | <span class="text-blue-400">⏳${timeStr}</span>`;
     }
 }

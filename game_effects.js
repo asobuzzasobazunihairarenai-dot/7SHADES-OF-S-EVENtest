@@ -25,8 +25,11 @@ function canPlayHandEffect(card, p) {
     const oncePerTurnIDs = [11]; 
 
     // ★追加：NORMALモード時の温存ロジック
-    // ★修正：NORMALモード時の温存ロジック（自動処理時のみ適用）
-    if (typeof autoMode !== 'undefined' && autoMode === 'NORMAL' && (isAutoAction || isAutoProcessing)) {
+    // ★修正：NORMALモード時の温存ロジック（判定条件を強化）
+    const isAutoHandSettingOn = document.getElementById('setting-timeout-auto-hand')?.checked;
+    const isEffectivelyAuto = isAutoAction || isAutoProcessing || (isAutoHandSettingOn && currentPhase === PHASE.HAND);
+
+    if (typeof autoMode !== 'undefined' && autoMode === 'NORMAL' && isEffectivelyAuto) {
         const col = card.colorId;
         // 7色の通常色（赤・橙・黄・緑・青・桃・紫）が対象
         const isBasicColor = ['red', 'orange', 'yellow', 'green', 'blue', 'pink', 'purple'].includes(col);
@@ -36,7 +39,7 @@ function canPlayHandEffect(card, p) {
             // まだその色がロックされていない（スロットが空、または呪いのみ）場合は温存する
             const isNotLocked = !slot || slot.length === 0 || (slot.length === 1 && slot[0].id === 34);
             if (isNotLocked) {
-                return false; // ロック用に取っておくため、自動では使わない
+                return false; // ロック用に取っておくため、自動では絶対に使わない
             }
         }
     }

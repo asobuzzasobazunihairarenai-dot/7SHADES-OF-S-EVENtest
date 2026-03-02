@@ -172,6 +172,12 @@ async function startTurn() {
     if (!players || players.length === 0) return;
     isEndingTurn = false; 
     isProcessingMove = false; 
+    
+    // 【外科手術的追加】タイマー対象を現在のターンプレイヤーに強制リセット
+    if (typeof activeTimerPlayerId !== 'undefined') {
+        activeTimerPlayerId = null; 
+    }
+
     const p = players[turn]; 
     if(!p) return;
 
@@ -224,9 +230,11 @@ function nextTurn() {
 let isPhaseTransitioning = false; // 【追加】二重移行防止フラグ
 
 function nextPhase(isForced = false) { 
-    if (isPeekingMode || isPhaseTransitioning) return; // 【修正】移行中なら受け付けない
-    
-    isPhaseTransitioning = true; // 移行開始
+    if (isPeekingMode || isPhaseTransitioning) return; 
+    isPhaseTransitioning = true; 
+
+    // 【外科手術的追加】フェイズ移行時もタイマー固定を解除
+    activeTimerPlayerId = null;
     
     if (useGlobalTimer && !isForced) {
         const p = players[turn];
@@ -294,34 +302,27 @@ function resetTimer() {
 function updateTimerTick() { 
     if(winner || isTimerPaused) return;
 
-    // After: 選択中であればタイマーを止めず、handleTimeOut（自動選択）へ流す
     const selectionModal = document.getElementById('selection-modal');
     const isSelectionActive = selectionState.active || (selectionModal && !selectionModal.classList.contains('hidden'));
 
     if (!isSelectionActive) {
-        if (isAutoProcessing || isHandEffectProcessing || isProcessingMove || activeModalId) return;
+        if (isHandEffectProcessing || isProcessingMove || activeModalId) return;
     }
 
-    // --- 修正箇所：タイマー対象を判定 ---
-    // activeTimerPlayerId があればそのプレイヤーを、なければ現在のターンプレイヤーを対象にする
     const p = activeTimerPlayerId 
         ? players.find(pl => pl.id === activeTimerPlayerId) 
         : players[turn];
         
     if (!p) return;
 
-    // --- 修正箇所：タイマー無視設定の判定を「現在の対象(p)」に基づかせます ---
-    const ignoreP1 = document.getElementById('setting-p1-timer-ignore')?.checked;
-    if (ignoreP1 && p.id === 1) { // ターンではなく、タイマー対象(p)がP1かどうかで判定
-        return; 
-    }
-
+    // --- 【修正】まず数値を減らしてから、その結果を「1秒かけて」描画するように順序を変更 ---
     if (timeLeft > 0) {
-        timeLeft--; // まずはフェイズの30秒を減らす
+        timeLeft--; 
     } else if (useGlobalTimer && p.totalTimeLeft > 0) {
-        p.totalTimeLeft--; // 30秒が切れたら、プレイヤーの貯金を減らし始める
+        p.totalTimeLeft--; 
     } else {
-        // --- タイムアウト時のランダムロック判定を追加 ---
+        if (isAutoProcessing) return;
+
         if (currentPhase === PHASE.LOCK) {
     const autoLock = document.getElementById('setting-timeout-random-lock')?.checked;
     const pHand = hands[p.id] || [];
@@ -395,30 +396,48 @@ function updateTimerTick() {
         }
         
         // --- タイムアウト時の自動手札使用 ---
-        if (currentPhase === PHASE.HAND) {
-            const autoHand = document.getElementById('setting-timeout-auto-hand')?.checked;
-            if (autoHand) {
-                // 【追加】既に何か処理中、またはモーダルが開いているなら、新しいカードは使わずにタイムアウト処理へ
-                if (isAutoProcessing || isHandEffectProcessing || isSelectionActive || activeModalId) {
-                    handleTimeOut(); return;
-                }
-
-                const usable = hands[p.id].filter(c => canPlayHandEffect(c, p));
-                if (usable.length > 0) {
-                    addLog(`[自動] 使用可能カードを自動実行します。`);
-                    isAutoProcessing = true; 
-                    isAutoAction = true; 
-                    handleHandClick(hands[p.id].indexOf(usable[0]));
-                    return;
-                }
-                isAutoAction = false;
+    if (currentPhase === PHASE.HAND) {
+        const autoHand = document.getElementById('setting-timeout-auto-hand')?.checked;
+        if (autoHand) {
+            // 【追加】既に何か処理中、またはモーダルが開いているなら、新しいカードは使わずにタイムアウト処理へ
+            if (isAutoProcessing || isHandEffectProcessing || isSelectionActive || activeModalId) {
+                handleTimeOut(); return;
             }
+
+            // --- 修正箇所：NORMALモード時は温存カードを「自動使用候補」から除外する ---
+            const usable = hands[p.id].filter(c => {
+                // まず、そのカードが物理的に使用可能かチェック
+                if (!canPlayHandEffect(c, p)) return false;
+
+                // NORMALモードかつ自動処理時の温存ロジックをここでも適用し、候補から外す
+                if (autoMode === 'NORMAL') {
+                    const col = c.colorId;
+                    const isBasicColor = ['red', 'orange', 'yellow', 'green', 'blue', 'pink', 'purple'].includes(col);
+                    if (isBasicColor) {
+                        const slot = collections[p.id][col];
+                        const isNotLocked = !slot || slot.length === 0 || (slot.length === 1 && slot[0].id === 34);
+                        if (isNotLocked) return false; // ロック用に取っておくため、自動使用候補に含めない
+                    }
+                }
+                return true;
+            });
+
+            if (usable.length > 0) {
+                addLog(`[自動] 使用可能カードを自動実行します。`);
+                isAutoProcessing = true; 
+                isAutoAction = true; 
+                handleHandClick(hands[p.id].indexOf(usable[0]));
+                return;
+            }
+            isAutoAction = false;
         }
-        handleTimeOut(); 
-        return;
+    }
+    handleTimeOut(); 
+    return;
     }
 
 
+    // 数値を減らした直後に「1秒かけてその位置まで動け」という命令を出す
     if (typeof updateTimerVisual === 'function') updateTimerVisual(); 
 }
 
@@ -523,35 +542,18 @@ function autoMove(p) {
     for (let d of directions) { 
         const nx = p.x + d[0], ny = p.y + d[1]; 
         if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
-
         const cell = board[ny][nx]; 
         const epOn = otherPlayers.find(ep => ep.x === nx && ep.y === ny);
 
-        // 移動可能なマスかチェック（カードがある、または他プレイヤーがいる）
         if (!cell.empty || epOn) { 
             let score = 0;
-
             if (autoMode === 'NORMAL') {
-                // 【NORMALロジック：スコアリング】
-                
-                // 1. 敵ゲートへの距離（近いほど加点）
                 const distToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
-                score += (20 - distToGate); // 最大14マス離れるので、逆転させて加点
-
-                // 2. 接触の優先（隣に敵がいれば大幅加点）
-                if (epOn) {
-                    score += 50; 
-                }
-
-                // 3. 次のターンの被接触回避（移動先の隣に敵がいたら減点）
-                const isNextToEnemy = otherPlayers.some(ep => 
-                    Math.abs(ep.x - nx) + Math.abs(ep.y - ny) === 1
-                );
-                if (isNextToEnemy && !epOn) {
-                    score -= 15; // 接触しに行くわけではないのに敵の隣に止まるのは避ける
-                }
+                score += (20 - distToGate);
+                if (epOn) score += 50; 
+                const isNextToEnemy = otherPlayers.some(ep => Math.abs(ep.x - nx) + Math.abs(ep.y - ny) === 1);
+                if (isNextToEnemy && !epOn) score -= 15;
             } else {
-                // EASYモード：単なる最短距離
                 const distToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
                 score = (100 - distToGate);
             }
@@ -565,12 +567,15 @@ function autoMove(p) {
         } 
     } 
     
-    // 候補の中からランダムに1つ選択
     const move = bestMoves.length > 0 ? bestMoves[Math.floor(Math.random() * bestMoves.length)] : null;
 
     if (move && typeof executeMove === 'function') {
         executeMove(move.x, move.y, move.cell, move.epOn); 
     } else {
+        // 移動先がない場合、確実にターンを終わらせる（フリーズ防止）
+        addLog(`${p.name}は移動可能な場所がないため、ムーブを終了します。`);
+        isProcessingMove = false;
+        isAutoAction = false;
         endTurn(); 
     }
 }
@@ -918,8 +923,11 @@ function startPlaceCardMode() { if (isPeekingMode) return; isPlacingCard = true;
 
 function executePlaceCard(x, y) { 
     if (isPeekingMode || !players || !players[turn]) return; 
-    gainTime(5); 
-    isProcessingMove = true; 
+    // 【修正】自動処理時は時間を加算しない
+    if (!isAutoAction) {
+        if (typeof gainTime === 'function') gainTime(Math.min(5, currentPhaseMaxTime));
+    }
+    isProcessingMove = true;
     const p = players[turn]; 
     const card = drawCard(); 
     if (card) { board[y][x].empty = false; board[y][x].revealed = false; board[y][x].color = card; board[y][x].stack = []; }
@@ -959,8 +967,11 @@ function handleBoardClick(x, y) {
 
 function executeMove(x, y, cell, epOn) { 
     if (!players[turn]) return;
-    gainTime(5); 
-    isProcessingMove = true; 
+    // 【修正】自動処理時 (isAutoAction) は時間を加算しない。手動時は設定値(currentPhaseMaxTime)に基づき加算
+    if (!isAutoAction) {
+        if (typeof gainTime === 'function') gainTime(Math.min(5, currentPhaseMaxTime));
+    }
+    isProcessingMove = true;
     const p = players[turn];
     
     // --- ここを追記 ---
@@ -1437,18 +1448,8 @@ async function initGameInternal(num, isTest = false) {
 
     // ★追加：自動処理レベルの読み込みとUI反映
     const autoModeSelect = document.getElementById('setting-auto-mode');
-    const autoModeLabel = document.getElementById('auto-mode-label');
     if (autoModeSelect) {
-        autoMode = autoModeSelect.value; // 'EASY' または 'NORMAL' が入る
-        if (autoModeLabel) {
-            autoModeLabel.textContent = autoMode;
-            // モードによってラベルの色を変える
-            if (autoMode === 'NORMAL') {
-                autoModeLabel.className = 'text-[8px] text-green-400 font-bold uppercase';
-            } else {
-                autoModeLabel.className = 'text-[8px] text-orange-400 font-bold uppercase';
-            }
-        }
+        autoMode = autoModeSelect.value; 
     }
     
     const initTime = parseInt(document.getElementById('setting-init-time')?.value || "0");

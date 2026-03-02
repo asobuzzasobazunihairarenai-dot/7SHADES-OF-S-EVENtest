@@ -284,21 +284,21 @@ function triggerLightningEffect() {
 function gainTime(seconds) {
     if (winner) return;
 
-    // 現在の設定値（デバッグ設定等）を取得、なければデフォルトの15秒
-    const maxPhaseTime = window.PHASE_TIME_SEC || 15;
+    const maxPhaseTime = currentPhaseMaxTime || 15;
 
     if (useGlobalTimer) {
         const p = players[turn];
         if (p) {
             const maxTimeSetting = parseInt(document.getElementById('setting-max-time')?.value || "180");
-            // 全体時間制の場合は、ターン開始時の時間を上限とする既存ロジックを維持
-            p.totalTimeLeft = Math.min(maxTimeSetting, timeAtTurnStart, p.totalTimeLeft + seconds);
+            p.totalTimeLeft = Math.min(maxTimeSetting, p.totalTimeLeft + seconds);
         }
     } else {
-        // ★修正：timeLeft（通常タイマー）の回復上限を厳格に適用
-        timeLeft = Math.min(maxPhaseTime, timeLeft + seconds);
+        // timeLeft が NaN や undefined にならないよう担保しながら加算
+        const current = isNaN(timeLeft) ? 0 : timeLeft;
+        timeLeft = Math.min(maxPhaseTime, current + seconds);
     }
     
+    // 計算が終わった後に描画を呼ぶ
     if (typeof updateTimerVisual === 'function') updateTimerVisual(); 
 }
 

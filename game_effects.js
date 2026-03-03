@@ -26,8 +26,8 @@ function canPlayHandEffect(card, p) {
 
     // ★追加：NORMALモード時の温存ロジック
     // ★修正：NORMALモード時の温存ロジック（判定条件を強化）
-    const isAutoHandSettingOn = document.getElementById('setting-timeout-auto-hand')?.checked;
-    const isEffectivelyAuto = isAutoAction || isAutoProcessing || (isAutoHandSettingOn && currentPhase === PHASE.HAND);
+    // ★修正：真に「システムによる自動実行中」のみを対象とする
+    const isEffectivelyAuto = isAutoAction || isAutoProcessing;
 
     if (typeof autoMode !== 'undefined' && autoMode === 'NORMAL' && isEffectivelyAuto) {
         const col = card.colorId;
@@ -143,7 +143,13 @@ function canPlayHandEffect(card, p) {
     if (!act) return true;
 
     if (card.handEffect.cost) {
+        const cost = card.handEffect.cost;if (card.handEffect.cost) {
         const cost = card.handEffect.cost;
+        // 【外科手術的修正】card が手札(hands)にない（ロックエリアにある）場合でも、
+        // candidates（コストとして捨てられる手札）から自分自身を除外する判定を安全に行う
+        const candidates = (hands[p.id] || []).filter(c => (c.colorId === cost.color || c.colorId === 'rainbow') && c !== card);
+        if (candidates.length < cost.amount) return false;
+    }
         const candidates = hands[p.id].filter(c => (c.colorId === cost.color || c.colorId === 'rainbow') && c !== card);
         if (candidates.length < cost.amount) return false;
     }
@@ -214,6 +220,11 @@ function canPlayHandEffect(card, p) {
 }
 
 function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = false) {
+    // 【外科手術的修正】効果解決の開始をログに記録
+    if (contextCard && contextCard.name) {
+        addLog(`${p.name} が 「${contextCard.name}」 の効果を発動！`);
+    }
+
     if (!def) { 
         isHandEffectProcessing = false; 
         onSuccess({}); 
@@ -1515,9 +1526,20 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         if (idx >= wealthyPlayers.length) {
             // 全員の配置完了後、2秒間待機して演出を終了
             setTimeout(() => {
-                richWhimHistory = []; // 履歴をクリア
-                renderBoard();       // 演出消去のために再描画
-                onSuccess({});
+                richWhimHistory = [];
+                renderBoard();
+                
+                // 【外科手術的修正】自動処理時は onSuccess の後に確実に状態を更新し、
+                // 必要であればフェイズを移行させるガードを差し込む
+                if (onSuccess) {
+                    onSuccess({});
+                    // AI実行中かつハンドフェイズなら、滞留を防ぐため更新をかける
+                    if (isAutoAction || isAutoProcessing) {
+                        setTimeout(() => {
+                            if (typeof updateGameState === 'function') updateGameState();
+                        }, 100);
+                    }
+                }
             }, 2000); 
             return;
         }

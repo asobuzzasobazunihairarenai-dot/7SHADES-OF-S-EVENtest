@@ -19,6 +19,33 @@ function addLog(text) {
     logEl.insertBefore(row, logEl.firstChild);
 }
 
+// 【外科手術的追加】ログエリアのクリック・拡大イベント
+document.addEventListener('DOMContentLoaded', () => {
+    const logArea = document.getElementById('log-area');
+    const logOverlay = document.getElementById('log-history-overlay');
+    const logContent = document.getElementById('log-history-content');
+    const closeBtns = ['close-log-history', 'close-log-history-btn'];
+
+    if (logArea) {
+        // ログエリア全体をクリック可能にし、カーソルをポインタに変更
+        logArea.style.cursor = 'pointer';
+        logArea.title = 'クリックで履歴を表示';
+        
+        logArea.onclick = () => {
+            if (!logOverlay || !logContent) return;
+            // 現在のログをすべてコピーして拡大画面に入れる
+            logContent.innerHTML = logArea.innerHTML;
+            logOverlay.classList.remove('hidden');
+        };
+    }
+
+    // 閉じるボタンの処理
+    closeBtns.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.onclick = () => logOverlay.classList.add('hidden');
+    });
+});
+
 function showToast(msg) {
     const container = document.getElementById('toast-container');
     if (!container) return;

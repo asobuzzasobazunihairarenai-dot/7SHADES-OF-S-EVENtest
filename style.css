@@ -79,6 +79,7 @@ body {
 #app {
     background-color: var(--bg-app);
     border-color: var(--border-color);
+    position: relative; /* 【追加】子要素の absolute 配置の基準点になります */
 }
 
 /* --- アニメーション定義 --- */
@@ -1315,4 +1316,60 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 @keyframes shockwave-animate {
     0% { width: 0; height: 0; opacity: 1; transform: translate(-50%, -50%) scale(0); }
     100% { width: 200px; height: 200px; opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+
+
+/* ログ履歴用のスクロールバー */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 10px;
+}
+
+/* ログ行のスタイル */
+#log-history-content div {
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    line-height: 1.4;
+}
+
+/* 【外科手術的追加】ライトモード時のログ履歴画面の配色設定 */
+.light-mode #log-history-overlay {
+    background-color: rgba(255, 255, 255, 0.95) !important; /* 背景を白に近い透過色に */
+    backdrop-filter: blur(10px);
+    border: 1px solid #d1d5db;
+}
+
+.light-mode #log-history-overlay h3 {
+    color: #b45309 !important; /* タイトルの黄色を見やすい濃い茶系に */
+}
+
+.light-mode #log-history-content {
+    color: #1f2937 !important; /* 文字を濃いグレーに */
+}
+
+.light-mode #log-history-content div {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1); /* 区切り線を薄い黒に */
+}
+
+.light-mode #close-log-history {
+    background-color: #e5e7eb !important;
+    color: #1f2937 !important;
+}
+
+.light-mode #close-log-history-btn {
+    background-color: #4b5563 !important;
+    color: #ffffff !important;
+}
+
+/* 【外科手術的追加】枠内に収めるための強制指定 */
+#log-history-overlay {
+    border-radius: 0.75rem; /* #app の rounded-xl と合わせる */
+    max-width: 100%;
+    max-height: 100%;
 }

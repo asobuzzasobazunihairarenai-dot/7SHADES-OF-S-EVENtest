@@ -668,7 +668,6 @@ function renderStatus() {
                     slotEl.style.backgroundSize = 'cover';
                     slotEl.innerHTML = ""; 
                 } else {
-                    // 【修正】Card -> slotEl に直し、サイズを14pxに
                     slotEl.innerHTML = `<span class="font-bold ${txtCls} z-10" style="font-size: 14px;">${topC.name[0]}</span>`;
                 }
                 if (slotCards.length > 1) { 
@@ -679,68 +678,72 @@ function renderStatus() {
                 }
                 slotEl.style.opacity = "1"; 
 
-                if (isMyTurn && isHuman) {
-                    const isExpanded = (expandedLockColor === color.id);
-                    slotEl.onclick = (e) => {
-                        e.stopPropagation();
-                        hideHoverPreview(true);
-                        if (slotCards.length === 1 && currentPhase === PHASE.HAND && (topC.type === "FIRST" || topC.type === "ETERNAL")) {
-                            handleHandClick(-1, topC);
-                        } else if (slotCards.length > 0) {
-                            expandedLockColor = isExpanded ? null : color.id;
-                            renderStatus(); 
-                        }
-                    };
+                // 【外科手術的修正】構文エラーを解消し、論理構造を整理
+                const slotKey = `p${p.id}-${color.id}`;
+                const isExpanded = (expandedLockColor === slotKey);
 
-                    if (isExpanded) {
-                        slotEl.style.zIndex = "1000";
-                        const popup = document.createElement('div');
-                        popup.className = "absolute left-0 top-full mt-1 flex flex-col gap-1 z-[2000] bg-black/90 p-1 rounded border border-yellow-500 shadow-2xl animate-fade-in-down";
-                        popup.style.width = "2.6rem"; 
+                slotEl.onclick = (e) => {
+                    e.stopPropagation();
+                    hideHoverPreview(true);
 
-                        slotCards.forEach((card) => {
-                            const pCard = document.createElement('div');
-                            let pTxtCls = card.colorId === 'white' ? 'text-gray-800' : (card.colorId === 'black' ? 'text-gray-200' : 'text-white');
-                            pCard.className = `w-8 h-8 rounded-sm border border-white/50 flex items-center justify-center cursor-pointer hover:scale-110 transition-transform overflow-hidden shrink-0 ${card.bg}`;
-                            if (card.image) {
-                                pCard.style.backgroundImage = `url('${card.image}')`;
-                                pCard.style.backgroundSize = "cover";
-                                pCard.style.backgroundPosition = "center";
-                            } else {
-                                pCard.innerHTML = `<span class="font-bold ${pTxtCls}" style="font-size: 8px;">${card.name[0]}</span>`;
-                            }
-                            
-                            pCard.onclick = (ev) => {
-                                ev.stopPropagation();
-                                hideHoverPreview(true);
-                                if (currentPhase === PHASE.HAND && (card.type === "FIRST" || card.type === "ETERNAL")) {
-                                    handleHandClick(-1, card);
-                                }
-                                expandedLockColor = null;
-                                renderStatus();
-                            };
-                            attachHoverEvents(pCard, card);
-                            popup.appendChild(pCard);
-                        });
-                        slotEl.appendChild(popup);
-                        slotEl.classList.add('ring-2', 'ring-yellow-500');
-                    } else {
-                        slotEl.style.zIndex = "";
-                        slotEl.classList.remove('ring-2', 'ring-yellow-500');
+                    // 1. そのカードの持ち主のターンかつハンドフェイズなら発動確認へ
+                    if (isMyTurn && currentPhase === PHASE.HAND && slotCards.length === 1 && (topC.type === "FIRST" || topC.type === "ETERNAL")) {
+                        handleHandClick(-1, topC);
+                    } 
+                    // 2. それ以外（複数枚ある場合や、他人のターンの場合）は中身を展開して見る
+                    else if (slotCards.length > 0) {
+                        expandedLockColor = isExpanded ? null : slotKey;
+                        renderStatus(); 
                     }
+                };
+
+                if (isExpanded) {
+                    slotEl.style.zIndex = "1000";
+                    const popup = document.createElement('div');
+                    popup.className = "absolute left-0 top-full mt-1 flex flex-col gap-1 z-[2000] bg-black/90 p-1 rounded border border-yellow-500 shadow-2xl animate-fade-in-down";
+                    popup.style.width = "2.6rem"; 
+
+                    slotCards.forEach((card) => {
+                        const pCard = document.createElement('div');
+                        let pTxtCls = card.colorId === 'white' ? 'text-gray-800' : (card.colorId === 'black' ? 'text-gray-200' : 'text-white');
+                        pCard.className = `w-8 h-8 rounded-sm border border-white/50 flex items-center justify-center cursor-pointer hover:scale-110 transition-transform overflow-hidden shrink-0 ${card.bg}`;
+                        if (card.image) {
+                            pCard.style.backgroundImage = `url('${card.image}')`;
+                            pCard.style.backgroundSize = "cover";
+                            pCard.style.backgroundPosition = "center";
+                        } else {
+                            pCard.innerHTML = `<span class="font-bold ${pTxtCls}" style="font-size: 8px;">${card.name[0]}</span>`;
+                        }
+                        
+                        pCard.onclick = (ev) => {
+                            ev.stopPropagation();
+                            hideHoverPreview(true);
+                            // 展開リストからも、持ち主のターンであれば発動可能に
+                            if (isMyTurn && currentPhase === PHASE.HAND && (card.type === "FIRST" || card.type === "ETERNAL")) {
+                                handleHandClick(-1, card);
+                            }
+                            expandedLockColor = null;
+                            renderStatus();
+                        };
+                        attachHoverEvents(pCard, card);
+                        popup.appendChild(pCard);
+                    });
+                    slotEl.appendChild(popup);
+                    slotEl.classList.add('ring-2', 'ring-yellow-500');
                 } else {
-                    slotEl.onclick = (e) => { e.stopPropagation(); openPlayerDetailModal(p.id); };
+                    slotEl.style.zIndex = "";
+                    slotEl.classList.remove('ring-2', 'ring-yellow-500');
                 }
             } else { 
                 // スロットが空の場合
                 slotEl.style.opacity = "0.5"; 
                 slotEl.style.borderColor = color.hex; 
                 slotEl.classList.add("border-b-2"); 
-                slotEl.style.backgroundImage = 'none'; // 追加：背景画像をクリア
+                slotEl.style.backgroundImage = 'none';
                 slotEl.className = `mini-slot rounded-sm border border-gray-600 bg-gray-800 relative flex items-center justify-center`;
                 slotEl.onclick = (e) => { e.stopPropagation(); if(!isHuman) openPlayerDetailModal(p.id); };
             } 
-        }); 
+        });
     }); 
 
     const oldLockArea = document.getElementById('my-lock-container');

@@ -43,7 +43,9 @@ function drawCard() {
 
 function discardCard(card) { 
     if(!card) return;
+    // 【外科手術的修正】捨てられたカード名をログに記録（エターナルはルール上捨てられないが、念のため判定に含める）
     if(card.type !== "ETERNAL") {
+        addLog(`「${card.name}」 が捨て札に送られました`);
         discardPile.push(card); 
     }
     if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); 
@@ -347,14 +349,25 @@ function updateTimerTick() {
 
                 if (lockableCards.length > 0) {
                     if (autoMode === 'NORMAL') {
-                        // 【NORMALロジック】自分が少なく持っている色を優先する
-                        // 1. 各色の現在のロック枚数を集計（ここでは未ロックのみ対象なので、実質0枚のものを探す）
-                        // 2. 手札にある lockableCards の中で、コレクション全体の「希少度」を考慮して選ぶ
-                        // ※今回はシンプルに「手札の中で、まだロックしていない色のカード」から選ぶが、
-                        //   将来的に「全プレイヤーの所持状況」まで見る拡張性を持たせています。
+                        // 【NORMALロジック】手札にある「ロック可能なカード」の中で、枚数が一番少ない色を選ぶ
                         
-                        // 現在の collections を元に、未所持色の中からランダムに選択（希少性判断の基礎）
-                        targetCard = lockableCards[Math.floor(Math.random() * lockableCards.length)];
+                        // 1. 手札にあるロック可能なカードの色ごとの枚数を集計
+                        const colorCounts = {};
+                        lockableCards.forEach(card => {
+                            colorCounts[card.colorId] = (colorCounts[card.colorId] || 0) + 1;
+                        });
+
+                        // 2. 最小枚数を特定
+                        const minCount = Math.min(...Object.values(colorCounts));
+
+                        // 3. 最小枚数を持つ色（ID）のリストを作成
+                        const rarestColorIds = Object.keys(colorCounts).filter(id => colorCounts[id] === minCount);
+
+                        // 4. その中からランダムに色を1つ選び、その色のカードを1枚抽出
+                        const targetColorId = rarestColorIds[Math.floor(Math.random() * rarestColorIds.length)];
+                        targetCard = lockableCards.find(card => card.colorId === targetColorId);
+                        
+                        addLog(`[戦略的ロック] 手札に ${minCount} 枚しかない ${targetCard.name} を優先しました。`);
                     } else {
                         // EASYモード：完全ランダム
                         targetCard = lockableCards[Math.floor(Math.random() * lockableCards.length)];
@@ -405,24 +418,55 @@ function updateTimerTick() {
     if (currentPhase === PHASE.HAND) {
         const autoHand = document.getElementById('setting-timeout-auto-hand')?.checked;
         if (autoHand) {
-            // 【追加】既に何か処理中、またはモーダルが開いているなら、新しいカードは使わずにタイムアウト処理へ
             if (isAutoProcessing || isHandEffectProcessing || isSelectionActive || activeModalId) {
                 handleTimeOut(); return;
             }
 
-            // --- 修正箇所：NORMALモード時は温存カードを「自動使用候補」から除外する ---
-            const usable = hands[p.id].filter(c => {
-                // まず、そのカードが物理的に使用可能かチェック
+            // 【外科手術的修正】手札に加えて、ロックエリアのエターナル/ファーストも候補に含める
+            const lockCards = [];
+            LOCK_ORDER.forEach(color => {
+                const slot = collections[p.id][color.id];
+                if (slot && slot.length > 0) {
+                    const topC = slot[slot.length - 1];
+                    if (topC.type === "FIRST" || topC.type === "ETERNAL") {
+                        lockCards.push(topC);
+                    }
+                }
+            });
+
+            // 手札(hands)とロック(lockCards)の両方をスキャン対象にする
+            const allCandidates = [...hands[p.id], ...lockCards];
+
+            const usable = allCandidates.filter(c => {
                 if (!canPlayHandEffect(c, p)) return false;
 
-                // NORMALモードかつ自動処理時の温存ロジックをここでも適用し、候補から外す
                 if (autoMode === 'NORMAL') {
+                    // 1. 温存ロジック（未ロック色の保持）
                     const col = c.colorId;
                     const isBasicColor = ['red', 'orange', 'yellow', 'green', 'blue', 'pink', 'purple'].includes(col);
                     if (isBasicColor) {
                         const slot = collections[p.id][col];
                         const isNotLocked = !slot || slot.length === 0 || (slot.length === 1 && slot[0].id === 34);
-                        if (isNotLocked) return false; // ロック用に取っておくため、自動使用候補に含めない
+                        if (isNotLocked) return false; 
+                    }
+
+                    // 2. 自爆回避ロジック（自分へのデバフ回避）
+                    const harmfulAgainstTop = [30, 32, 34]; // カラフルホール、いろ落ちガエル、にじいろの呪い
+                    if (harmfulAgainstTop.includes(c.id)) {
+                        // 各プレイヤーの現在のロック数を計算
+                        const lockCounts = players.map(pl => {
+                            return LOCK_ORDER.filter(colorBase => {
+                                const s = collections[pl.id][colorBase.id];
+                                return s && s.length > 0 && !s.some(card => card.id === 34);
+                            }).length;
+                        });
+                        const maxLocks = Math.max(...lockCounts);
+                        const myLocks = lockCounts[players.indexOf(p)];
+
+                        // 自分が最多ロック者（同率含む）なら、そのカードは使わない
+                        if (myLocks === maxLocks) {
+                            return false;
+                        }
                     }
                 }
                 return true;
@@ -431,7 +475,25 @@ function updateTimerTick() {
             if (usable.length > 0) {
                 addLog(`[自動] 使用可能カードを自動実行します。`);
                 isAutoProcessing = true; 
+                isAutoAction = true; if (usable.length > 0) {
+                const targetCard = usable[0];
+                addLog(`[自動] ${targetCard.name} を自動実行します。`);
+                isAutoProcessing = true; 
                 isAutoAction = true; 
+
+                // 【外科手術的修正】
+                // 選ばれたカードが「手札」にあるか「ロックエリア」にあるかを判定し、
+                // 正しい引数で handleHandClick を呼び出す。
+                const handIdx = hands[p.id].indexOf(targetCard);
+                if (handIdx !== -1) {
+                    // 手札にある場合
+                    handleHandClick(handIdx);
+                } else {
+                    // ロックエリアにある場合（手札にないので index は -1）
+                    handleHandClick(-1, targetCard);
+                }
+                return;
+            }
                 handleHandClick(hands[p.id].indexOf(usable[0]));
                 return;
             }
@@ -536,12 +598,23 @@ function handleTimeOut() {
     }
 }
 
+/**
+ * 2026/03/03 修正
+ * autoMove内の評価ロジックを AI_SCORE_CONFIG 連動型にアップデート
+ */
 function autoMove(p) { 
     if (!p || !players || isProcessingMove || isHandEffectProcessing) return;
     const enemyGatePos = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
     const otherPlayers = players.filter(pl => pl.id !== p.id);
     const directions = [[0,1], [0,-1], [1,0], [-1,0]]; 
     
+    // 設定値のショートカット（未定義時のフォールバック付き）
+    const cfg = window.AI_SCORE_CONFIG || {
+        CARD_COUNT: 10, UNLOCKED_COLOR: 50, ADJACENT_ENEMY: 5,
+        SELF_GATE_DEFENSE: 20, APPROACH_ENEMY_GATE: 20, REACH_ENEMY_GATE: 100,
+        RARE_COLOR: 20, POWER_CARD_NEAR: 20, STEAL_ACTION: 50
+    };
+
     let bestMoves = [];
     let maxScore = -Infinity;
 
@@ -551,15 +624,35 @@ function autoMove(p) {
         const cell = board[ny][nx]; 
         const epOn = otherPlayers.find(ep => ep.x === nx && ep.y === ny);
 
+        // カードがあるか、相手プレイヤーがいる場合のみ移動候補
         if (!cell.empty || epOn) { 
             let score = 0;
             if (autoMode === 'NORMAL') {
+                // 1. 敵ゲートへの距離評価
                 const distToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
-                score += (20 - distToGate);
-                if (epOn) score += 50; 
+                if (distToGate === 0) score += cfg.REACH_ENEMY_GATE; // 到達
+                else if (distToGate <= 2) score += cfg.APPROACH_ENEMY_GATE; // 接近
+                
+                // 2. 接触（強奪）評価
+                if (epOn) score += cfg.STEAL_ACTION; 
+
+                // 3. カード内容の評価（表面化している場合）
+                if (cell.revealed && cell.color) {
+                    const colId = cell.color.colorId;
+                    // 未ロックの色なら加点
+                    const isUnlocked = collections[p.id][colId] && collections[p.id][colId].length === 0;
+                    if (isUnlocked) score += cfg.UNLOCKED_COLOR;
+
+                    // 虹・白・黒の評価
+                    if (['rainbow', 'white', 'black'].includes(colId)) score += cfg.RARE_COLOR;
+                }
+
+                // 4. 隣接評価（足場崩し）
                 const isNextToEnemy = otherPlayers.some(ep => Math.abs(ep.x - nx) + Math.abs(ep.y - ny) === 1);
-                if (isNextToEnemy && !epOn) score -= 15;
+                if (isNextToEnemy && !epOn) score += cfg.ADJACENT_ENEMY;
+
             } else {
+                // EASYモード：単純に敵ゲートに近い場所を選ぶ
                 const distToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
                 score = (100 - distToGate);
             }
@@ -578,7 +671,6 @@ function autoMove(p) {
     if (move && typeof executeMove === 'function') {
         executeMove(move.x, move.y, move.cell, move.epOn); 
     } else {
-        // 移動先がない場合、確実にターンを終わらせる（フリーズ防止）
         addLog(`${p.name}は移動可能な場所がないため、ムーブを終了します。`);
         isProcessingMove = false;
         isAutoAction = false;
@@ -586,28 +678,59 @@ function autoMove(p) {
     }
 }
 
+/**
+ * 2026/03/03 修正
+ * autoPlace を AI_SCORE_CONFIG 連動のスコアリング方式にアップデート
+ */
 function autoPlace(p) { 
     if (!p || !players || isProcessingMove || isHandEffectProcessing) return;
-    const enemies = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
+    
+    const enemyGatePos = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
+    const otherPlayers = players.filter(pl => pl.id !== p.id);
     const directions = [[0,1], [0,-1], [1,0], [-1,0]]; 
     
-    let bestPlaces = [], minDist = Infinity; 
+    const cfg = window.AI_SCORE_CONFIG || {
+        APPROACH_ENEMY_GATE: 20, REACH_ENEMY_GATE: 100, SELF_GATE_DEFENSE: 20
+    };
+
+    let bestPlaces = [];
+    let maxScore = -Infinity;
 
     for (let d of directions) { 
         const nx = p.x + d[0], ny = p.y + d[1]; 
-        if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE) { 
-            let dVal = Math.min(...enemies.map(eg => getDistance({x: nx, y: ny}, eg))); 
+        if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
+        
+        // 配置なので、そこが空いているかチェック（基本ルール）
+        if (board[ny][nx].empty) {
+            let score = 0;
             
-            if (dVal < minDist) { 
-                minDist = dVal; 
-                bestPlaces = [{x: nx, y: ny}]; 
-            } else if (dVal === minDist) {
+            if (autoMode === 'NORMAL') {
+                // 1. 敵ゲートへの距離評価（攻めの配置）
+                const distToEnemyGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
+                if (distToEnemyGate === 0) score += cfg.REACH_ENEMY_GATE;
+                else if (distToEnemyGate <= 3) score += cfg.APPROACH_ENEMY_GATE;
+
+                // 2. 自ゲート付近の評価（守りの配置）
+                const distToSelfGate = getDistance({x: nx, y: ny}, p.startPos);
+                const isEnemyNearSelfGate = otherPlayers.some(ep => getDistance({x: ep.x, y: ep.y}, p.startPos) <= 2);
+                if (distToSelfGate <= 2 && isEnemyNearSelfGate) {
+                    score += cfg.SELF_GATE_DEFENSE; // 敵が自陣に近いなら、足場を供給して防御
+                }
+            } else {
+                // EASYモード：単純に敵ゲートに近い場所
+                const distToEnemyGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
+                score = (100 - distToEnemyGate);
+            }
+
+            if (score > maxScore) {
+                maxScore = score;
+                bestPlaces = [{x: nx, y: ny}];
+            } else if (score === maxScore) {
                 bestPlaces.push({x: nx, y: ny});
             }
-        } 
+        }
     } 
     
-    // 候補の中からランダムに1つ選択
     const bestPlace = bestPlaces.length > 0 ? bestPlaces[Math.floor(Math.random() * bestPlaces.length)] : null;
 
     if (bestPlace && typeof executePlaceCard === 'function') {
@@ -687,12 +810,11 @@ const processExile = (tSlot) => {
 };
 
 function handleHandClick(cardIndex, lockedCard = null) {
+    // 【外科手術的修正】AI処理中は表示制限を無視
+    const isAI = isAutoAction || isAutoProcessing;
     if (isPeekingMode || !players || !players[turn]) return;
-
     const displayTurn = isP1HandOnlyView ? 0 : turn;
-    
-    // ここに !isAutoProcessing が入っている必要があります
-    if (!isAutoProcessing && displayTurn !== turn) {
+    if (!isAI && displayTurn !== turn) {
         showToast("現在は P1 の手札を表示中ですが、操作権はありません。");
         return;
     }
@@ -707,24 +829,18 @@ function handleHandClick(cardIndex, lockedCard = null) {
 
         // 【修正】ロックフェイズでも確認モーダルを表示
         showDetailModal("ロック確認", `「${card.name}」をロックしますか？`, card, "ロックする", () => {
-            // --- 虹カードの処理 ---
             if (card.colorId === 'rainbow') {
-                // ... (中略) ...
+                // 虹色のロック先選択
+                const lockableColors = BASE_COLORS.filter(c => collections[p.id][c.id].length === 0);
                 showSelectionModal("RAINBOW LOCK", "どの色としてロックしますか？", lockableColors, "card-back-pattern", 1, (sel) => {
-                    const targetColorId = sel[0].id; // 選択された色のID
+                    const targetColorId = sel[0].id;
                     if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
                     const tSlot = collections[p.id][targetColorId];
                     tSlot.push(card);
-                    
-                    // ここで演出を呼ぶ
-                    if (typeof triggerLockEffect === 'function') {
-                        triggerLockEffect(p.id, targetColorId);
-                    }
-                    
+                    if (typeof triggerLockEffect === 'function') triggerLockEffect(p.id, targetColorId);
                     addLog(`${p.name}が「${card.name}」を${sel[0].name}としてロック！`);
-                    
                     setTimeout(() => {
-                        isAutoProcessing = false; // フラグ解除
+                        isAutoProcessing = false;
                         processExile(tSlot);
                         if (currentPhase === PHASE.LOCK && !winner) nextPhase();
                     }, 1000);
@@ -732,10 +848,8 @@ function handleHandClick(cardIndex, lockedCard = null) {
                 return;
             }
 
-            // --- 通常カードの処理部分 (270行目付近) ---
             const slot = collections[p.id][card.colorId];
             const hasCurse = slot.some(c => c.id === 34);
-            // 呪いがあれば3枚まで、なければ空(0枚)の時のみロック可能
             const isSlotAvailable = slot.length === 0 || (hasCurse && slot.length < 3);
 
             if (!isSlotAvailable) {
@@ -744,32 +858,20 @@ function handleHandClick(cardIndex, lockedCard = null) {
             }
 
             // 手札から削除
-            if(!lockedCard && hands[p.id]) {
-                hands[p.id].splice(cardIndex, 1);
-            }
+            if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
 
-            // ロックエリアに追加（一度きり）
+            // 【外科手術的修正】重複を削除し、一回だけ追加・ログ・演出を行うように整理
             slot.push(card);
-            
-            // 演出の実行
             if (typeof triggerLockEffect === 'function') {
                 triggerLockEffect(p.id, card.colorId);
             }
-            
-            addLog(`${p.name}が「${card.name}」をロック！`);
+            addLog(`${p.name} が 【${card.name}】 をロックしました！`);
 
-            // 【重要】演出時間を待って、フラグを解除し、次のフェイズへ
             setTimeout(() => {
-                isAutoProcessing = false; // 自動処理ガードを解除
-                isAutoAction = false;     // 自動アクションフラグを掃除
-                
-                // 追放判定（この中で nextPhase() が呼ばれ、フェイズが移行する）
+                isAutoProcessing = false;
+                isAutoAction = false;
                 processExile(slot);
-                
-                // 万が一 processExile で移行しなかった場合のために念押し
-                if (currentPhase === PHASE.LOCK && !winner) {
-                    nextPhase();
-                }
+                if (currentPhase === PHASE.LOCK && !winner) nextPhase();
             }, 1200);
         });
 
@@ -785,11 +887,8 @@ function handleHandClick(cardIndex, lockedCard = null) {
                             if (!(res && res.stayOnBoard)) discardPile.push(removedCard); 
                         }
                     } 
-                    
-                    // After: 自動処理フラグを解除して、タイマーと盤面を正常に戻す
                     isAutoProcessing = false; 
                     isAutoAction = false;
-                    
                     resetTimer(); 
                     updateGameState(); 
                 }, card);
@@ -996,8 +1095,14 @@ function executeMove(x, y, cell, epOn) {
             checkAnytimeReactions(() => endTurn()); 
         } 
     };
-    if (epOn) startStealSequence(epOn, moveFinish); 
-    else moveToCell(p, x, y, false, moveFinish); 
+    // 【外科手術的修正】接触か通常移動かを判別して詳細ログを出力
+    if (epOn) {
+        addLog(`${p.name} が ${epOn.name} に接触しました！`);
+        startStealSequence(epOn, moveFinish); 
+    } else {
+        addLog(`${p.name} が (${x}, ${y}) へ移動しました`);
+        moveToCell(p, x, y, false, moveFinish); 
+    }
 }
 
 function startStealSequence(victim, callback) { 
@@ -1052,8 +1157,9 @@ function finishSteal(victim, card, callback, invader) {
     if (card) { 
         hands[victim.id].splice(hands[victim.id].indexOf(card), 1); 
         hands[invader.id].push(card); 
-        addLog(`接触！${invader.name}は${victim.name}からカードを1枚奪いました。`);
-    } 
+        // 【外科手術的修正】奪ったカード名をログに明記して戦況を分かりやすくする
+        addLog(`接触！${invader.name} は ${victim.name} から「${card.name}」を奪いました`);
+    }
 
     if (victim.x === victim.startPos.x && victim.y === victim.startPos.y) { 
         if(callback) callback(); 
@@ -1665,8 +1771,13 @@ async function initGameInternal(num, isTest = false) {
         }
     }
 
+    // 【外科手術的修正】テストモード時は自動的なターン開始(startTurn)を徹底的にブロックする
     if (!isTest) {
         showOpeningLogo(startTurn);
+    } else {
+        // テストモード時はアニメーション完了のログだけ出し、
+        // flowPos 側の制御（駒の配置待ち）に処理を明け渡す
+        console.log("テストモード：盤面配置完了。配置待ちへ...");
     }
 }
 
@@ -1771,63 +1882,89 @@ function skipToPositionSelection() {
 }, null, null, true, null, false, null, null, null, players[0]);
 }
 
-function startTestGame() { 
+async function startTestGame() { 
     if(!testSelectedCards || testSelectedCards.length === 0) { showToast("カードを選んでください"); return; } 
-    const testEl = document.getElementById('test-mode-modal'); if(testEl) testEl.classList.add('hidden'); 
     
-    // 定義の準備
+    // 1. モーダルを隠す
+    const testEl = document.getElementById('test-mode-modal'); 
+    if(testEl) testEl.classList.add('hidden'); 
+    
+    // --- 【追加】テスト人数を選択させる ---
+    const waitForNumber = () => {
+        return new Promise((resolve) => {
+            showSelectionModal("TEST PLAYERS", "テストする人数を選んでください", [
+                { id: 2, name: "2人戦", type: "PLAYER_SELECT" },
+                { id: 3, name: "3人戦", type: "PLAYER_SELECT" },
+                { id: 4, name: "4人戦", type: "PLAYER_SELECT" }
+            ], "card-back-pattern", 1, (result) => resolve(result[0].id));
+        });
+    };
+
+    const playerNum = await waitForNumber();
+    await new Promise(r => setTimeout(r, 400));
+
     const firstCards = CARD_DATABASE.filter(c => c.type === 'FIRST');
     const lockPool = CARD_DATABASE.filter(c => c.type === 'NORMAL' || c.type === 'ETERNAL'); 
     testFirstCards = []; 
-    testInitialLocks = [[], []];
+    testInitialLocks = []; // 人数分用意するので初期化
 
-    // --- 内部フロー関数群 ---
-    
-    // P1 First: キャンセル(パス)時はランダム
-    const flowP1F = () => showSelectionModal("P1 FIRST", "P1のファーストカードを選択", firstCards, "card-back-pattern", 1, (sel) => { 
-        testFirstCards.push(sel[0]); flowP1L(); 
-    }, false, () => { 
-        // パス時はランダムな1枚を割り当て
-        testFirstCards.push(firstCards[Math.floor(Math.random() * firstCards.length)]);
-        flowP1L();
-    }, "ランダムで次へ");
-
-    // P1 Lock: キャンセル時は空（または既存の「決定」で空を許容）
-    const flowP1L = () => showSelectionModal("P1 LOCKS", "P1の初期ロックを選択", lockPool, "card-back-pattern", 7, (sel) => { 
-        testInitialLocks[0] = sel; flowP2F(); 
-    }, false, () => { flowP2F(); }, "スキップして次へ");
-
-    // P2 First
-    const flowP2F = () => showSelectionModal("P2 FIRST", "P2のファーストカードを選択", firstCards, "card-back-pattern", 1, (sel) => { 
-        testFirstCards.push(sel[0]); flowP2L(); 
-    }, false, () => { 
-        testFirstCards.push(firstCards[Math.floor(Math.random() * firstCards.length)]);
-        flowP2L();
-    }, "ランダムで次へ");
-
-    // P2 Lock
-    const flowP2L = () => showSelectionModal("P2 LOCKS", "P2の初期ロックを選択", lockPool, "card-back-pattern", 7, (sel) => { 
-        testInitialLocks[1] = sel; flowPos(); 
-    }, false, () => { flowPos(); }, "スキップして次へ");
-
-    const flowPos = () => {
-        initGameInternal(2, true); if(timerInterval) clearInterval(timerInterval); players[0].x = -1; players[0].y = -1; players[1].x = -1; players[1].y = -1; renderBoard();
-        startSelectionMode('select_cell', 1, 'test_pos_p1', "P1開始位置", (sel) => { 
-            players[0].x = sel[0].x; players[0].y = sel[0].y; players[0].startPos = {...sel[0]}; players[0].prevX = sel[0].x; players[0].prevY = sel[0].y; renderBoard();
-            startSelectionMode('select_cell', 1, 'test_pos_p2', "P2開始位置", (sel2) => { 
-                players[1].x = sel2[0].x; players[1].y = sel2[0].y; players[1].startPos = {...sel2[0]}; players[1].prevX = sel2[0].x; players[1].prevY = sel2[0].y; 
-                addLog("テスト開始。"); 
-                
-                // --- 修正: ここでロゴを表示してからゲーム開始 ---
-                showOpeningLogo(() => {
-                    resetTimer(); 
-                    updateGameState(); 
-                });
-            }, null, null, true, null, false, null, null, null, players[1]);
-        }, null, null, true, null, false, null, null, null, players[0]);
+    // 共通の選択ヘルパー
+    const waitForSelection = (title, desc, source, back, count) => {
+        return new Promise((resolve) => {
+            showSelectionModal(title, desc, source, back, count, (result) => {
+                resolve(result);
+            }, false, () => {
+                resolve([]);
+            }, "ランダム/スキップ");
+        });
     };
+
+    // --- 【外科手術的進化】人数分ループで回す ---
+    for (let i = 0; i < playerNum; i++) {
+        const pName = `P${i + 1}`;
+        
+        // ファーストカード選択
+        let selF = await waitForSelection(`${pName} FIRST`, `${pName}のファーストカードを選択`, firstCards, "card-back-pattern", 1);
+        testFirstCards[i] = selF.length > 0 ? selF[0] : firstCards[Math.floor(Math.random() * firstCards.length)];
+        await new Promise(r => setTimeout(r, 300));
+
+        // 初期ロック選択
+        testInitialLocks[i] = await waitForSelection(`${pName} LOCKS`, `${pName}の初期ロックを選択（最大7枚）`, lockPool, "card-back-pattern", 7);
+        await new Promise(r => setTimeout(r, 300));
+    }
+
+    // --- 最終 Step: 盤面構築と駒配置 ---
+    addLog(`${playerNum}人戦の盤面を構築中...`);
     
-    flowP1F();
+    // プレイヤー人数を渡して初期化
+    await initGameInternal(playerNum, true); 
+    
+    if(timerInterval) clearInterval(timerInterval); 
+    players.forEach(p => { p.x = -1; p.y = -1; });
+    renderBoard();
+
+    await new Promise(r => setTimeout(r, 800));
+
+    // 全員の初期位置を順番に選ぶループ
+    for (let i = 0; i < playerNum; i++) {
+        const p = players[i];
+        await new Promise((resolve) => {
+            startSelectionMode('select_cell', 1, `test_pos_p${p.id}`, `${p.name}の開始位置を選択してください`, (sel) => {
+                if (sel && sel.length > 0) {
+                    p.x = sel[0].x; p.y = sel[0].y; p.startPos = {...sel[0]};
+                    renderBoard();
+                }
+                resolve();
+            }, null, null, true, null, false, null, null, null, p);
+        });
+        await new Promise(r => setTimeout(r, 300));
+    }
+
+    addLog("すべての準備が整いました。テスト開始！");
+    showOpeningLogo(() => {
+        resetTimer(); 
+        updateGameState(); 
+    });
 }
 
 function setupEventListeners() {
@@ -2139,3 +2276,4 @@ function showVictoryUI(pid) {
     const peekBtn = document.getElementById('peek-board-container');
     if (peekBtn) peekBtn.classList.remove('hidden');
 }
+

@@ -429,6 +429,29 @@ function openDevSettings() {
  * 開発用設定画面を閉じる
  */
 function closeDevSettings() {
+    // ★追加: AIスコア設定の読み取り
+    if (window.AI_SCORE_CONFIG) {
+        const scoreIds = {
+            CARD_COUNT: 'ai-score-card-count',
+            UNLOCKED_COLOR: 'ai-score-unlocked-color',
+            ADJACENT_ENEMY: 'ai-score-adjacent-enemy',
+            SELF_GATE_DEFENSE: 'ai-score-self-defense',
+            APPROACH_ENEMY_GATE: 'ai-score-approach-enemy',
+            REACH_ENEMY_GATE: 'ai-score-reach-enemy',
+            RARE_COLOR: 'ai-score-rare-color',
+            POWER_CARD_NEAR: 'ai-score-power-near',
+            STEAL_ACTION: 'ai-score-steal-action'
+        };
+
+        for (const [key, id] of Object.entries(scoreIds)) {
+            const input = document.getElementById(id);
+            if (input) {
+                window.AI_SCORE_CONFIG[key] = parseInt(input.value) || 0;
+            }
+        }
+        console.log("AI Score Config Updated:", window.AI_SCORE_CONFIG);
+    }
+
     const modal = document.getElementById('dev-settings-modal');
     if (modal) modal.classList.add('hidden');
     if (typeof managePeekUI === 'function') managePeekUI(false);
@@ -846,7 +869,12 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
         el.onclick = (e) => { 
             e.stopPropagation(); 
             if (item.disabled) return;
-            if (typeof gainTime === 'function') gainTime(5); 
+
+            // 【外科手術的修正】テストモード等、プレイヤーがまだ生成されていない状況での gainTime エラーを防止
+            if (typeof players !== 'undefined' && players && players.length > 0) {
+                if (typeof gainTime === 'function') gainTime(5); 
+            }
+
             if (selected.includes(item)) { 
                 selected = selected.filter(c => c !== item); 
                 el.classList.remove('selected-card-glow'); 
@@ -856,7 +884,15 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
                     el.classList.add('selected-card-glow'); 
                 } 
             } 
-            if (selected.length === count) setTimeout(() => showSelectionResult(selected, onComplete, title, cancelCallback, autoBtnText, isBlind, actingPlayer), 300); 
+            
+            // 選択枚数に達したら結果画面へ
+            if (selected.length === count) {
+                setTimeout(() => {
+                    if (typeof showSelectionResult === 'function') {
+                        showSelectionResult(selected, onComplete, title, cancelCallback, autoBtnText, isBlind, actingPlayer);
+                    }
+                }, 300); 
+            }
         };
         return el;
     };
@@ -914,10 +950,19 @@ function showSelectionResult(cards, onComplete, effectName, cancelCallback = nul
     if (okBtn) {
         okBtn.onclick = () => { 
             activeTimerPlayerId = null; // タイマーを手番プレイヤーに戻す
-            if (typeof gainTime === 'function') gainTime(5); 
+            
+            // 【外科手術的修正】テストモード等のゲーム開始前（playersが空）でのエラーを防止
+            if (typeof players !== 'undefined' && players && players.length > 0) {
+                if (typeof gainTime === 'function') gainTime(5); 
+            }
+
             document.getElementById('selection-modal').classList.add('hidden'); 
             managePeekUI(false); 
-            onComplete(cards); 
+            
+            // 完了コールバックを実行
+            if (typeof onComplete === 'function') {
+                onComplete(cards); 
+            }
         };
 
         // 追加：自動処理中なら 500ms 後に自動クリック
@@ -2347,89 +2392,99 @@ function performVictoryCameraWork(winnerId, onComplete) {
     const appEl = document.getElementById('app');
     if (!appEl) return;
 
-    // 0. 暗転レイヤー
+    // --- 【設定】ズームの微調整用 ---
+    const CONFIG = {
+        zoomScale: 2.2,      // 緑を際立たせるため少し倍率を上げました
+        angles: {
+            "bottom": 0,     // P1（自分）
+            "left": -90,     // 左側の人
+            "top": 180,      // 上側の人
+            "right": 90      // 右側の人
+        }
+    };
+    // ----------------------------
+
     const overlay = document.createElement('div');
     overlay.className = 'final-v-overlay';
     appEl.appendChild(overlay);
 
-    // 1. 振動（エラー防止のため存在チェック）
     if (typeof triggerHeartbeatHaptic === 'function') triggerHeartbeatHaptic();
 
-    // 2. 代表して赤のスロットをターゲットに
-    const slotEl = document.getElementById(`p${winnerId}-slot-red`);
+    const winner = players.find(pl => pl.id === winnerId);
+    let targetAreaId = "";
     let rotate = 0;
-    if (winnerId === 2) rotate = 180;
-    else if (winnerId === 3) rotate = 90;
-    else if (winnerId === 4) rotate = 270;
 
-    if (slotEl) {
-        const rect = slotEl.getBoundingClientRect();
+    if (winner) {
+        const pos = winner.startPos;
+        // 座席判定
+        if (pos.y === 6) { targetAreaId = "area-p3"; rotate = CONFIG.angles.bottom; }
+        else if (pos.x === 0) { targetAreaId = "area-p4"; rotate = CONFIG.angles.left; }
+        else if (pos.y === 0) { targetAreaId = "area-p1"; rotate = CONFIG.angles.top; }
+        else if (pos.x === 6) { targetAreaId = "area-p2"; rotate = CONFIG.angles.right; }
+    }
+
+    // 【重要】中心点となる「緑のスロット」を特定する
+    // 各プレイヤーエリア内の ID: pX-slot-green を探します
+    const centerElement = document.getElementById(`p${winnerId}-slot-green`);
+    const targetArea = document.getElementById(targetAreaId);
+
+    if (centerElement && targetArea) {
         const appRect = appEl.getBoundingClientRect();
-        const slotCenterX = rect.left - appRect.left + rect.width / 2;
-        const slotCenterY = rect.top - appRect.top + rect.height / 2;
-        const moveX = (appRect.width / 2) - slotCenterX;
-        const moveY = (appRect.height / 2) - slotCenterY;
-
+        const rect = centerElement.getBoundingClientRect();
+        
+        // 緑のスロットの画面上の中心を、#app内の座標として計算
+        const centerX = rect.left - appRect.left + rect.width / 2;
+        const centerY = rect.top - appRect.top + rect.height / 2;
+        
         requestAnimationFrame(() => {
             appEl.classList.add('final-v-zoom-active');
             overlay.classList.add('active');
-            appEl.style.transformOrigin = `${slotCenterX}px ${slotCenterY}px`;
-            // PCでの見切れ防止のため倍率を 1.5倍 に設定
-            appEl.style.transform = `translate(${moveX}px, ${moveY}px) scale(1.5) rotate(${rotate}deg)`;
             
-            BASE_COLORS.forEach(col => {
-                const s = document.getElementById(`p${winnerId}-slot-${col.id}`);
-                if (s) s.classList.add('victory-slot-highlight');
-            });
+            // 緑のスロットを「変形の起点（中心）」に設定
+            appEl.style.transformOrigin = `${centerX}px ${centerY}px`;
+            
+            // 拡大と回転（起点が緑なので、これだけで緑が中央に来ます）
+            appEl.style.transform = `scale(${CONFIG.zoomScale}) rotate(${rotate}deg)`;
+            
+            // エリア全体をハイライト
+            const slots = targetArea.querySelectorAll('.mini-slot, .eternal-view, .discard-view');
+            slots.forEach(s => s.classList.add('victory-slot-highlight'));
         });
     }
 
-    // 3. 衝撃波とバナー（2.5秒後）
+    // 3. 衝撃波とバナー演出
     setTimeout(() => {
         const nova = document.createElement('div');
         nova.className = 'rainbow-nova';
         nova.style.top = '50%';
         nova.style.left = '50%';
         document.body.appendChild(nova);
-        
         requestAnimationFrame(() => nova.classList.add('nova-animate'));
 
-        const winner = players.find(pl => pl.id === winnerId);
         const banner = document.createElement('div');
         banner.className = 'victory-banner';
-        
-        // 【修正】いかなるプレイヤーが勝利しても、バナー自体は回転させず常に正面(0deg)を向かせる
-        const finalTransform = `translate(-50%, -50%) scale(1.2) rotate(0deg)`;
-        banner.style.transform = finalTransform;
+        banner.style.transform = `translate(-50%, -50%) scale(1.2)`;
         
         banner.innerHTML = `
             <div class="text-5xl font-black italic text-yellow-400 drop-shadow-[0_4px_10px_rgba(0,0,0,1)] mb-4">WINNER!!</div>
             <div class="flex flex-col items-center">
-                <img src="${winner.icon}" class="w-32 h-32 rounded-full border-4 border-yellow-400 shadow-2xl mb-4 bg-gray-900">
+                <img src="${winner.icon}" class="w-32 h-32 rounded-full border-4 border-yellow-400 shadow-2xl mb-4 bg-gray-900 object-cover">
                 <div class="text-3xl font-bold text-white drop-shadow-lg">${winner.name}</div>
             </div>
         `;
         document.body.appendChild(banner);
         
-        setTimeout(() => {
-            banner.style.opacity = "1";
-            // ここも 0deg で固定
-            banner.style.transform = `translate(-50%, -50%) scale(1.2) rotate(0deg)`;
-        }, 50);
+        setTimeout(() => { banner.style.opacity = "1"; }, 50);
 
         setTimeout(() => {
             if (nova) nova.remove();
             if (banner) banner.remove(); 
-            
-            // ★重要：盤面全体（#app）の回転・拡大・マージンを完全に消去して標準状態に戻す
             appEl.style.transform = "none";
             appEl.style.transformOrigin = "center";
             appEl.classList.remove('final-v-zoom-active');
             const ov = document.querySelector('.final-v-overlay');
             if (ov) ov.remove();
-
-            // 演出が完全に終わってから、次の処理（リザルト表示）へ
             if (onComplete) onComplete();
-        }, 3000); // 演出をしっかり見せるため3秒確保
+        }, 3000);
     }, 2500);
 }

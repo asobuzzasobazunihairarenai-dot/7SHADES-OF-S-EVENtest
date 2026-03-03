@@ -2086,8 +2086,11 @@ case 'open_facedown':
  */
 function showStealActionModal(thief, victim, onComplete) {
     const modal = document.createElement('div');
-    modal.className = "fixed inset-0 z-[1000] bg-black/95 flex flex-col items-center justify-center p-2";
+    // ライトモード対応の背景・文字色判定
+    const bgClass = isLightMode ? "bg-white" : "bg-black/95";
+    const textColor = isLightMode ? "text-gray-800" : "text-white/90";
     
+    modal.className = `fixed inset-0 z-[1000] ${bgClass} flex flex-col items-center justify-center p-2`;
     const victimHandCount = hands[victim.id] ? hands[victim.id].length : 0;
     
     // 手札枚数に応じて重なりを調整（枚数が多いほど重なりを深くして幅に収める）
@@ -2105,7 +2108,7 @@ function showStealActionModal(thief, victim, onComplete) {
         <div class="steal-display-container" style="width: 100%; max-width: 350px;">
             <div class="steal-player-unit">
                 <img src="${thief.icon}" class="steal-prof-img" style="border-color: ${thief.color.hex}">
-                <span class="text-[10px] font-bold text-white truncate w-full text-center">${thief.name}</span>
+                <span class="text-[10px] font-bold ${isLightMode ? 'text-gray-900' : 'text-white'} truncate w-full text-center">${thief.name}</span>
             </div>
 
             <div class="flex flex-col items-center shrink-0 w-12">
@@ -2115,13 +2118,13 @@ function showStealActionModal(thief, victim, onComplete) {
 
             <div class="steal-player-unit">
                 <img src="${victim.icon}" class="steal-prof-img" style="border-color: ${victim.color.hex}">
-                <span class="text-[10px] font-bold text-white truncate w-full text-center">${victim.name}</span>
+                <span class="text-[10px] font-bold ${isLightMode ? 'text-gray-900' : 'text-white'} truncate w-full text-center">${victim.name}</span>
                 <div class="flex items-center justify-center mt-2 px-1 w-full overflow-visible">
                     ${handHTML}
                 </div>
             </div>
         </div>
-        <p class="text-gray-300 text-[12px] mt-10 px-6 text-center leading-tight">
+        <p class="${textColor} text-[12px] mt-10 px-6 text-center leading-tight font-medium">
             ${thief.name} が ${victim.name} の手札 (${victimHandCount}枚)<br>からカードを狙っています...
         </p>
     `;
@@ -2235,14 +2238,18 @@ window.showFullDeckListModal = function() {
 // --- 演出用：プレゼントモーダル ---
 function showPresentFlowerModal(giver, receiver, card, onComplete) {
     const modal = document.createElement('div');
-    modal.className = "fixed inset-0 z-[1000] bg-black/95 flex flex-col items-center justify-center p-2";
+    // ライトモード時は背景を白(bg-white)、通常は黒(bg-black/95)に設定
+    const bgClass = isLightMode ? "bg-white" : "bg-black/95";
+    const textColor = isLightMode ? "text-gray-800" : "text-white/90";
+    
+    modal.className = `fixed inset-0 z-[1000] ${bgClass} flex flex-col items-center justify-center p-2`;
     
     modal.innerHTML = `
         <h2 class="text-xl font-black text-pink-400 mb-8 italic tracking-tighter animate-pulse">FLOWER PRESENT!!</h2>
         <div class="steal-display-container" style="width: 100%; max-width: 350px;">
             <div class="steal-player-unit">
                 <img src="${giver.icon}" class="steal-prof-img" style="border-color: ${giver.color.hex}">
-                <span class="text-[10px] font-bold text-white truncate w-full text-center">${giver.name}</span>
+                <span class="text-[10px] font-bold ${isLightMode ? 'text-gray-900' : 'text-white'} truncate w-full text-center">${giver.name}</span>
             </div>
 
             <div class="flex flex-col items-center shrink-0 w-12">
@@ -2252,10 +2259,10 @@ function showPresentFlowerModal(giver, receiver, card, onComplete) {
 
             <div class="steal-player-unit">
                 <img src="${receiver.icon}" class="steal-prof-img" style="border-color: ${receiver.color.hex}">
-                <span class="text-[10px] font-bold text-white truncate w-full text-center">${receiver.name}</span>
+                <span class="text-[10px] font-bold ${isLightMode ? 'text-gray-900' : 'text-white'} truncate w-full text-center">${receiver.name}</span>
             </div>
         </div>
-        <p class="text-gray-300 text-[12px] mt-10 px-6 text-center leading-tight">
+        <p class="${textColor} text-[12px] mt-10 px-6 text-center leading-tight font-medium">
             ${giver.name} から ${receiver.name} へ<br>「${card.name}」が贈られました
         </p>
     `;

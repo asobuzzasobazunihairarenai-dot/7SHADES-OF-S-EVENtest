@@ -565,7 +565,7 @@ function renderHand() {
                 e.stopPropagation();
                 // 修正箇所：封印時のメッセージを追加
                 if (card.sealed) {
-                    if (typeof showToast === 'function') showToast("このカードは封印されており、今ターンは使えません");
+                    if (typeof showToast === 'function') showToast("このカードは今ターンは使えません");
                 } else if (currentPhase === PHASE.LOCK) {
                     if (typeof showToast === 'function') showToast("ロックできないカードです");
                 } else if (typeof showToast === 'function') showToast("使用条件を満たしていません");

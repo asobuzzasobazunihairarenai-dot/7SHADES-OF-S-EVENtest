@@ -27,9 +27,25 @@ let isAutoSkipping = false;
 let isPlacingCard = false;
 let isAutoAction = false;
 let isAutoProcessing = false; 
+
 let isSkipSelectionOnAuto = false; // ★追加：自動処理時に選択モーダルをスキップするか
 let autoMode = 'EASY'; // ★追加：自動処理の賢さ ('EASY' または 'NORMAL')
+
+// ★追加: NORMALモードAIの評価基準点数
+window.AI_SCORE_CONFIG = {
+    CARD_COUNT: 10,          // 枚数 (+10/枚)
+    UNLOCKED_COLOR: 50,     // 未ロック色 (+50)
+    ADJACENT_ENEMY: 5,      // 相手の隣 (+5)
+    SELF_GATE_DEFENSE: 20,  // 自ゲート防衛 (+20)
+    APPROACH_ENEMY_GATE: 20,// 敵ゲート接近 (+20)
+    REACH_ENEMY_GATE: 100,  // 敵ゲート到達 (+100)
+    RARE_COLOR: 20,         // 虹・白・黒 (+20)
+    POWER_CARD_NEAR: 20,    // 虹・白・黒（付近に存在） (+20)
+    STEAL_ACTION: 50        // 接触行為自体 (+50)
+};
+
 let invasionQueue = [];
+
 let autoProcessTimeout = null; // 【追加】自動処理の待機タイマー保持用
 let isEndingTurn = false; 
 let isProcessingMove = false; 

@@ -306,7 +306,7 @@ function updateTimerTick() {
     const isSelectionActive = selectionState.active || (selectionModal && !selectionModal.classList.contains('hidden'));
 
     if (!isSelectionActive) {
-        if (isHandEffectProcessing || isProcessingMove || activeModalId) return;
+        if (isAutoProcessing || isHandEffectProcessing || isProcessingMove || activeModalId) return;
     }
 
     const p = activeTimerPlayerId 
@@ -315,7 +315,13 @@ function updateTimerTick() {
         
     if (!p) return;
 
-    // --- 【修正】まず数値を減らしてから、その結果を「1秒かけて」描画するように順序を変更 ---
+    // --- 【外科手術的修正】P1タイマー無視設定の判定を復元 ---
+    const ignoreP1 = document.getElementById('setting-p1-timer-ignore')?.checked;
+    if (ignoreP1 && p.id === 1) { 
+        return; // P1かつ設定がONなら、これ以降の「減算」も「描画」も行わずに終了
+    }
+
+    // --- 以降、数値を減らす処理 ---
     if (timeLeft > 0) {
         timeLeft--; 
     } else if (useGlobalTimer && p.totalTimeLeft > 0) {
@@ -663,7 +669,7 @@ const processExile = (tSlot) => {
         const cIdx = tSlot.findIndex(c => c.id === 34); 
         const curse = tSlot.splice(cIdx, 1)[0]; 
         tempAction = { card: curse };
-        addLog("封印が3枚重なり、呪いが解けました！");
+        addLog("呪いが解けました！");
         
         if (typeof startSelectionMode === 'function') {
             startSelectionMode('select_cell', 1, 'exile_curse_logic', '呪いを盤面へ追放してください', () => { 
@@ -1038,9 +1044,25 @@ function startStealSequenceInternal(victim, callback, overrideInvader = null) {
 }
 
 function finishSteal(victim, card, callback, invader) { 
-    if (card) { hands[victim.id].splice(hands[victim.id].indexOf(card), 1); hands[invader.id].push(card); } 
-    if (victim.x === victim.startPos.x && victim.y === victim.startPos.y) { if(callback) callback(); } 
-    else { moveToCell(victim, victim.startPos.x, victim.startPos.y, true, callback); }
+    // 【外科手術的追加】接触演出（衝撃波と画面揺れ）を実行
+    if (typeof playContactEffect === 'function') {
+        playContactEffect(victim.x, victim.y);
+    }
+
+    if (card) { 
+        hands[victim.id].splice(hands[victim.id].indexOf(card), 1); 
+        hands[invader.id].push(card); 
+        addLog(`接触！${invader.name}は${victim.name}からカードを1枚奪いました。`);
+    } 
+
+    if (victim.x === victim.startPos.x && victim.y === victim.startPos.y) { 
+        if(callback) callback(); 
+    } 
+    else { 
+        // 相手を自身のゲートへ移動させる。
+        // 第6引数に 'contact-knockback' クラスを渡せるよう拡張（演出用）
+        moveToCell(victim, victim.startPos.x, victim.startPos.y, true, callback); 
+    }
 }
 
 async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraClass = null) { 

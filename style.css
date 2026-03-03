@@ -1289,3 +1289,30 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     transform: translate(-50%, -50%) scale(1);
     opacity: 1;
 }
+
+/* 画面を揺らすアニメーション */
+.screen-shake {
+    animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes shake {
+    10%, 90% { transform: translate3d(-1px, 0, 0); }
+    20%, 80% { transform: translate3d(2px, 0, 0); }
+    30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+    40%, 60% { transform: translate3d(4px, 0, 0); }
+}
+
+/* 接触時の衝撃エフェクト（リング状の光） */
+.contact-shockwave {
+    position: absolute;
+    border: 4px solid rgba(255, 255, 255, 0.8);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 100;
+    animation: shockwave-animate 0.5s ease-out forwards;
+}
+
+@keyframes shockwave-animate {
+    0% { width: 0; height: 0; opacity: 1; transform: translate(-50%, -50%) scale(0); }
+    100% { width: 200px; height: 200px; opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}

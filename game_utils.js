@@ -30,6 +30,44 @@ function showToast(msg) {
     setTimeout(() => { if (el.parentNode) el.remove(); }, 1500);
 }
 
+/**
+ * 接触演出を実行する
+ * @param {number} x - 発生源のX座標（グリッド）
+ * @param {number} y - 発生源のY座標（グリッド）
+ */
+function playContactEffect(x, y) {
+    // 1. 画面シェイク
+    const app = document.getElementById('app');
+    if (app) {
+        app.classList.remove('screen-shake');
+        void app.offsetWidth; // リフローを強制して再アニメーション可能にする
+        app.classList.add('screen-shake');
+        setTimeout(() => app.classList.remove('screen-shake'), 500);
+    }
+
+    // 2. 衝撃波エフェクトの生成
+    const boardEl = document.getElementById('board');
+    if (boardEl) {
+        const shock = document.createElement('div');
+        shock.className = 'contact-shockwave';
+        
+        // グリッド座標をピクセルに変換（セルの中心）
+        const cells = boardEl.children;
+        const targetCell = cells[y * 7 + x];
+        if (targetCell) {
+            shock.style.left = `${targetCell.offsetLeft + targetCell.offsetWidth / 2}px`;
+            shock.style.top = `${targetCell.offsetTop + targetCell.offsetHeight / 2}px`;
+            boardEl.appendChild(shock);
+            setTimeout(() => shock.remove(), 500);
+        }
+    }
+
+    // 3. 接触SEの再生（もしあれば。後で追加可能）
+    // playSE('se_impact');
+}
+
+
+
 function showMessageOverlay(msg, duration, callback) {
     const el = document.createElement('div');
     el.className = "fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4";
@@ -322,13 +360,22 @@ function setBGMVolume(vol) {
  */
 function updateBGMVolumeFromSlider(valStr) {
     const vol = parseInt(valStr) / 100;
-    // localStorageに保存して次回以降も維持
+    
+    // 1. 設定を保存（次回起動用）
     localStorage.setItem('shades_bgm_volume', valStr);
     
+    // 2. 現在再生中のBGMに即座に反映
     if (window.gameBGM) {
         window.gameBGM.volume = vol;
+        // デバッグ用（動かない場合に確認可能）
+        console.log(`BGM Volume updated: ${vol}`);
+    } else {
+        console.warn("BGM Object (window.gameBGM) not found.");
     }
 }
+
+// ブラウザの仕様により、関数を確実にHTMLから見つけられるように window オブジェクトに紐付けます
+window.updateBGMVolumeFromSlider = updateBGMVolumeFromSlider;
 
 /**
  * 効果音（SE）を再生する共通関数
@@ -336,15 +383,33 @@ function updateBGMVolumeFromSlider(valStr) {
 function playSE(fileName) {
     if (!fileName) return;
 
-    // 正しいID（index.htmlで修正予定のID）から音量を取得
     const volSlider = document.getElementById('setting-se-volume');
     const vol = volSlider ? (parseInt(volSlider.value) / 100) : 0.5;
 
-    // パスを audio/ に統一（外科手術的修正）
     try {
         const audio = new Audio(`audio/${fileName}`);
         audio.volume = vol;
-        audio.play().catch(e => console.warn("SE playback failed:", e));
+
+        // 【外科手術的修正】自動処理によるブロックを回避するための再生処理
+        const playPromise = audio.play();
+
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                // 自動再生ポリシーでブロックされた場合、ログには出すがフリーズはさせない
+                console.warn("SE Playback blocked or failed:", fileName, error);
+                
+                // 対策：もし「ユーザー操作が必要」というエラー（NotAllowedError）なら
+                // 次に画面のどこかをクリックした瞬間に音が鳴るよう、1回だけ予備動作を仕込むなどの
+                // 拡張も可能ですが、まずは「連続再生」による詰まりを解消するため、
+                // 再生完了後にオブジェクトを解放するよう設定します。
+            });
+        }
+
+        // 使い終わったオーディオオブジェクトをメモリから解放する
+        audio.onended = () => {
+            audio.remove();
+        };
+
     } catch (err) {
         console.error("SE play error:", err);
     }

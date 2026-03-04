@@ -917,6 +917,9 @@ function checkWin(pid) {
         const playTimeSec = Math.floor((Date.now() - gameStartTime) / 1000);
         window.currentPlayTime = playTimeSec;
 
+        // --- 外科手術的修正：プロフィールの更新と保存 ---
+        updateProfileAfterGame(pid);
+
         // 2. BGM停止と勝利SE再生
         if (window.gameBGM) {
             window.gameBGM.pause();
@@ -2043,7 +2046,13 @@ function setupProfileUI() {
         const nameInput = document.getElementById('p1-name-input');
         const name1 = (nameInput && nameInput.value) ? nameInput.value : "P1";
         
-        // P1のみ設定、他はデフォルト（3,4人プレイ時も考慮）
+        // --- 外科手術的追加：userProfile（永続データ）の更新 ---
+        userProfile.name = name1;
+        userProfile.icon = selectedIcon;
+        saveUserProfile();           // localStorageへ保存
+        updateProfileButtonVisual(); // UI上のボタン画像を更新
+
+        // P1のみ設定、他はデフォルト
         window.pendingProfiles = [
             { name: name1, icon: selectedIcon },
             { name: "P2", icon: "images/character_002.webp" },
@@ -2065,10 +2074,18 @@ function setupProfileUI() {
             titleOverlay.classList.add('hidden');
         }
 
-        // 3. 人数選択画面を表示
-        const setupOverlay = document.getElementById('setup-overlay');
-        if (setupOverlay) {
-            setupOverlay.classList.remove('hidden');
+        /** 2026/03/04 修正：ホーム表示時にセットアップ画面を完全に隠す **/
+        // 3. ホーム画面を表示
+        const homeScreen = document.getElementById('home-screen');
+        const setupOverlay = document.getElementById('setup-overlay'); // 追加
+        const nameDisplay = document.getElementById('home-user-name');
+        
+        if (nameDisplay) nameDisplay.textContent = name1;
+        
+        // 背後のセットアップ画面を隠し、ホーム画面を表示する
+        if (setupOverlay) setupOverlay.classList.add('hidden'); // 追加：これで透けなくなります
+        if (homeScreen) {
+            homeScreen.classList.remove('hidden');
         }
     };
 }
@@ -2315,3 +2332,100 @@ function showVictoryUI(pid) {
     if (peekBtn) peekBtn.classList.remove('hidden');
 }
 
+
+/**
+ * ゲーム終了後のプロフィール更新処理
+ * @param {string} winnerId - 勝利したプレイヤーのID
+ */
+function updateProfileAfterGame(winnerId) {
+    const isWin = (winnerId === 'p1');
+    const oldPoint = userProfile.rankPoint; // 変動前のポイントを記憶
+
+    // 統計の基本更新（総試合数）
+    userProfile.stats.totalGames++;
+
+    if (isWin) {
+        userProfile.totalWins++;
+        const addPoint = (userProfile.rank <= 3) ? 2 : 1;
+        userProfile.rankPoint += addPoint;
+    
+
+        // 7ポイントで昇格（ランク8が上限）
+        if (userProfile.rankPoint >= 7 && userProfile.rank < 8) {
+            userProfile.rank++;
+            userProfile.rankPoint = 0; 
+            addLog(`【RANK UP】ランク ${userProfile.rank} に到達しました！`);
+            // ★追加：ランクアップ演出
+            const rankNames = ["なし", "Red Apprentice", "Orange Survivor", "Yellow Seeker", "Green Guardian", "Blue Tactician", "Pink Specialist", "Purple Master", "SEVEN"];
+            showLevelUpModal('RANK', rankNames[userProfile.rank]);
+        }
+
+        // --- レベルの計算 (累積勝利数ベース) ---
+        // 公式: レベル = floor(sqrt(累計勝利数 * 2)) + 1
+        const newLevel = Math.floor(Math.sqrt(userProfile.totalWins * 2)) + 1;
+        if (newLevel > userProfile.level) {
+            userProfile.level = newLevel;
+            addLog(`【LEVEL UP】Lv.${userProfile.level} になりました！`);
+            // ★追加：レベルアップ演出
+            showLevelUpModal('LEVEL', userProfile.level);
+        }
+    } else {
+        userProfile.rankPoint = Math.max(0, userProfile.rankPoint - 1);
+    }
+
+    const newPoint = userProfile.rankPoint; // 変動後のポイント
+
+    // ★追加：ランク変動モーダルを表示
+    showPostGameRankModal(isWin, oldPoint, newPoint, () => {
+        // モーダルが閉じられた後に実行したい処理があればここに書く
+    });
+
+
+    // カラー傾向の反映（今回の対局でのカード使用統計を合算）
+    if (window.cardUsageStats && window.cardUsageStats['p1']) {
+        const p1Usage = window.cardUsageStats['p1'];
+        for (const cardName in p1Usage) {
+            const card = CARD_DATABASE.find(c => c.name === cardName);
+            if (card && card.colorId) {
+                // 文字列キー（red, orange等）でカウント
+                userProfile.stats.colorUsage[card.colorId] = (userProfile.stats.colorUsage[card.colorId] || 0) + p1Usage[cardName];
+            }
+        }
+    }
+
+    // データの保存（game_state.jsで定義した関数を呼び出し）
+    // --- 外科手術的修正：新しく獲得した称号を保存する ---
+    const currentAwards = calculateAwards(winnerId);
+    currentAwards.forEach(award => {
+        // 自分が獲得した称号かつ、まだリストにない場合のみ追加
+        if (award.pid === 'p1' && !userProfile.unlockedTitles.includes(award.name)) {
+            userProfile.unlockedTitles.push(award.name);
+            addLog(`🎖️ 新しい称号「${award.name}」を獲得しました！`);
+        }
+    });
+
+    // --- 外科手術的修正：通算MVPカードの特定 ---
+    if (!userProfile.stats.cardUsageCount) userProfile.stats.cardUsageCount = {};
+    
+    if (window.cardUsageStats && window.cardUsageStats['p1']) {
+        const p1Usage = window.cardUsageStats['p1'];
+        for (const cardName in p1Usage) {
+            userProfile.stats.cardUsageCount[cardName] = (userProfile.stats.cardUsageCount[cardName] || 0) + p1Usage[cardName];
+        }
+    }
+
+    // 最多使用カードを検索
+    let topCardName = userProfile.stats.mvpCard;
+    let maxUsage = topCardName ? (userProfile.stats.cardUsageCount[topCardName] || 0) : 0;
+
+    for (const [name, count] of Object.entries(userProfile.stats.cardUsageCount)) {
+        if (count > maxUsage) {
+            maxUsage = count;
+            topCardName = name;
+        }
+    }
+    userProfile.stats.mvpCard = topCardName;
+
+    // データの保存
+    saveUserProfile();
+}

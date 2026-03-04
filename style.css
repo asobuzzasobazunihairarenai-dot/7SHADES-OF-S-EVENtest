@@ -1272,18 +1272,30 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     animation: nova-expand 1.5s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
 }
 
-/* 勝利メッセージのスタイル */
+/* 勝利モーダルの基本スタイル */
 .victory-banner {
     position: fixed;
     top: 50%;
     left: 50%;
-    z-index: 3000;
-    opacity: 0;
+    transform: translate(-50%, -50%);
+    z-index: 10001;
+    background: rgba(17, 24, 39, 0.95); /* ダークモード用の深い紺・黒系 */
+    color: #ffffff;
+    padding: 2rem;
+    border-radius: 1.5rem;
+    border: 2px solid #facc15; /* ゴールドの縁取り */
     text-align: center;
-    width: 90%;
-    pointer-events: none;
-    /* transformはJSで制御するため、opacityのみアニメーションさせる */
-    transition: opacity 0.8s ease;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.5s, transform 0.5s;
+    min-width: 300px;
+}
+
+/* ライトモード時の上書き設定 */
+.light-mode .victory-banner {
+    background: rgba(255, 255, 255, 0.95);
+    color: #111827;
+    border: 2px solid #eab308;
 }
 
 .victory-banner.show {
@@ -1372,4 +1384,13 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     border-radius: 0.75rem; /* #app の rounded-xl と合わせる */
     max-width: 100%;
     max-height: 100%;
+}
+
+/* ホーム画面用ボタンスタイル */
+#home-screen button {
+    box-shadow: 0 4px 0px rgba(0,0,0,0.3);
+}
+#home-screen button:active {
+    transform: translateY(2px);
+    box-shadow: none;
 }

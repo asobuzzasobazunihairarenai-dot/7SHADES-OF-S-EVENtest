@@ -41,10 +41,14 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
+/** 2026/03/04 修正：デバッグモード移行時にホーム画面を隠す **/
 function showPlayerSelection() {
     const titleEl = document.getElementById('title-overlay');
     const setupEl = document.getElementById('setup-overlay');
+    const homeEl = document.getElementById('home-screen'); // 追加
+    
     if (titleEl) titleEl.classList.add('hidden');
+    if (homeEl) homeEl.classList.add('hidden'); // 追加
     if (setupEl) setupEl.classList.remove('hidden');
 }
 
@@ -2535,4 +2539,440 @@ function performVictoryCameraWork(winnerId, onComplete) {
             if (onComplete) onComplete();
         }, 3000);
     }, 2500);
+}
+
+/**
+ * プロフィール画面を表示する
+ */
+function showUserProfileModal() {
+    const p = userProfile;
+    // --- 外科手術的修正：ランク名に和訳ルビを追加 ---
+    const rankData = [
+        { en: "NONE", jp: "なし" },
+        { en: "Red Apprentice", jp: "赤の門下生" },
+        { en: "Orange Survivor", jp: "橙の生存者" },
+        { en: "Yellow Seeker", jp: "黄の探求者" },
+        { en: "Green Guardian", jp: "緑の守護者" },
+        { en: "Blue Tactician", jp: "青の策士" },
+        { en: "Pink Specialist", jp: "桃の専門家" },
+        { en: "Purple Master", jp: "紫の熟練者" },
+        { en: "SEVEN", jp: "虹の覇者" }
+    ];
+    
+    const currentRank = rankData[p.rank] || { en: "Unknown", jp: "" };
+    // ルビ形式のHTMLを生成
+    const rankDisplayName = `
+        <div class="flex flex-col items-end leading-tight">
+            <span class="text-xs font-black tracking-tighter text-yellow-500/80 uppercase">${currentRank.en}</span>
+            <span class="text-[10px] font-bold">${currentRank.jp}</span>
+        </div>
+    `;
+    
+    // 勝率計算
+    const winRate = p.stats.totalGames > 0 ? ((p.totalWins / p.stats.totalGames) * 100).toFixed(1) : 0;
+
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in p-4';
+    
+    modal.innerHTML = `
+        <div class="bg-white light:bg-white dark-mode-adjust w-full max-w-md rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] border-2 border-yellow-500/50">
+            <div class="p-6 text-center relative border-b border-gray-200 bg-gray-100 header-bg-adjust">
+                <style>
+                    /* モーダル内限定の動的スタイル調整 */
+                    .light-mode .dark-mode-adjust { background-color: #ffffff !important; color: #111827 !important; }
+                    .light-mode .header-bg-adjust { background: linear-gradient(to right, #f3f4f6, #e5e7eb) !important; border-color: #d1d5db !important; }
+                    .light-mode .text-adjust-main { color: #111827 !important; }
+                    .light-mode .text-adjust-mute { color: #4b5563 !important; }
+                    .light-mode .bg-adjust-card { background-color: #f9fafb !important; border-color: #e5e7eb !important; }
+                    /* 外科手術的追加：ライトモード時の称号色調整 */
+                    .light-mode #edit-title span:first-child { color: #d97706 !important; font-weight: bold; }
+                    
+                    /* ダークモード（デフォルト）用 */
+                    body:not(.light-mode) .dark-mode-adjust { background-color: #111827 !important; }
+                    body:not(.light-mode) .header-bg-adjust { background: linear-gradient(to right, #1f2937, #111827) !important; border-color: #374151 !important; }
+                    body:not(.light-mode) .bg-adjust-card { background-color: rgba(31, 41, 55, 0.5) !important; border-color: #374151 !important; }
+                </style>
+
+                <button id="close-profile" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-2xl">×</button>
+                <div class="relative inline-block cursor-pointer group" id="edit-profile-icon">
+                    <img src="${p.icon}" class="w-24 h-24 rounded-full border-4 border-yellow-500 shadow-lg object-cover mx-auto bg-gray-200 group-hover:brightness-110 transition-all">
+                    <div class="absolute -bottom-2 -right-2 bg-yellow-500 text-gray-900 text-xs font-bold px-2 py-1 rounded-full shadow">Lv.${p.level}</div>
+                    <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded-full text-white text-[10px] font-bold">編集</div>
+                </div>
+                <h2 id="edit-profile-name" class="text-2xl font-bold mt-4 text-adjust-main cursor-pointer hover:text-yellow-600 transition-colors flex items-center justify-center gap-2">
+                    ${p.name} <span class="text-xs text-gray-400 font-normal">✎</span>
+                </h2>
+                <div id="edit-title" class="text-yellow-600 dark:text-yellow-500 font-mono text-sm mt-1 cursor-pointer hover:brightness-125 transition-all flex items-center justify-center gap-1 group">
+    <span>称号: ${p.selectedTitle}</span>
+    <span class="text-[10px] bg-yellow-500/20 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">変更</span>
+</div>
+            </div>
+
+            <div class="p-6 overflow-y-auto space-y-6 custom-scrollbar bg-white dark-mode-adjust">
+                <div class="rounded-xl p-4 border bg-adjust-card">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-adjust-mute text-sm font-bold">現在のランク</span>
+                        <div class="flex items-center gap-2">
+    ${rankDisplayName}
+    <span class="text-adjust-main font-black text-lg border-l border-gray-500/30 pl-2">Rank ${p.rank}</span>
+</div>
+                    </div>
+                    <div class="flex justify-between items-center gap-1.5 mt-2">
+                        ${Array.from({ length: 7 }).map((_, i) => {
+                            const isReached = i < p.rankPoint;
+                            return `
+                                <div class="flex-1 h-3 rounded-sm border-2 transition-all duration-500 ${
+                                    isReached 
+                                    ? 'bg-yellow-500 border-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.6)]' 
+                                    : 'bg-transparent border-gray-300 dark:border-gray-700 opacity-40'
+                                }"></div>
+                            `;
+                        }).join('')}
+                    </div>
+                    <div class="text-right text-[10px] text-adjust-mute mt-1 font-bold">昇格まであと ${7 - p.rankPoint} pt</div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4 text-center">
+                    <div class="bg-adjust-card p-3 rounded-lg border">
+                        <div class="text-adjust-mute text-[10px] uppercase font-bold">Total</div>
+                        <div class="text-xl font-bold text-adjust-main">${p.stats.totalGames}</div>
+                    </div>
+                    <div class="bg-adjust-card p-3 rounded-lg border">
+                        <div class="text-adjust-mute text-[10px] uppercase font-bold">Wins</div>
+                        <div class="text-xl font-bold text-green-600">${p.totalWins}</div>
+                    </div>
+                    <div class="bg-adjust-card p-3 rounded-lg border">
+                        <div class="text-adjust-mute text-[10px] uppercase font-bold">Win Rate</div>
+                        <div class="text-xl font-bold text-blue-600">${winRate}%</div>
+                    </div>
+                </div>
+
+                <div class="rounded-xl p-4 border bg-adjust-card border-yellow-500/30">
+                    <h3 class="text-adjust-mute text-[10px] font-bold mb-3 uppercase tracking-wider">Favorite Card (MVP)</h3>
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-24 bg-gray-800 rounded-lg border border-gray-700 overflow-hidden shrink-0 shadow-lg">
+                            ${p.stats.mvpCard ? 
+                                `<img src="images/card_${CARD_DATABASE.find(c => c.name === p.stats.mvpCard)?.id}.webp" class="w-full h-full object-cover">` : 
+                                `<div class="w-full h-full flex items-center justify-center text-[10px] text-gray-600 italic">No Data</div>`
+                            }
+                        </div>
+                        <div class="flex-1 text-left">
+                            <div class="text-adjust-main font-black text-sm">${p.stats.mvpCard || "まだデータがありません"}</div>
+                            <div class="text-[10px] text-adjust-mute mt-1">
+                                通算使用回数: <span class="text-yellow-500 font-bold">${p.stats.cardUsageCount ? (p.stats.cardUsageCount[p.stats.mvpCard] || 0) : 0}</span> 回
+                            </div>
+                            <div class="text-[9px] text-gray-400 mt-2 italic line-clamp-2">
+                                ${p.stats.mvpCard ? (CARD_DATABASE.find(c => c.name === p.stats.mvpCard)?.arrival || "効果を使いこなして勝利を掴もう。") : "対局を重ねると、最も縁のあるカードが表示されます。"}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-adjust-mute text-xs font-bold mb-3 uppercase tracking-wider">Color Style</h3>
+                    <div class="flex h-4 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700">
+                        ${Object.entries(p.stats.colorUsage).map(([col, count]) => {
+                            const total = Object.values(p.stats.colorUsage).reduce((a, b) => a + b, 0) || 1;
+                            const colorHex = BASE_COLORS.find(bc => bc.id === col)?.hex || '#ccc';
+                            return `<div style="width: ${(count/total)*100}%; background-color: ${colorHex}" title="${col}"></div>`;
+                        }).join('')}
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 bg-gray-100 dark:bg-gray-800/30 border-t border-gray-200 dark:border-gray-800">
+                <button id="close-profile-btn" class="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-xl transition-colors">閉じる</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeModal = () => modal.remove();
+    // --- 外科手術的追加：画像または名前クリックで設定画面へ ---
+    const startEdit = () => {
+        modal.remove(); // プロフィール画面を閉じる
+        if (typeof openProfileSetup === 'function') {
+            // game_state.js のフラグを一時的に倒して設定画面を強制表示
+            window.isProfileSet = false; 
+            openProfileSetup();
+        }
+    };
+    
+    // --- 外科手術的追加：称号クリックで変更画面へ ---
+    modal.querySelector('#edit-title').onclick = () => {
+        showTitleSelectionModal(() => {
+            modal.remove(); // 一旦閉じて
+            showUserProfileModal(); // 更新後のデータで再表示
+        });
+    };
+
+    modal.querySelector('#edit-profile-icon').onclick = startEdit;
+    modal.querySelector('#edit-profile-name').onclick = startEdit;
+    modal.querySelector('#close-profile').onclick = closeModal;
+    modal.querySelector('#close-profile-btn').onclick = closeModal;
+}
+
+
+const TITLE_DESCRIPTION_MAP = {
+    "駆け出しの旅人": { desc: "この世界に足を踏み入れた者に与えられる。 ", hint: "初期称号" },
+    "韋駄天": { desc: "1ターンに驚異的な移動距離を記録した証。", hint: "1ターンに一定マス以上移動して勝利する" },
+    "電光石火": { desc: "目にも止まらぬ速さで決着をつけた証。", hint: "少ないターン数で勝利する" },
+    "虹の覇者": { desc: "七色の輝きをすべて手中に収めた真の勝者。", hint: "7色すべてをロックして勝利する" },
+    "不屈の闘志": { desc: "逆境から立ち上がり、勝利を掴んだ証。", hint: "大量のロックを奪われた後に逆転勝利する" },
+    "慎重派": { desc: "一歩一歩、確実な布石を打つ戦略家。", hint: "タイムアップにならずに一定ターンプレイする" }
+    // 今後、新しい称号が増えるたびにここに追加できます
+};
+
+
+
+/**
+ * 獲得済みの称号から表示するものを選ぶモーダル
+ */
+function showTitleSelectionModal(onChanged) {
+    const titles = userProfile.unlockedTitles || ["駆け出しの旅人"];
+    
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 z-[10001] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4';
+    
+    let titleOptionsHtml = titles.map(t => {
+        const info = TITLE_DESCRIPTION_MAP[t] || { desc: "謎に包まれた称号。", hint: "獲得条件不明" };
+        const isSelected = userProfile.selectedTitle === t;
+        
+        return `
+            <div class="flex flex-col gap-1 mb-2">
+                <div class="flex items-center gap-2">
+                    <button class="flex-1 p-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-white font-bold transition-all text-left flex justify-between items-center group ${isSelected ? 'border-yellow-500 bg-gray-700' : ''}" onclick="window._selectTitle('${t}')">
+                        <span>${t}</span>
+                        ${isSelected ? '<span class="text-yellow-500 text-sm">●</span>' : ''}
+                    </button>
+                    <button class="w-10 h-10 flex items-center justify-center bg-gray-700 hover:bg-gray-600 rounded-xl text-gray-400 border border-gray-600" 
+                            onclick="event.stopPropagation(); window._toggleTitleInfo('${t}')">
+                        <span class="text-xs">？</span>
+                    </button>
+                </div>
+                <div id="info-${t}" class="hidden p-3 bg-gray-800/50 rounded-lg border border-gray-700/50 text-[11px] space-y-1 animate-fade-in">
+                    <div class="text-yellow-500/80">【由来】${info.desc}</div>
+                    <div class="text-gray-400 italic">【獲得条件】${info.hint}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    modal.innerHTML = `
+        <div class="bg-gray-900 border-2 border-yellow-500/50 w-full max-w-xs rounded-2xl overflow-hidden shadow-2xl flex flex-col">
+            <div class="p-4 border-b border-gray-800 text-center bg-gray-800/50">
+                <h3 class="text-yellow-500 font-bold">称号変更</h3>
+            </div>
+            <div class="p-4 space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                ${titleOptionsHtml}
+            </div>
+            <div class="p-3 bg-gray-800/30">
+                <button id="close-title-select" class="w-full py-2 text-gray-400 hover:text-white text-sm">キャンセル</button>
+            </div>
+        </div>
+    `;
+
+    // グローバルに関数を一時登録（簡易化のため）
+    window._selectTitle = (titleName) => {
+        userProfile.selectedTitle = titleName;
+        saveUserProfile();
+        modal.remove();
+        if (onChanged) onChanged();
+    };
+
+    // 説明文の表示切り替え
+    window._toggleTitleInfo = (titleName) => {
+        const infoEl = document.getElementById(`info-${titleName}`);
+        if (infoEl) {
+            const isHidden = infoEl.classList.contains('hidden');
+            // 他の開いている説明を全部閉じる（スッキリさせるため）
+            document.querySelectorAll('[id^="info-"]').forEach(el => el.classList.add('hidden'));
+            // クリックしたものだけトグル
+            if (isHidden) infoEl.classList.remove('hidden');
+        }
+    };
+
+    document.body.appendChild(modal);
+    modal.querySelector('#close-title-select').onclick = () => modal.remove();
+}
+
+/**
+ * レベルアップまたはランクアップをお祝いする演出モーダル
+ * @param {string} type - 'LEVEL' または 'RANK'
+ * @param {number|string} newValue - 新しいレベル数、またはランク名
+ */
+function showLevelUpModal(type, newValue) {
+    const isLevel = type === 'LEVEL';
+    const title = isLevel ? "LEVEL UP!" : "RANK UP!";
+    const subTitle = isLevel ? `Lv.${newValue} に到達` : `${newValue}`;
+    const colorClass = isLevel ? "text-blue-400" : "text-yellow-400";
+    
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 backdrop-blur-md animate-fade-in pointer-events-none';
+    
+    modal.innerHTML = `
+        <div class="text-center animate-bounce-in pointer-events-auto">
+            <div class="text-6xl font-black ${colorClass} italic drop-shadow-[0_0_20px_rgba(255,255,255,0.5)] mb-2 uppercase tracking-tighter">${title}</div>
+            <div class="bg-gray-900/80 border-y-2 border-yellow-500 py-4 px-12 transform -skew-x-12 shadow-[0_0_30px_rgba(0,0,0,0.8)]">
+                <div class="text-2xl font-bold text-white skew-x-12">${subTitle}</div>
+            </div>
+            <div class="text-gray-300 text-xs mt-6 animate-pulse">画面をクリックして閉じる</div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // どこをクリックしても閉じるようにする
+    const closeHandler = () => {
+        modal.classList.add('animate-fade-out');
+        setTimeout(() => modal.remove(), 500);
+        document.removeEventListener('click', closeHandler);
+    };
+    setTimeout(() => {
+        document.addEventListener('click', closeHandler);
+    }, 500); // 誤操作防止のため少し待ってからクリック有効化
+}
+
+/**
+ * ゲーム終了後のランク変動を表示するモーダル
+ */
+function showPostGameRankModal(isWin, oldPoint, newPoint, onFinish) {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 z-[11000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in';
+    
+    // 増減のテキスト
+    const changeText = isWin ? "+1pt" : "-1pt";
+    const changeColor = isWin ? "text-yellow-400" : "text-red-500";
+    
+    modal.innerHTML = `
+        <div class="bg-gray-900 border-2 border-gray-700 p-8 rounded-3xl shadow-2xl text-center max-w-xs w-full animate-bounce-in">
+            <h3 class="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2">Rank Progress</h3>
+            <div class="text-4xl font-black ${changeColor} mb-6 italic tracking-tighter">${changeText}</div>
+            
+            <div class="flex justify-between items-center gap-1.5 mb-4">
+                ${Array.from({ length: 7 }).map((_, i) => {
+                    // アニメーション用に、最初は古いポイント状態で描画
+                    const isReached = i < oldPoint;
+                    return `
+                        <div id="rank-block-${i}" class="flex-1 h-4 rounded-sm border-2 transition-all duration-700 ${
+                            isReached 
+                            ? 'bg-yellow-500 border-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.6)]' 
+                            : 'bg-transparent border-gray-700 opacity-40'
+                        }"></div>
+                    `;
+                }).join('')}
+            </div>
+            
+            <p class="text-gray-400 text-[10px] mb-8 italic">タップして次へ</p>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // 少し遅れてポイントの変動をアニメーションさせる
+    setTimeout(() => {
+        const blocks = modal.querySelectorAll('[id^="rank-block-"]');
+        blocks.forEach((block, i) => {
+            if (i < newPoint) {
+                block.className = 'flex-1 h-4 rounded-sm border-2 transition-all duration-700 bg-yellow-500 border-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.6)]';
+            } else {
+                block.className = 'flex-1 h-4 rounded-sm border-2 transition-all duration-700 bg-transparent border-gray-700 opacity-40';
+            }
+        });
+    }, 500);
+
+    const close = () => {
+        modal.classList.add('animate-fade-out');
+        setTimeout(() => {
+            modal.remove();
+            if (onFinish) onFinish();
+        }, 500);
+        document.removeEventListener('click', close);
+    };
+    
+    setTimeout(() => document.addEventListener('click', close), 1000);
+}
+
+/**
+ * ホーム画面からCPU戦の人数選択を表示する
+ */
+function showCpuBattleSelection() {
+    const home = document.getElementById('home-screen');
+    const cpuSetup = document.getElementById('cpu-setup-overlay');
+    if (home) home.classList.add('hidden');
+    if (cpuSetup) {
+        cpuSetup.classList.remove('hidden');
+        // CPU戦なのでNORMALモードをデフォルトに設定
+        autoMode = 'NORMAL';
+        const modeSelect = document.getElementById('setting-auto-mode');
+        if (modeSelect) modeSelect.value = 'NORMAL';
+    }
+}
+
+/**
+ * ホーム画面から練習（2P / EASY）を即座に開始する
+ */
+async function startPracticeGame() {
+    const home = document.getElementById('home-screen');
+    if (home) home.classList.add('hidden');
+    
+    // 自動処理レベルをEASYにする
+    const modeSelect = document.getElementById('setting-auto-mode');
+    if (modeSelect) modeSelect.value = 'EASY';
+    autoMode = 'EASY';
+
+    addLog("練習モード(EASY)を開始します...");
+    
+    // プロフィール情報から名前を反映（P1を自分に）
+    window.pendingProfiles = [
+        { name: userProfile.name, icon: userProfile.icon },
+        { name: "CPU (Practice)", icon: "images/character_002.webp" }
+    ];
+    window.isProfileSet = true;
+
+    // 2人戦でゲーム開始
+    if (typeof initGame === 'function') {
+        initGame(2);
+    }
+}
+
+/**
+ * CPU戦を特定の人数で開始する
+ */
+function startCpuGame(num) {
+    const cpuSetup = document.getElementById('cpu-setup-overlay');
+    if (cpuSetup) cpuSetup.classList.add('hidden');
+
+    addLog(`CPU対戦 (${num}人 / NORMAL) を開始します...`);
+
+    // P1は自分、P2以降はCPUとしてプロフィールを構築
+    const cpuIcons = ["images/character_002.webp", "images/character_003.webp", "images/character_004.webp"];
+    const cpuNames = ["CPU (Alpha)", "CPU (Beta)", "CPU (Gamma)"];
+    
+    window.pendingProfiles = [{ name: userProfile.name, icon: userProfile.icon }];
+    
+    for (let i = 0; i < num - 1; i++) {
+        window.pendingProfiles.push({
+            name: cpuNames[i],
+            icon: cpuIcons[i]
+        });
+    }
+    
+    window.isProfileSet = true;
+
+    // ゲーム初期化実行
+    if (typeof initGame === 'function') {
+        initGame(num);
+    }
+}
+
+/**
+ * CPU選択画面からホームに戻る
+ */
+function backToHomeFromCpu() {
+    const cpuSetup = document.getElementById('cpu-setup-overlay');
+    const home = document.getElementById('home-screen');
+    if (cpuSetup) cpuSetup.classList.add('hidden');
+    if (home) home.classList.remove('hidden');
 }

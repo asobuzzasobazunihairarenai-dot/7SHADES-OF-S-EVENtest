@@ -102,3 +102,51 @@ let isLightMode = localStorage.getItem('shades_light_mode') !== 'false';
  * プロフィール（名前・アイコン）が設定済みかどうかを管理するフラグ
  */
 let isProfileSet = false;
+
+// --- 外科手術的追加：永続プロフィールデータ構造 ---
+let userProfile = {
+    name: "Player 1",
+    icon: "images/piece_001.png",
+    selectedTitle: "駆け出しの旅人",
+    unlockedTitles: ["駆け出しの旅人"],
+    level: 1,
+    totalWins: 0,
+    rankPoint: 0,
+    rank: 1,
+    stats: {
+        totalGames: 0,
+        colorUsage: { red: 0, orange: 0, yellow: 0, green: 0, blue: 0, pink: 0, purple: 0 },
+        mvpCard: null
+    }
+};
+
+/**
+ * localStorage からプロフィールを読み込む
+ */
+function loadUserProfile() {
+    try {
+        const savedData = localStorage.getItem('shades_seven_profile');
+        if (savedData) {
+            const parsed = JSON.parse(savedData);
+            // 既存の userProfile に保存データをマージ（新機能追加時の型崩れ防止）
+            userProfile = { ...userProfile, ...parsed, stats: { ...userProfile.stats, ...(parsed.stats || {}) } };
+            isProfileSet = true;
+        }
+    } catch (e) {
+        console.error("プロフィール読み込み失敗:", e);
+    }
+}
+
+/**
+ * localStorage へプロフィールを保存する
+ */
+function saveUserProfile() {
+    try {
+        localStorage.setItem('shades_seven_profile', JSON.stringify(userProfile));
+    } catch (e) {
+        console.error("プロフィール保存失敗:", e);
+    }
+}
+
+// 起動時に自動実行
+loadUserProfile();

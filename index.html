@@ -24,6 +24,9 @@
     <img src="images/logo.webp" alt="7 SHADES OF S:EVEN" class="h-full w-auto object-contain drop-shadow-[0_0_5px_rgba(234,179,8,0.4)]">
 </div>
             <div class="flex gap-2">
+                <button onclick="showUserProfileModal()" class="w-8 h-8 bg-gray-800 rounded-full hover:bg-gray-700 transition-colors shadow-lg border border-gray-600 overflow-hidden p-0 flex items-center justify-center">
+    <img class="profile-button-icon-img w-full h-full object-cover" src="images/piece_001.png">
+</button>
                 <button onclick="showSettings()" class="text-[10px] bg-gray-700 hover:bg-gray-600 text-white px-2 py-0.5 rounded border border-gray-600 flex items-center gap-1"><span>⚙</span> 設定</button>
                 <button onclick="showRules()" class="text-[10px] bg-blue-900 hover:bg-blue-800 text-blue-200 px-2 py-0.5 rounded border border-blue-700">ルール</button>
                 <button onclick="showSetup()" class="text-[10px] bg-gray-700 hover:bg-gray-600 text-white px-2 py-0.5 rounded border border-gray-600">リセット</button>
@@ -144,10 +147,18 @@
                START GAME
             </button>
              </div>
+             <button onclick="showPlayerSelection()" class="absolute bottom-4 left-4 text-[9px] text-gray-600 hover:text-gray-400 underline transition-colors">Dev Mode / Debug Menu</button>
         </div>
 
         <div id="setup-overlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center overlay rounded-xl bg-gray-900/90 backdrop-blur-sm">
     <h2 class="text-2xl font-bold mb-6 text-white shrink-0">プレイ人数</h2>
+
+    <div class="absolute top-4 right-4 flex items-center gap-2">
+        <span class="text-[10px] text-gray-400 font-bold uppercase">Profile</span>
+        <button onclick="showUserProfileModal()" class="w-8 h-8 bg-gray-700 rounded-full border border-gray-500 overflow-hidden">
+            <img class="profile-button-icon-img w-full h-full object-cover" src="images/piece_001.png">
+        </button>
+    </div>
 
     <div class="flex gap-2 mb-8">
         <button onclick="showRules()" class="text-[10px] bg-gray-800 hover:bg-gray-700 text-yellow-500 px-4 py-1.5 rounded-full border border-yellow-700 flex items-center gap-1 transition-all active:scale-95">
@@ -170,6 +181,69 @@
         </button>
     </div>
 </div>
+
+<div id="home-screen" class="hidden absolute inset-0 z-50 flex flex-col items-center justify-center overlay rounded-xl bg-gray-950 p-4">
+    <div class="w-full max-w-xs space-y-4">
+        <div class="flex items-center gap-3 mb-6 bg-gray-800/50 p-3 rounded-2xl border border-gray-700">
+            <img class="profile-button-icon-img w-12 h-12 rounded-full border-2 border-yellow-500 object-cover" src="images/piece_001.png">
+            <div>
+                <div class="text-xs font-bold text-gray-400 uppercase tracking-tighter">Welcome back</div>
+                <div id="home-user-name" class="text-lg font-black text-white leading-none">Player 1</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-2">
+            <button onclick="showCpuBattleSelection()" class="w-full py-4 bg-yellow-600 hover:bg-yellow-500 text-black font-black rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2">
+                <span>⚔️</span> 対戦開始 <span class="text-[10px] bg-black/20 px-2 py-0.5 rounded">NORMAL</span>
+            </button>
+            <button onclick="startPracticeGame()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 text-sm">
+                <span>🔰</span> 練習 <span class="text-[9px] opacity-70">2P / EASY</span>
+            </button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+            <button onclick="showUserProfileModal()" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">プロフィール</button>
+            <button onclick="showSettings()" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">設定</button>
+            <button onclick="showRules()" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">ルール確認</button>
+            <button onclick="alert('チュートリアルは準備中です')" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">チュートリアル</button>
+        </div>
+
+        <button onclick="alert('最新のお知らせはありません')" class="w-full py-2 text-gray-500 hover:text-gray-300 text-[10px] font-bold tracking-widest uppercase transition-all">
+            — Notifications —
+        </button>
+
+
+    </div>
+</div>
+
+<div id="cpu-setup-overlay" class="hidden absolute inset-0 z-[60] flex flex-col items-center justify-center overlay rounded-xl bg-gray-950 p-6">
+    <div class="w-full max-w-xs text-center space-y-6">
+        <div class="space-y-1">
+            <h2 class="text-2xl font-black text-yellow-500 italic tracking-tighter">SELECT PLAYERS</h2>
+            <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">対戦人数を選んでください</p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3">
+            <button onclick="startCpuGame(2)" class="group relative py-4 bg-gray-800 hover:bg-gray-700 border-2 border-gray-700 rounded-xl transition-all active:scale-95">
+                <span class="text-white font-black text-lg">2 PLAYERS</span>
+                <span class="block text-[9px] text-gray-500 uppercase font-bold">YOU vs CPU</span>
+            </button>
+            <button onclick="startCpuGame(3)" class="group relative py-4 bg-gray-800 hover:bg-gray-700 border-2 border-gray-700 rounded-xl transition-all active:scale-95">
+                <span class="text-white font-black text-lg">3 PLAYERS</span>
+                <span class="block text-[9px] text-gray-500 uppercase font-bold">YOU vs CPU x2</span>
+            </button>
+            <button onclick="startCpuGame(4)" class="group relative py-4 bg-gray-800 hover:bg-gray-700 border-2 border-gray-700 rounded-xl transition-all active:scale-95">
+                <span class="text-white font-black text-lg">4 PLAYERS</span>
+                <span class="block text-[9px] text-gray-500 uppercase font-bold">YOU vs CPU x3</span>
+            </button>
+        </div>
+
+        <button onclick="backToHomeFromCpu()" class="text-gray-500 hover:text-white text-xs font-bold transition-colors">BACK TO HOME</button>
+    </div>
+</div>
+
+
+
         <div id="test-mode-modal" class="hidden absolute inset-0 flex flex-col items-center justify-center overlay rounded-xl bg-gray-900/95 p-4">
             <h2 class="text-xl font-bold mb-2 text-white text-center shrink-0">テストデッキ構築</h2>
             <p class="text-xs text-gray-400 mb-4 shrink-0">使用したいカードを選択してください</p>

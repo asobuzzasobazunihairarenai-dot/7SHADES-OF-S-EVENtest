@@ -914,3 +914,15 @@ function updateTimerVisual() {
         textEl.innerHTML = `${parts[0]} | <span class="text-blue-400">⏳${timeStr}</span>`;
     }
 }
+
+/**
+ * UI上のプロフィールボタンの画像を現在の設定に更新する
+ */
+function updateProfileButtonVisual() {
+    const icons = document.querySelectorAll('.profile-button-icon-img');
+    if (icons.length > 0 && userProfile.icon) {
+        icons.forEach(img => {
+            img.src = userProfile.icon;
+        });
+    }
+}

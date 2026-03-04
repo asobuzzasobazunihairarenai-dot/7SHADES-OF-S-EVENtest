@@ -57,6 +57,7 @@ function showPlayerSelection() {
  * セットアップ画面（プレイ人数選択）の表示
  */
 function showSetup() {
+    window.FORCED_CPU_MODE = false; // フラグ解除
     // ※ window.isProfileSet = false; は実行しない（名前設定を維持するため）
 
     // BGMの停止処理
@@ -2913,14 +2914,23 @@ function showCpuBattleSelection() {
 /**
  * ホーム画面から練習（2P / EASY）を即座に開始する
  */
+/** 2026/03/04 修正：練習モード開始時にもオート設定を自動適用 **/
 async function startPracticeGame() {
     const home = document.getElementById('home-screen');
     if (home) home.classList.add('hidden');
     
+    // --- CPU戦用自動設定の適用 ---
+    window.PHASE_TIME_ADD = 1;
+    isP1TimerIgnored = true;
+    isRandomLockOnTimeout = true;
+    isAutoAction = true;
+    isOnlyP1HandVisible = true;
+    isSkipSelectionOnAuto = true;
+
     // 自動処理レベルをEASYにする
+    autoMode = 'EASY';
     const modeSelect = document.getElementById('setting-auto-mode');
     if (modeSelect) modeSelect.value = 'EASY';
-    autoMode = 'EASY';
 
     addLog("練習モード(EASY)を開始します...");
     
@@ -2937,31 +2947,59 @@ async function startPracticeGame() {
     }
 }
 
-/**
- * CPU戦を特定の人数で開始する
- */
+/** 2026/03/04 修正：実在変数名への適合とタイマー強制停止ロジックの導入 **/
+/** 2026/03/04 修正：CPU戦開始時にHTMLの設定値を書き換え、Changeイベントを強制発火させて同期 **/
 function startCpuGame(num) {
     const cpuSetup = document.getElementById('cpu-setup-overlay');
     if (cpuSetup) cpuSetup.classList.add('hidden');
 
-    addLog(`CPU対戦 (${num}人 / NORMAL) を開始します...`);
+    // 1. 強制フラグをONにする
+    window.FORCED_CPU_MODE = true;
 
-    // P1は自分、P2以降はCPUとしてプロフィールを構築
+    // 2. 念のためHTMLのチェックも入れておく（手動設定との整合性のため）
+    const settings = ['setting-p1-timer-ignore', 'setting-timeout-random-lock', 'setting-timeout-auto-hand', 'setting-p1-hand-only', 'setting-skip-selection'];
+    settings.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.checked = true;
+    });
+
+    addLog(`CPU対戦 (${num}人 / NORMAL) 強制オートモードで開始します`);
+
+    // --- 設定の強制同期（手動設定と同じルートを通す） ---
+    const forceSyncSetting = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (el.type === 'checkbox') el.checked = value;
+            else el.value = value;
+            // bubbles: true を追加し、親要素（設定画面全体など）に通知が届くようにする
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    };
+
+    /** 2026/03/04 21:12 修正：CPU戦開始時にグローバル変数 PHASE_TIME_ADD を直接書き換え **/
+    // ご指示の設定を一斉適用
+    forceSyncSetting('setting-phase-time-add', 1);     // フェイズ補充 1秒
+    window.PHASE_TIME_ADD = 1;                         // 補充設定を1秒に
+    window.currentPhaseMaxTime = 1;                    // 現在のフェイズ制限時間も1秒に強制
+    
+    forceSyncSetting('setting-p1-timer-ignore', true); // P1タイマー無視
+    forceSyncSetting('setting-random-lock', true);     // タイムアウト時ランダムロック
+    forceSyncSetting('setting-auto-action', true);     // タイムアウト時自動手札使用
+    forceSyncSetting('setting-p1-hand-only', true);    // P1の手札のみ表示
+    forceSyncSetting('setting-skip-selection', true);  // 自動処理時選択画面スキップ
+
+    addLog(`CPU対戦 (${num}人 / NORMAL) 自動設定を適用しました`);
+
+    // プロフィール設定（ここは変更なし）
     const cpuIcons = ["images/character_002.webp", "images/character_003.webp", "images/character_004.webp"];
     const cpuNames = ["CPU (Alpha)", "CPU (Beta)", "CPU (Gamma)"];
-    
     window.pendingProfiles = [{ name: userProfile.name, icon: userProfile.icon }];
-    
     for (let i = 0; i < num - 1; i++) {
-        window.pendingProfiles.push({
-            name: cpuNames[i],
-            icon: cpuIcons[i]
-        });
+        window.pendingProfiles.push({ name: cpuNames[i], icon: cpuIcons[i] });
     }
-    
     window.isProfileSet = true;
 
-    // ゲーム初期化実行
     if (typeof initGame === 'function') {
         initGame(num);
     }

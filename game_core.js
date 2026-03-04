@@ -257,9 +257,15 @@ function nextPhase(isForced = false) {
             endTurn(); return; 
         } 
         
+        /** 2026/03/04 22:15 修正：フェイズ移行時に最新の補充時間設定を反映 **/
         isHandEffectProcessing = false; 
         isAutoAction = false; 
         isPlacingCard = false;
+
+        // 次のフェイズの制限時間を、現在の設定値(PHASE_TIME_ADD)から取得
+        const latestTimeSetting = window.PHASE_TIME_ADD || 1;
+        window.currentPhaseMaxTime = latestTimeSetting; 
+
         resetTimer(); 
         updateGameState(); 
 
@@ -1593,27 +1599,64 @@ async function initGameInternal(num, isTest = false) {
     if (toggle) toggle.checked = isLightMode;
 
     const preservedTestCards = isTest ? [...(testSelectedCards || [])] : null;
+     
+    /** 2026/03/04 修正：cleanupGameによるリセット直後にHTMLから全設定を再ロードする **/
     cleanupGame(); 
-    
     
     const tw = document.getElementById('timer-wrapper'); if(tw) tw.classList.remove('hidden'); 
     if (document.getElementById('my-lock-container')) document.getElementById('my-lock-container').classList.remove('hidden');
     if (document.getElementById('hand-area-container')) document.getElementById('hand-area-container').classList.remove('hidden');
 
+    // --- HTMLの設定値を内部変数に完全同期（ここが生命線です） ---
     const timerToggle = document.getElementById('timer-mode-toggle');
-    if (timerToggle) {
-        useGlobalTimer = timerToggle.checked;
+    if (timerToggle) useGlobalTimer = timerToggle.checked;
+
+    /** 2026/03/04 21:10 修正：CPU戦時の補充時間を確実に1秒に固定するよう修正 **/
+    if (window.FORCED_CPU_MODE) {
+        // --- CPU戦専用：あらゆる外部入力を遮断して固定 ---
+        isP1TimerIgnored = true;
+        isRandomLockOnTimeout = true;
+        isAutoAction = true;
+        isP1HandOnlyView = true;
+        isSkipSelectionOnAuto = true;
+        currentPhaseMaxTime = 15; // 基本持ち時間 15秒
+
+        // 補充時間を「1秒」に徹底固定
+        // 既存の window.PHASE_TIME_ADD だけでなく、参照される可能性のある全てのルートを上書き
+        window.PHASE_TIME_ADD = 1; 
+        
+        // HTML要素の値も見た目上「1」に書き換えて同期を完璧にする
+        const pAddEl = document.getElementById('setting-phase-time-add');
+        if (pAddEl) pAddEl.value = "1";
+
+        addLog("[System] CPU戦モード：補充時間1秒を適用しました");
+
+    } else {
+        // --- 通常戦（人間）：設定画面(HTML)から読み込み ---
+        isP1TimerIgnored = document.getElementById('setting-p1-timer-ignore')?.checked || false;
+        isRandomLockOnTimeout = document.getElementById('setting-timeout-random-lock')?.checked || false;
+        isAutoAction = document.getElementById('setting-timeout-auto-hand')?.checked || false;
+        isP1HandOnlyView = document.getElementById('setting-p1-hand-only')?.checked || false;
+        isSkipSelectionOnAuto = document.getElementById('setting-skip-selection')?.checked || false;
+        currentPhaseMaxTime = parseInt(document.getElementById('setting-phase-time')?.value || "15");
+        
+        // 人間用モードの時だけHTMLから補充時間を読み込む
+        const pAddEl = document.getElementById('setting-phase-time-add');
+        const pAddVal = pAddEl ? parseInt(pAddEl.value) : 1;
+        
+        window.PHASE_TIME_ADD = pAddVal;
+        if (typeof PHASE_TIME_ADD !== 'undefined') {
+            PHASE_TIME_ADD = pAddVal;
+        }
     }
-    currentPhaseMaxTime = parseInt(document.getElementById('setting-phase-time')?.value || "15");
 
-    // ★追加箇所：設定画面のチェックボックスからフラグを読み込む
-    isSkipSelectionOnAuto = document.getElementById('setting-skip-selection')?.checked || false;
-
-    // ★追加：自動処理レベルの読み込みとUI反映
+    // 自動処理レベル(EASY/NORMAL)の同期
     const autoModeSelect = document.getElementById('setting-auto-mode');
-    if (autoModeSelect) {
-        autoMode = autoModeSelect.value; 
-    }
+    if (autoModeSelect) autoMode = autoModeSelect.value;
+    
+    // 【重要】ここで設定同期ブロック終了。これ以降に上書き処理がないことを確認。
+    
+    
     
     const initTime = parseInt(document.getElementById('setting-init-time')?.value || "0");
 

@@ -28,6 +28,9 @@ let isPlacingCard = false;
 let isAutoAction = false;
 let isAutoProcessing = false; 
 
+/** 2026/03/04 追加：CPU戦強制モードフラグ **/
+window.FORCED_CPU_MODE = false; 
+
 let isSkipSelectionOnAuto = false; // ★追加：自動処理時に選択モーダルをスキップするか
 let autoMode = 'EASY'; // ★追加：自動処理の賢さ ('EASY' または 'NORMAL')
 

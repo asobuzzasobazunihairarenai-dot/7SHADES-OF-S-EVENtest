@@ -1084,8 +1084,11 @@ function executeMove(x, y, cell, epOn) {
     // ----------------
 
     const moveFinish = () => { 
-        if (!p.baseMoveUsed) p.baseMoveUsed = true; 
-        else if (p.extraMoves > 0) p.extraMoves--; 
+    if (!p.baseMoveUsed) p.baseMoveUsed = true; 
+    else if (p.extraMoves > 0) p.extraMoves--; 
+
+    // ここで「自分のムーブフェイズか」を確認
+    if (currentPhase === PHASE.MOVE) {
         if (p.extraMoves > 0) { 
             addLog(`追加移動権利残り ${p.extraMoves} 回`); 
             isProcessingMove = false; 
@@ -1094,7 +1097,13 @@ function executeMove(x, y, cell, epOn) {
         } else { 
             checkAnytimeReactions(() => endTurn()); 
         } 
-    };
+    } else {
+        // ハンドフェイズ等での移動なら、単にフラグを下げて復帰
+        isProcessingMove = false;
+        updateGameState();
+    }
+};
+
     // 【外科手術的修正】接触か通常移動かを判別して詳細ログを出力
     if (epOn) {
         addLog(`${p.name} が ${epOn.name} に接触しました！`);
@@ -1257,9 +1266,27 @@ async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraC
     if (callback) {
         executeLogic();
     } else {
-        // 座標と統計だけ更新し、モーダルは出さない「静かな移動」モード
+        // --- 外科手術的修正：callbackがない場合の「自動継続」ロジック ---
         player.x = tx; player.y = ty;
         if (typeof renderBoard === 'function') renderBoard();
+
+        // 連続到達（コンボ）の有無を確認
+        const hasCombo = (destinationCard && cell.stack && cell.stack.length > 0 && cell.stack[0].revealed !== false);
+        
+        if (!hasCombo) {
+            // これ以上到達がない場合、AIやフェイズの進行を阻害しないようフラグを下ろす
+            isProcessingMove = false;
+            
+            // 現在のターンプレイヤーと移動したプレイヤーが違う場合（フォース等）
+            if (player.id !== players[turn].id) {
+                if (typeof updateGameState === 'function') updateGameState();
+                
+                // AIのターンなら思考を再開させる
+                if (isAutoAction && typeof aiUseHandCard === 'function') {
+                    setTimeout(() => aiUseHandCard(players[turn]), 500);
+                }
+            }
+        }
     }
 }
 

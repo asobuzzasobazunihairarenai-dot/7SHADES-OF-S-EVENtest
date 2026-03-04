@@ -1911,47 +1911,49 @@ case 'open_facedown':
             break;
 
         case 'force_move_logic':
-        if (activeTargetPos) {
-            (async () => {
-                const victim = activeTargetPos;
-                const destPos = selection[0];
+    if (activeTargetPos) {
+        (async () => {
+            const victim = activeTargetPos; 
+            const destPos = selection[0];   
+            const cell = board[destPos.y][destPos.x];
 
-                // 1. 移動元点滅
-                await animateCellBlink(victim.x, victim.y, '#f97316');
+            // 1. 移動演出
+            await animateCellBlink(victim.x, victim.y, '#f97316');
 
-                // 2. 移動（演出用クラスを付与）
-                await moveToCell(victim, destPos.x, destPos.y, false, null, null, 'moving-unit-glow');
+            // 2. 移動実行（第4引数を false にして、通常の到達判定を許可する）
+            // callbackを渡さないことで、二重発動を回避しつつ async/await で完了を待機
+            await moveToCell(victim, destPos.x, destPos.y, false, null, null, 'moving-unit-glow');
 
-                // 3. 移動先点滅
-                await animateCellBlink(destPos.x, destPos.y, '#f97316');
-                
-                addLog(`${p.name}がフォースの力で${victim.name}を移動させました。`);
-                
-                const cell = board[destPos.y][destPos.x];
-                const card = cell.empty ? null : cell.color;
-                
-                if (card) {
-    // 演出としてオープンと波紋だけを行い、ロジック自体は moveToCell 側の自動到達判定に任せる
-    cell.revealed = true;
-    if (typeof renderBoard === 'function') renderBoard();
-
-    if (typeof triggerArrivalRipple === 'function') {
-        triggerArrivalRipple(destPos.x, destPos.y, card.hex);
-    }
-
-    // handleArrivalLogic を直接呼ばず、少し待機してからコールバック（選択モード終了）のみ実行
-    setTimeout(() => {
-        if (callback) callback(selection);
-    }, 700);
-
-                } else {
+            // 3. 移動後の処理
+            await animateCellBlink(destPos.x, destPos.y, '#f97316');
+            addLog(`${p.name}のフォースにより、${victim.name}が移動させられました。`);
+            
+            const card = cell.empty ? null : cell.color;
+            if (card) {
+                // ここで handleArrivalLogic を直接呼び出す
+                // callback 内で「終了後の AI 再開」を確約する
+                handleArrivalLogic(cell, victim, () => {
+                    // 到達（およびコンボ）が全て終わった後の最終処理
+                    isProcessingMove = false;
+                    isHandEffectProcessing = false; // ハンドフェイズ処理中フラグを解除
+                    
+                    if (typeof updateGameState === 'function') updateGameState();
+                    
+                    // AIが止まらないようにコールバックを実行
                     if (callback) callback(selection);
-                }
-            })();
-            return;
-        }
-        break;
+                    
+                }, card, true);
+            } else {
+                // カードがない場合は即座にハンドフェイズに復帰
+                isProcessingMove = false;
+                if (callback) callback(selection);
+            }
+        })();
+        return;
+    }
+    break;
         
+
         case 'apocalypse_placed_logic':
             (async () => {
                 if (activeHandCard) {
@@ -2394,7 +2396,7 @@ function performVictoryCameraWork(winnerId, onComplete) {
 
     // --- 【設定】ズームの微調整用 ---
     const CONFIG = {
-        zoomScale: 2.2,      // 緑を際立たせるため少し倍率を上げました
+        zoomScale: 1.6,      // 緑を際立たせるため少し倍率を上げました
         angles: {
             "bottom": 0,     // P1（自分）
             "left": -90,     // 左側の人

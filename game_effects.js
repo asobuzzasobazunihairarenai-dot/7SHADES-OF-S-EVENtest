@@ -252,36 +252,50 @@ function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = 
     
 
     if (def.cost) {
-        const candidates = hands[p.id].filter(c => (c.colorId === def.cost.color || c.colorId === 'rainbow') && c !== activeHandCard);
+        const candidates = hands[p.id].filter(c => (c.colorId === def.cost.color || c.colorId === 'rainbow') && c !== contextCard);
         if (candidates.length < def.cost.amount) { 
             showToast("コスト不足"); 
             isHandEffectProcessing = false; 
             return; 
         }
         showSelectionModal("コスト支払い", "捨てるカードを選択してください", candidates, "card-back-pattern", def.cost.amount, (sel) => {
+            // 1. まずコスト（追色に使ったカード）を捨てる
             sel.forEach(c => { 
                 const curIdx = hands[p.id].indexOf(c); 
                 if(curIdx > -1) {
                     const removed = hands[p.id].splice(curIdx, 1)[0];
-                    discardPile.push(removed);
+                    discardCard(removed); // ログに出力するため discardCard を使用
                 }
             });
 
-            // 手札から抜くが、捨て札に送るかは res.stayOnBoard を見て判断する
-            const handIdx = activeHandCard ? hands[p.id].indexOf(activeHandCard) : -1;
-            const usedCard = handIdx > -1 ? hands[p.id].splice(handIdx, 1)[0] : null;
+            // 2. 【外科手術的修正】発動した本体（フォースなど）を即座に特定して捨てる
+            // activeHandCard よりも引数の contextCard を優先して確実に掴む
+            const cardToDiscard = contextCard || activeHandCard;
+            const selfIdx = hands[p.id].indexOf(cardToDiscard);
+            
+            let usedCardForAction = null;
+            if (selfIdx > -1) {
+                usedCardForAction = hands[p.id].splice(selfIdx, 1)[0];
+                // stayOnBoard指定がない限り、即座に捨て札へ送る
+                if (!(def.action && def.action.stayOnBoard)) {
+                    discardCard(usedCardForAction);
+                }
+            }
 
             renderHand(); 
+            renderDeckAndDiscard(); // 捨て場の枚数を即更新
+
+            // 3. アクションの実行（カードは既に手札にない状態）
             runAction(def.action, p, (res) => {
-                // 効果解決後に判定
-                if (usedCard && !(res && res.stayOnBoard)) {
-                    discardPile.push(usedCard);
-                }
                 wrappedSuccess(res);
             }, contextCard, isNewReveal);
+
         }, false, () => {
             isHandEffectProcessing = false;
-        });
+        }, null, null, null, p); // AIが迷わないよう第11引数にプレイヤーを渡す
+    
+    
+    
     } else {
         // コストがない場合も同様
         const handIdx = activeHandCard ? hands[p.id].indexOf(activeHandCard) : -1;

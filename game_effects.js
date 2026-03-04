@@ -1082,7 +1082,9 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             addLog(`${p.name}がセレナーデの効果で「${cardToLock.name}」をロックしました。`); renderStatus(); renderHand(); renderMyLockArea(); onSuccess({ stayOnBoard: true });
         }, false, null, null, null, p); return;
     }
+    
     else if (act.type === 'dimension_hand') { p.dimensionActive = true; addLog(`${p.name}の通常移動が次元跳躍（2マス移動）になりました。`); updateGameState(); onSuccess({}); return; }
+    
     else if (act.type === 'chotto_matta_flow') { onSuccess({ preventGain: true, followUpAction: 'chotto_matta_flow' }); return; }
     else if (act.type === 'discard_all_hand') { if (hands[p.id].length > 0) { hands[p.id].forEach(c => discardPile.push(c)); hands[p.id] = []; addLog(`${p.name}の手札がすべて破棄されました。`); } onSuccess({}); return; }
     else if (act.type === 'marmego_logic') {
@@ -1500,8 +1502,15 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
         const executeStealSelection = (targetId) => {
             const victim = players.find(v => v.id === targetId);
-            
-            // --- 修正箇所：演出モーダルを挟む ---
+
+            // --- 外科手術的修正：自分を対象にした場合は不発 ---
+            if (victim.id === p.id) {
+                showMessageOverlay("自分を対象にしたため演出をスキップします。", 2500, () => {
+                    addLog(`${p.name}は自分を対象にしました。`);
+                    onSuccess({});
+                });
+                return;
+            }
             showStealActionModal(p, victim, () => {
                 showSelectionModal("強奪チャンス", `${victim.name}の手札から奪うカードを選んでください（無作為）`, hands[victim.id], "card-back-pattern", 1, (selCards) => {
                     const stolen = selCards[0]; 

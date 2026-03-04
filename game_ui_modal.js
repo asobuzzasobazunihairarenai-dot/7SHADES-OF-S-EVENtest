@@ -2242,8 +2242,10 @@ window.showFullDeckListModal = function() {
     normalPile.sort(sorter);
     specialPile.sort(sorter);
 
+    // 管理情報: 2026/03/04 山札構成画面のz-index調整と拡大イベントの確実な登録
     const overlay = document.createElement('div');
-    overlay.className = "absolute inset-0 z-[5000] flex items-center justify-center bg-black/80";
+    // z-indexを5000から500に下げ、拡大画面(9999)が上にくるように修正
+    overlay.className = "absolute inset-0 z-[500] flex items-center justify-center bg-black/80";
 
     const createSection = (title, pile) => {
         if (pile.length === 0) return '';
@@ -2263,13 +2265,17 @@ window.showFullDeckListModal = function() {
         createSection("【通常カード】", normalPile) +
         createSection("【無色（白・黒）】", specialPile);
 
+    // 管理情報: 2026/03/04 山札構成確認画面にカード拡大機能を追加
     overlay.innerHTML = `
         <div class="bg-gray-900 border-2 border-yellow-600 w-[90%] h-[85%] flex flex-col rounded-lg overflow-hidden shadow-2xl">
             <div class="p-2 border-b border-gray-700 flex justify-between items-center bg-gray-800 shrink-0">
-                <span class="text-yellow-500 font-bold text-[10px]">全山札構成 (計112枚)</span>
+                <div class="flex flex-col">
+                    <span class="text-yellow-500 font-bold text-[10px]">全山札構成 (計112枚)</span>
+                    <span class="text-[8px] text-gray-400">右クリック/ダブルタップで拡大</span>
+                </div>
                 <button onclick="this.closest('.absolute').remove()" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-bold">閉じる</button>
             </div>
-            <div class="flex-grow overflow-y-auto p-2 bg-gray-950">
+            <div id="deck-list-content-scroll" class="flex-grow overflow-y-auto p-2 bg-gray-950">
                 ${sectionsHTML}
             </div>
         </div>
@@ -2280,6 +2286,46 @@ window.showFullDeckListModal = function() {
     } else {
         document.body.appendChild(overlay);
     }
+
+    // --- 【外科手術的修正】カード拡大イベントの登録 ---
+    const listItems = overlay.querySelectorAll('.deck-list-item');
+    listItems.forEach(item => {
+        const img = item.querySelector('img');
+        if (!img) return;
+
+        // 画像URLからIDを特定
+        const urlParts = img.src.split('_');
+        const lastPart = urlParts[urlParts.length - 1];
+        const cardId = parseInt(lastPart.split('.')[0]);
+        const cardData = CARD_DATABASE.find(d => d.id === cardId);
+        
+        if (cardData) {
+            // PC: 右クリック（中央固定にするため第1引数をnullに）
+            item.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof showHoverPreview === 'function') {
+                    // 第1引数をnullにすることで中央固定、第3引数をtrueで閉じるボタンを有効化
+                    showHoverPreview(null, cardData, true);
+                }
+            });
+
+            // スマホ: ダブルタップ（第1引数はnull、第3引数で強制スマホモード）
+            let lastTap = 0;
+            item.addEventListener('touchend', (e) => {
+                const currentTime = new Date().getTime();
+                const tapLength = currentTime - lastTap;
+                if (tapLength < 300 && tapLength > 0) {
+                    e.preventDefault();
+                    if (typeof showHoverPreview === 'function') {
+                        // モバイル表示を強制するために第3引数をtrueに
+                        showHoverPreview(null, cardData, true);
+                    }
+                }
+                lastTap = currentTime;
+            });
+        }
+    });
 };
 
 // --- 演出用：プレゼントモーダル ---

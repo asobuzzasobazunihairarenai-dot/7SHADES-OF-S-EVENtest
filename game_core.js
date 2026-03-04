@@ -606,9 +606,11 @@ function autoMove(p) {
     if (!p || !players || isProcessingMove || isHandEffectProcessing) return;
     const enemyGatePos = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
     const otherPlayers = players.filter(pl => pl.id !== p.id);
-    const directions = [[0,1], [0,-1], [1,0], [-1,0]]; 
     
-    // 設定値のショートカット（未定義時のフォールバック付き）
+    // 【外科手術的修正】移動距離を判定し、2マス移動時は方向ベクトルを2倍にする
+    const moveRange = (p.dimensionActive && !p.baseMoveUsed) ? 2 : 1;
+    const directions = [[0, moveRange], [0, -moveRange], [moveRange, 0], [-moveRange, 0]]; 
+    
     const cfg = window.AI_SCORE_CONFIG || {
         CARD_COUNT: 10, UNLOCKED_COLOR: 50, ADJACENT_ENEMY: 5,
         SELF_GATE_DEFENSE: 20, APPROACH_ENEMY_GATE: 20, REACH_ENEMY_GATE: 100,
@@ -1072,14 +1074,17 @@ function handleBoardClick(x, y) {
 
 function executeMove(x, y, cell, epOn) { 
     if (!players[turn]) return;
-    // 【修正】自動処理時 (isAutoAction) は時間を加算しない。手動時は設定値(currentPhaseMaxTime)に基づき加算
     if (!isAutoAction) {
         if (typeof gainTime === 'function') gainTime(Math.min(5, currentPhaseMaxTime));
     }
     isProcessingMove = true;
     const p = players[turn];
     
-    // --- ここを追記 ---
+    // 【追加】移動開始時に次元跳躍状態ならフラグを消費（リセット）
+    if (p.dimensionActive && !p.baseMoveUsed) {
+        p.dimensionActive = false; 
+    }
+
     if (epOn) window.activeTargetPlayerForCounter = epOn; 
     // ----------------
 
@@ -2113,9 +2118,12 @@ function calculateAwards(winnerId) {
     const awards = [];
     if (!players || players.length === 0) return awards;
 
+    // --- 外科手術的修正：プレイヤー数に応じたボーダー（人数×7ターン）を算出 ---
+    const turnThreshold = players.length * 7;
+
     // 1. 電光石火 (Lightning Fast)
-    if (totalTurnCount <= 15) {
-        awards.push({ pid: winnerId, name: "⚡ 電光石火", desc: "15ターン以内の電撃決着" });
+    if (totalTurnCount <= turnThreshold) {
+        awards.push({ pid: winnerId, name: "⚡ 電光石火", desc: `${turnThreshold}ターン以内の電撃決着` });
     }
 
     // 2. 韋駄天 (Idaten) & 3. 不動の精神 (Immovable)
@@ -2133,7 +2141,10 @@ function calculateAwards(winnerId) {
         if (typesCount > maxTypes) { maxTypes = typesCount; collectorId = p.id; }
     });
 
-    if (fastestId) awards.push({ pid: fastestId, name: "👟 韋駄天", desc: "戦場を最も駆け抜けた" });
+    // --- 外科手術的修正：韋駄天にもターン制限ボーダーを適用 ---
+    if (fastestId && totalTurnCount <= turnThreshold) {
+        awards.push({ pid: fastestId, name: "👟 韋駄天", desc: `${turnThreshold}ターン以内に戦場を最も駆け抜けた` });
+    }
     if (slowestId && slowestId !== fastestId) awards.push({ pid: slowestId, name: "🧘 不動の精神", desc: "一歩も無駄にせぬ支配" });
     if (collectorId && maxTypes >= 3) awards.push({ pid: collectorId, name: "📚 カード愛好家", desc: "誰よりも多彩な技を披露" });
 

@@ -147,6 +147,9 @@ function showHoverPreview(e, card, isForceMobile = false) {
     
     if(!preview || !previewBox) return;
 
+    // 【外科手術的追加】z-indexを最大級に設定し、設定モーダルの上に被せる
+    preview.style.zIndex = "100000";
+
     // --- 【外科手術】既存のボタンを完全に削除して作り直す ---
     let oldBtn = document.getElementById('close-preview-btn');
     if (oldBtn) oldBtn.remove();

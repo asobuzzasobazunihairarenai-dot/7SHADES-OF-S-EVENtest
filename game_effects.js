@@ -450,10 +450,18 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
         const finalCount = Math.min(act.count || 1, validCount);
         if (finalCount <= 0) {
-            // 【修正】ダッシュ等の追加移動先がない場合も含め、不発メッセージを表示
-            const failMsg = (logicName === 'move_player') ? "追加移動できるマスがないため、効果を終了します。" : "選択可能な対象が盤面にないため、効果を終了します。";
-            addLog(failMsg);
-            showMessageOverlay(failMsg, 2000, () => { if (onSuccess) onSuccess({}); });
+            const failMsg = (logicName === 'move_player') ? "追加移動できるマスがないため、効果を終了します。" : "対象がないため、効果を終了します。";
+            addLog(`[System] ${failMsg}`);
+
+            // ★外科手術的修正：自動処理（AI）の場合はオーバーレイを表示せず即座に次へ進める
+            if (isAutoAction) {
+                if (onSuccess) onSuccess({});
+            } else {
+                // 人間の場合はメッセージを見せてから次へ
+                showMessageOverlay(failMsg, 1500, () => { 
+                    if (onSuccess) onSuccess({}); 
+                });
+            }
             return;
         }
         
@@ -1039,11 +1047,13 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             showCardModal(salvageTarget, () => onSuccess({}), "カード回収", p.name, "回収しました"); addLog(`${p.name}がフェニックスの効果で「${salvageTarget.name}」を回収しました。`);
         } else { addLog("回収できるカードが捨て札にありませんでした。"); if(onSuccess) onSuccess({}); } return;
     }
+
     else if (act.type === 'viridian_hand') {
         if (p.viridianUsed) { showToast("1ターンに1度のみ得られる効果です"); return; }
         const drawn = []; for(let i=0; i<2; i++) { const c = drawCard(); if(c) { c.isPublic = true; c.fromViridian = true; hands[p.id].push(c); drawn.push(c); } }
-        p.viridianUsed = true; if(drawn.length > 0) { showCardModal(drawn, () => onSuccess({}), "ドロー", p.name, "使用しました"); } else { onSuccess({}); } return;
+        p.viridianUsed = true; if(drawn.length > 0) { showCardModal(drawn, () => onSuccess({}), "ドロー＆公開", p.name, "使用しました"); } else { onSuccess({}); } return;
     }
+
     else if (act.type === 'celestia_hand') {
         const pIdx = players.indexOf(p);
         const ordered = [];
@@ -1516,6 +1526,11 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     const stolen = selCards[0]; 
                     hands[victim.id].splice(hands[victim.id].indexOf(stolen), 1); 
                     hands[p.id].push(stolen);
+
+                    // ★外科手術的追加：奪われる側がP1(自分)なら目印を付ける
+                    if (victim.id === 1) {
+                    stolen.fromP1 = true;
+                    }
                     
                     showCardModal(stolen, () => { 
                         addLog(`${p.name}が${victim.name}から「${stolen.name}」を奪いました。`); 

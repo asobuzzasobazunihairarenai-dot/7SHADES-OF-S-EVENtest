@@ -143,7 +143,8 @@ function showHoverPreview(e, card, isForceMobile = false) {
     const preview = document.getElementById('hover-preview'), 
           previewBox = document.getElementById('hover-preview-box'),
           charEl = document.getElementById('hover-char'), 
-          nameEl = document.getElementById('hover-name');
+          nameEl = document.getElementById('hover-name'),
+          descEl = document.getElementById('hover-description'); // ★これを追加
     
     if(!preview || !previewBox) return;
 
@@ -217,8 +218,21 @@ function showHoverPreview(e, card, isForceMobile = false) {
     // 情報クリアと画像設定
     previewBox.style.backgroundImage = 'none';
     previewBox.style.backgroundColor = '#111827'; 
+    
     charEl.textContent = ""; 
     nameEl.textContent = "";
+    if (descEl) descEl.innerHTML = ""; // 一旦空にする
+
+    // ★追加：補足説明を表示する処理
+    if (descEl) {
+        if (card.description) {
+            descEl.classList.remove('hidden');
+            // 改行コード(\n)をHTMLの改行(<br>)に変換して表示
+            descEl.innerHTML = card.description.replace(/\n/g, '<br>');
+        } else {
+            descEl.classList.add('hidden');
+        }
+    }
     nameEl.classList.add('hidden');
 
     const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
@@ -922,10 +936,31 @@ function updateTimerVisual() {
  * UI上のプロフィールボタンの画像を現在の設定に更新する
  */
 function updateProfileButtonVisual() {
-    const icons = document.querySelectorAll('.profile-button-icon-img');
-    if (icons.length > 0 && userProfile.icon) {
-        icons.forEach(img => {
-            img.src = userProfile.icon;
-        });
+    // ページ内のすべてのアイコン画像要素を取得
+    const iconImgs = document.querySelectorAll('.profile-button-icon-img');
+    
+    // 1. データの救済
+    // userProfile.icon が空、もしくは駒画像(piece_)になっている場合のガード
+    let targetSrc = userProfile.icon;
+    if (!targetSrc || targetSrc.includes('piece_')) {
+        // もし駒画像なら、対応する番号のプロフィール画像(character_)へ変換を試みる
+        if (targetSrc && targetSrc.includes('piece_00')) {
+            targetSrc = targetSrc.replace('piece_00', 'character_00').replace('.png', '.webp');
+        } else {
+            // それ以外はデフォルト画像
+            targetSrc = "images/character_001.webp";
+        }
+    }
+
+    // 2. 反映（HTMLの直書き設定を上書き）
+    iconImgs.forEach(img => {
+        // console.log("Updating icon:", img, "to", targetSrc); // デバッグ用
+        img.src = targetSrc;
+    });
+
+    // 3. ホーム画面の名前表示も念のため同期
+    const homeName = document.getElementById('home-user-name');
+    if (homeName && userProfile.name) {
+        homeName.textContent = userProfile.name;
     }
 }

@@ -262,9 +262,15 @@ function nextPhase(isForced = false) {
         isAutoAction = false; 
         isPlacingCard = false;
 
-        // 次のフェイズの制限時間を、現在の設定値(PHASE_TIME_ADD)から取得
-        const latestTimeSetting = window.PHASE_TIME_ADD || 1;
-        window.currentPhaseMaxTime = latestTimeSetting; 
+        // フェイズ移行時の制限時間設定
+        // CPU戦モード(FORCED_CPU_MODE)なら1秒、それ以外は設定画面の「基本秒数」を維持する
+        if (window.FORCED_CPU_MODE) {
+            window.currentPhaseMaxTime = 1; 
+        } else {
+            // 設定画面の「基本秒数(setting-phase-time)」を再取得
+            const pTimeEl = document.getElementById('setting-phase-time');
+            window.currentPhaseMaxTime = pTimeEl ? parseInt(pTimeEl.value) : 15;
+        }
 
         resetTimer(); 
         updateGameState(); 

@@ -422,6 +422,44 @@ function closeSettings() {
  * 開発用設定画面を開く
  */
 function openDevSettings() {
+    // 1. 保存された基本設定の復元
+    try {
+        const saved = localStorage.getItem('shades_seven_dev_configs');
+        if (saved) {
+            const configs = JSON.parse(saved);
+            for (const [id, value] of Object.entries(configs)) {
+                const el = document.getElementById(id);
+                if (el) {
+                    if (el.type === 'checkbox') el.checked = value;
+                    else el.value = value;
+                }
+            }
+        }
+    } catch (e) { console.error("Dev config load error:", e); }
+
+    // 2. 保存された AI スコアの復元
+    try {
+        const savedAi = localStorage.getItem('shades_seven_ai_scores');
+        if (savedAi && window.AI_SCORE_CONFIG) {
+            window.AI_SCORE_CONFIG = JSON.parse(savedAi);
+            const scoreMap = {
+                'ai-score-card-count': 'CARD_COUNT',
+                'ai-score-unlocked-color': 'UNLOCKED_COLOR',
+                'ai-score-adjacent-enemy': 'ADJACENT_ENEMY',
+                'ai-score-self-defense': 'SELF_GATE_DEFENSE',
+                'ai-score-approach-enemy': 'APPROACH_ENEMY_GATE',
+                'ai-score-reach-enemy': 'REACH_ENEMY_GATE',
+                'ai-score-rare-color': 'RARE_COLOR',
+                'ai-score-power-near': 'POWER_CARD_NEAR',
+                'ai-score-steal-action': 'STEAL_ACTION'
+            };
+            for (const [id, key] of Object.entries(scoreMap)) {
+                const input = document.getElementById(id);
+                if (input) input.value = window.AI_SCORE_CONFIG[key];
+            }
+        }
+    } catch (e) { console.error("AI score load error:", e); }
+
     const modal = document.getElementById('dev-settings-modal');
     if (modal) {
         modal.classList.remove('hidden');
@@ -434,7 +472,31 @@ function openDevSettings() {
  * 開発用設定画面を閉じる
  */
 function closeDevSettings() {
-    // ★追加: AIスコア設定の読み取り
+    // 1. 各種チェックボックスや数値設定の保存
+    const devSettingIds = [
+        'setting-phase-time', 
+        'setting-phase-time-add', 
+        'setting-init-time',
+        'setting-p1-timer-ignore', 
+        'setting-timeout-random-lock', // ← 正しいIDに修正
+        'setting-timeout-auto-hand',   // ← 正しいIDに修正
+        'setting-p1-hand-only', 
+        'setting-skip-selection', 
+        'setting-auto-mode',
+        'setting-boost-mode', 
+        'setting-max-time'
+    ];
+
+    const savedDevSettings = {};
+    devSettingIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            savedDevSettings[id] = (el.type === 'checkbox') ? el.checked : el.value;
+        }
+    });
+    localStorage.setItem('shades_seven_dev_configs', JSON.stringify(savedDevSettings));
+
+    // 2. AIスコア設定の読み取りと保存
     if (window.AI_SCORE_CONFIG) {
         const scoreIds = {
             CARD_COUNT: 'ai-score-card-count',
@@ -454,7 +516,7 @@ function closeDevSettings() {
                 window.AI_SCORE_CONFIG[key] = parseInt(input.value) || 0;
             }
         }
-        console.log("AI Score Config Updated:", window.AI_SCORE_CONFIG);
+        localStorage.setItem('shades_seven_ai_scores', JSON.stringify(window.AI_SCORE_CONFIG));
     }
 
     const modal = document.getElementById('dev-settings-modal');
@@ -996,7 +1058,9 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
     const modal = document.getElementById('arrival-modal'), 
           cardsContainer = document.getElementById('arrival-cards-container'),
           explEl = document.getElementById('arrival-player-explanation'),
-          subEl = document.getElementById('arrival-subtitle');
+          subEl = document.getElementById('arrival-subtitle'),
+          msgEl = document.getElementById('arrival-msg'), // ←これが必要でした
+          btnEl = document.getElementById('arrival-ok-btn'); // ←これが必要でした
     
     if(!modal || !cardsContainer) return;
     
@@ -1016,59 +1080,91 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
     cardsContainer.innerHTML = ''; 
     actualCards.forEach(card => {
         if (!card) return;
+
+        // 1. P1(自分)の持ち物が関わっているかチェック
+        // タイトルに自分の名前がある、またはカード自体が「元々自分のもの(fromP1)」フラグを持っている場合
+        const isRelatedToP1 = titleText.includes(players[0].name) || card.fromP1 === true;
+
+        // 2. 秘匿判定の決定打
+        let isSecretInfo = false;
+        if (isP1HandOnlyView && playerName !== players[0].name) {
+            // 例外ルール：タイトルに「公開」が含まれている場合は、秘匿設定を無視して表示する
+            if (titleText.includes("公開")) {
+                isSecretInfo = false;
+            } else if (isRelatedToP1) {
+                // 自分の持ち物なら見える
+                isSecretInfo = false;
+            } else if (titleText.includes("ドロー") || titleText.includes("奪") || titleText.includes("スティール")) {
+                // 通常のドローや強奪は隠す
+                isSecretInfo = true;
+            } else if (card.revealed === false) {
+                // 盤面の裏向きカードを拾ったなら隠す
+                isSecretInfo = true;
+            }
+        }
+
         let txtCls = card.colorId === 'white' ? 'text-gray-800' : (card.colorId === 'black' ? 'text-gray-200' : 'text-white');
         const cardEl = document.createElement('div'); 
-        // クラスは modal-large-card を維持（CSS側で2枚以上の時の縮小を制御）
         cardEl.className = "modal-large-card perspective-1000 shrink-0 relative mb-4";
         
         const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
         
+        // ★修正：秘匿対象の場合は見た目を「？」と「グレー背景」に固定
+        const displayImg = isSecretInfo ? null : imgPath;
+        const displayName = isSecretInfo ? "?" : (card.name ? card.name[0] : '?');
+
         cardEl.innerHTML = `
             <div class="flip-card-inner relative w-full h-full">
                 <div class="flip-card-back ${card.type === 'ETERNAL' ? 'eternal-back-pattern' : 'card-back-pattern'} border-2 rounded-lg flex items-center justify-center w-full h-full"></div>
-                <div class="flip-card-front border-2 border-white rounded-lg w-full h-full flex flex-col items-center justify-center absolute inset-0 overflow-hidden ${card.bg}" ${imgPath ? `style="background-image: url('${imgPath}'); background-size: cover; background-position: center;"` : ""}>
-                    <span class="${imgPath ? 'hidden' : ''} font-bold text-4xl ${txtCls} z-10">${card.name ? card.name[0] : '?'}</span>
+                <div class="flip-card-front border-2 border-white rounded-lg w-full h-full flex flex-col items-center justify-center absolute inset-0 overflow-hidden ${isSecretInfo ? 'bg-gray-700' : card.bg}" 
+                    ${displayImg ? `style="background-image: url('${displayImg}'); background-size: cover; background-position: center;"` : ""}>
+                    <span class="${displayImg ? 'hidden' : ''} font-bold text-4xl ${isSecretInfo ? 'text-gray-500' : txtCls} z-10">${displayName}</span>
                 </div>
             </div>`;
         cardsContainer.appendChild(cardEl); 
-        // 【修正】前面(frontEl)ではなくカード全体(cardEl)にイベントを付与
-        if (typeof attachHoverEvents === 'function') {
+
+        // ホバー（拡大）も秘匿時は無効化
+        if (typeof attachHoverEvents === 'function' && !isSecretInfo) {
             attachHoverEvents(cardEl, card, true);
         }
 
-        // 【重要】ガードレイヤー越しでもクリックでめくれるようにイベントを修正
         const inner = cardEl.querySelector('.flip-card-inner');
-        
-        // めくる処理を関数化
         const flipFunc = () => {
             if (inner && !inner.classList.contains('do-flip')) {
                 inner.classList.add('do-flip');
             }
         };
 
-        // カード全体に対するクリックでめくる
-        cardEl.addEventListener('click', flipFunc);
-
-        // ★修正：判定を「ドロー」という文字が含まれている場合のみに限定します
+        // ★修正：秘匿対象でなければクリックでめくれる、または自動でめくる
         const isPureDraw = titleText.includes("ドロー");
-        
-        if (isPureDraw) {
-            // 「ドロー」モーダルの場合のみ：裏面からスタートして、0.4秒後にゆっくり回転
-            setTimeout(flipFunc, 400); 
-        } else {
-            // それ以外（到達獲得、到達効果発動など）の場合：即座に表面を表示（回転なし）
-            if (inner) {
-                inner.style.transition = "none"; 
-                inner.classList.add('do-flip');
+        if (!isSecretInfo) {
+            if (isPureDraw) {
+                setTimeout(flipFunc, 400); 
+            } else {
+                if (inner) {
+                    inner.style.transition = "none"; 
+                    inner.classList.add('do-flip');
+                }
             }
+            cardEl.addEventListener('click', flipFunc);
         }
     });
 
-    const msgEl = document.getElementById('arrival-msg'), btnEl = document.getElementById('arrival-ok-btn');
-
+    // メッセージの秘匿（下部の「〇〇を獲得」テキスト）
     if (actualCards.length > 0) {
-        msgEl.textContent = actualCards.length > 1 ? `「${actualCards[0].name}」ほか` : `「${actualCards[0].name}」`;
+        // 条件に !titleText.includes("公開") を追加
+        const isSecretMsg = isP1HandOnlyView && 
+                             playerName !== players[0].name && 
+                             !titleText.includes("公開") && // ★ここを追加
+                             (actualCards[0].revealed === false || titleText.includes("ドロー") || titleText.includes("奪"));
+                             
+        if (isSecretMsg) {
+            msgEl.textContent = "？？？";
+        } else {
+            msgEl.textContent = actualCards.length > 1 ? `「${actualCards[0].name}」ほか` : `「${actualCards[0].name}」`;
+        }
     }
+
     msgEl.style.opacity = '1'; 
     btnEl.style.opacity = '1';
     
@@ -1699,7 +1795,9 @@ function executeSelectionLogic(logic, selection, callback) {
 
                     const target = board[pos.y][pos.x];
                     if (!target.empty) {
-                        acquiredCards.push(target.color);
+                        // 盤面での「表か裏か」の状態を、一時的にカードデータへ持たせる
+                        const cardWithState = { ...target.color, revealed: target.revealed };
+                        acquiredCards.push(cardWithState);
                         hands[p.id].push(target.color);
                         if (target.stack && target.stack.length > 0) {
                             const topStack = target.stack.shift();
@@ -3172,4 +3270,32 @@ function executeResetStats() {
     // 3. ブラウザを強制的にリロード（キャッシュを無視）
     // エラーが出る前に即座にページを破棄します
     window.location.reload();
+}
+
+// ページ読み込み完了時や初期化時にアイコンを最新にする
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof updateProfileButtonVisual === 'function') {
+        updateProfileButtonVisual();
+    }
+});
+
+/**
+ * 2026/03/06 修正
+ * ホーム画面からタイトルオーバーレイ（START GAME画面）に戻る処理。
+ */
+function backToTitle() {
+    const homeScreen = document.getElementById('home-screen');
+    const titleOverlay = document.getElementById('title-overlay');
+    
+    if (homeScreen && titleOverlay) {
+        // ホーム画面を隠す
+        homeScreen.classList.add('hidden');
+        // タイトル画面を表示する
+        titleOverlay.classList.remove('hidden');
+        
+        // 念のため、初期化フラグなどもリセットが必要であればここで行います
+        window.isProfileSet = false; 
+        
+        addLog("タイトル画面に戻りました。");
+    }
 }

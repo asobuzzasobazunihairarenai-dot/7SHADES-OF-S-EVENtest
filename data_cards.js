@@ -34,7 +34,8 @@ const PHASE = { LOCK: 'LOCK', HAND: 'HAND', MOVE: 'MOVE' };
 const PHASE_TIME_SEC = 30;
 
 const CARD_DATABASE = [
-    { id: 1, name: "紅蓮の火山 ワイナウエア", colorId: "red", type: "ETERNAL", arrival: "(なし)", hand: "【追色1】任意の1マスのカードをすべて捨てる。ロックエリアにあっても発動可。", handEffect: { cost: { color: 'red', amount: 1 }, action: { type: 'select_cell', count: 1, logic: 'destroy_all', prompt: '破壊するマスを選択' } } },
+    { id: 1, name: "紅蓮の火山 ワイナウエア", colorId: "red", type: "ETERNAL", arrival: "(なし)", hand: "【追色1】任意の1マスのカードをすべて捨てる。ロックエリアにあっても発動可。", handEffect: { cost: { color: 'red', amount: 1 }, action: { type: 'select_cell', count: 1, logic: 'destroy_all', prompt: '破壊するマスを選択' } },
+          description: "手札効果補足：\n１マスに複数枚のカードがあれば、それらをすべて捨てる。" },
     { id: 2, name: "禁断の果実 マルメゴ", colorId: "orange", type: "ETERNAL", arrival: "(なし)", hand: "【追色1】4枚ドロー。それらを公開。橙（虹含む）があれば全ハンデス＆通常移動不可。ロック中も可。", handEffect: { cost: { color: 'orange', amount: 1 }, action: { type: 'marmego_logic' } } },
     { id: 3, name: "黄金の宮殿 ドムス-ネロ", colorId: "yellow", type: "ETERNAL", arrival: "(なし)", hand: "【追色1】2枚ドロー。相手全員は1枚ドロー。この効果は1ターンに1度のみ。ロック中も可。", handEffect: { cost: { color: 'yellow', amount: 1 }, action: { type: 'domus_nero_logic' } } },
     { id: 4, name: "奇跡の森 マンズウッド", colorId: "green", type: "ETERNAL", arrival: "(なし)", hand: "【追色1】1枚ドロー。ロック中も可。", handEffect: { cost: { color: 'green', amount: 1 }, action: { type: 'draw', value: 1 } } },

@@ -40,7 +40,37 @@
     color: var(--text-main) !important;
 }
 
+.light-mode #home-screen {
+    background-color: #ffffff !important;
+    background-image: none !important; /* 背景画像があれば消去 */
+}
 
+/* 併せて、ホーム画面内の文字が白飛びしないよう補正（念のため） */
+.light-mode #home-screen #home-user-name,
+.light-mode #home-screen .text-white {
+    color: #111827 !important;
+}
+
+.light-mode #home-screen .text-gray-400 {
+    color: #4b5563 !important;
+}
+
+/**
+ * 2026/03/06 00:20 修正
+ * ライトモード時、ホーム画面の「Welcome back」エリアの背景を白系に、
+ * 枠線を明るい色に補正して視認性を高めます。
+ */
+
+/* --- After (追加するコード) --- */
+.light-mode #home-screen .bg-gray-800\/50 {
+    background-color: rgba(243, 244, 246, 0.8) !important; /* 薄いグレー/白 */
+    border-color: #d1d5db !important; /* 明るいボーダー */
+}
+
+/* 「Welcome back」という文字色も調整 */
+.light-mode #home-screen .text-gray-400 {
+    color: #6b7280 !important; /* 少し濃いグレーに変更して読みやすく */
+}
 
 /* --- 修正箇所：ライトモード時のプルダウン配色指定 --- */
 .light-mode select {
@@ -387,13 +417,38 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 }
 
 /* 拡大カード本体：マウス追従または中央固定 */
+/* 拡大カード本体：画面の80%に調整 */
 #hover-preview-box {
-    position: fixed;
+    /* position: fixed; ← これを削除、または以下に書き換え */
+    position: relative; 
     z-index: 10001;
     pointer-events: none; 
-    box-shadow: 0 20px 50px rgba(0,0,0,0.7);
-    /* transitionを短くして追従性を高める */
-    transition: transform 0.1s ease-out;
+    
+    /* サイズ設定 */
+    width: 80vw !important;
+    height: 80vw !important;
+    max-width: 400px;
+    max-height: 400px;
+
+    /* 中央配置のための古い指定(top/left/transform)を無効化 */
+    top: auto !important;
+    left: auto !important;
+    transform: none !important;
+    
+    box-shadow: 0 0 50px rgba(0,0,0,0.8);
+    border-radius: 16px;
+    /* 縮まないように固定 */
+    flex-shrink: 0;
+}
+
+/* 文字サイズも80%に合わせて微調整 */
+#hover-char {
+    font-size: 8rem !important; 
+}
+
+#hover-name {
+    font-size: 2rem !important; 
+    text-shadow: 0 4px 8px rgba(0,0,0,0.8);
 }
 
 /* スマホ表示時の背景（JavaScriptで制御） */
@@ -1393,4 +1448,38 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 #home-screen button:active {
     transform: translateY(2px);
     box-shadow: none;
+}
+
+/* 拡大画面の補足テキスト（画像に被らない設定） */
+#hover-description {
+    /* 透過の黒背景 */
+    background-color: rgba(0, 0, 0, 0.85);
+    border: 1px solid rgba(250, 204, 21, 0.4);
+    
+    /* 横幅を画像と合わせる（80%） */
+    width: 80vw !important;
+    max-width: 400px;
+    
+    padding: 1rem;
+    line-height: 1.6;
+    font-size: 0.8rem;
+    border-radius: 12px;
+    
+    /* 被りを防ぐためのマージン */
+    margin-top: 1rem; 
+    
+    /* 長い文章でもはみ出さないように */
+    max-height: 25vh;
+    overflow-y: auto;
+    
+    pointer-events: auto; /* スクロールできるように */
+    backdrop-filter: blur(10px);
+}
+
+/* ライトモード時の見た目 */
+.light-mode #hover-description {
+    background-color: rgba(255, 255, 255, 0.95);
+    color: #111827;
+    border: 1px solid #eab308;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }

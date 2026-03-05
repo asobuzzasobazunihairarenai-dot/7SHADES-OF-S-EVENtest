@@ -1613,43 +1613,42 @@ async function initGameInternal(num, isTest = false) {
 
     /** 2026/03/04 21:10 修正：CPU戦時の補充時間を確実に1秒に固定するよう修正 **/
     if (window.FORCED_CPU_MODE) {
-        // --- CPU戦専用：あらゆる外部入力を遮断して固定 ---
+        // --- CPU戦専用：固定設定 ---
         isP1TimerIgnored = true;
         isRandomLockOnTimeout = true;
         isAutoAction = true;
         isP1HandOnlyView = true;
         isSkipSelectionOnAuto = true;
-        currentPhaseMaxTime = 15; // 基本持ち時間 15秒
-
-        // 補充時間を「1秒」に徹底固定
-        // 既存の window.PHASE_TIME_ADD だけでなく、参照される可能性のある全てのルートを上書き
+        currentPhaseMaxTime = 15;
         window.PHASE_TIME_ADD = 1; 
         
-        // HTML要素の値も見た目上「1」に書き換えて同期を完璧にする
         const pAddEl = document.getElementById('setting-phase-time-add');
         if (pAddEl) pAddEl.value = "1";
-
         addLog("[System] CPU戦モード：補充時間1秒を適用しました");
-
     } else {
-        // --- 通常戦（人間）：設定画面(HTML)から読み込み ---
-        isP1TimerIgnored = document.getElementById('setting-p1-timer-ignore')?.checked || false;
-        isRandomLockOnTimeout = document.getElementById('setting-timeout-random-lock')?.checked || false;
-        isAutoAction = document.getElementById('setting-timeout-auto-hand')?.checked || false;
-        isP1HandOnlyView = document.getElementById('setting-p1-hand-only')?.checked || false;
-        isSkipSelectionOnAuto = document.getElementById('setting-skip-selection')?.checked || false;
-        currentPhaseMaxTime = parseInt(document.getElementById('setting-phase-time')?.value || "15");
+        // --- 通常戦・テストモード：設定画面からリアルタイムに読み込み ---
+        // ★修正ポイント：各フラグの読み込み先をHTMLのIDと厳密に一致させます
+        isP1TimerIgnored = document.getElementById('setting-p1-timer-ignore')?.checked ?? false;
+        isRandomLockOnTimeout = document.getElementById('setting-random-lock')?.checked ?? false;
+        isAutoAction = document.getElementById('setting-auto-action')?.checked ?? false;
         
-        // 人間用モードの時だけHTMLから補充時間を読み込む
-        const pAddEl = document.getElementById('setting-phase-time-add');
-        const pAddVal = pAddEl ? parseInt(pAddEl.value) : 1;
-        
-        window.PHASE_TIME_ADD = pAddVal;
-        if (typeof PHASE_TIME_ADD !== 'undefined') {
-            PHASE_TIME_ADD = pAddVal;
-        }
-    }
+        // P1の手札のみ表示フラグ（変数名の不一致を修正：isP1HandOnlyView か isOnlyP1HandVisible か）
+        const handOnlyEl = document.getElementById('setting-p1-hand-only');
+        isP1HandOnlyView = handOnlyEl ? handOnlyEl.checked : false;
 
+        isSkipSelectionOnAuto = document.getElementById('setting-skip-selection')?.checked ?? false;
+        
+        // 基本フェイズ秒数の反映
+        const pTimeEl = document.getElementById('setting-phase-time');
+        currentPhaseMaxTime = pTimeEl ? parseInt(pTimeEl.value) : 15;
+        timeLeft = currentPhaseMaxTime; // 開始時のタイマーも同期
+
+        // 補充時間の反映
+        const pAddEl = document.getElementById('setting-phase-time-add');
+        window.PHASE_TIME_ADD = pAddEl ? parseInt(pAddEl.value) : 15;
+        
+        addLog(`[System] 設定適用: 補充${window.PHASE_TIME_ADD}s / P1手札制限:${isP1HandOnlyView}`);
+    }
     // 自動処理レベル(EASY/NORMAL)の同期
     const autoModeSelect = document.getElementById('setting-auto-mode');
     if (autoModeSelect) autoMode = autoModeSelect.value;

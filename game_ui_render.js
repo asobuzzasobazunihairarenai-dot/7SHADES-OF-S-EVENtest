@@ -1,5 +1,5 @@
 /**
- * 7 SHADES OF S:EVEN - Core Logic
+ * 7 SHADES OF S:EVEN - game_ui_render.js
  * 【共通定義】
  * - 到達: 表向きカードの上に駒が置かれた瞬間
  * - 到達効果: 到達時に発動。原則「効果解決」→「カード獲得」の順。
@@ -863,7 +863,10 @@ function updatePhaseIndicator() {
     else textEl.innerHTML = `<span class=\"${p.color.bg.replace('bg-', 'text-')}\">${p.name}</span>: ${currentPhase === PHASE.LOCK ? 'ロック可' : currentPhase === PHASE.HAND ? '手札使用' : '移動'}`;
 }
 
-function updateTimerVisual() { 
+function updateTimerVisual() {
+    /** 2026/03/05 追加: 変数が未定義（リセット中）の場合は、処理を完全にスキップしてエラーを防ぐ **/
+    if (typeof currentPhaseMaxTime === 'undefined' || !currentPhaseMaxTime) return;
+
     const bar = document.getElementById('timer-bar');
     const textEl = document.getElementById('instruction-text');
     const timerText = document.getElementById('timer-text'); 

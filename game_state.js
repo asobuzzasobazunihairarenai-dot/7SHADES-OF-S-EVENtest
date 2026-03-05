@@ -1,5 +1,5 @@
 /**
- * 7 SHADES OF S:EVEN - Core Logic
+ * 7 SHADES OF S:EVEN - game_state.js
  * 【共通定義】
  * - 到達: 表向きカードの上に駒が置かれた瞬間
  * - 到達効果: 到達時に発動。原則「効果解決」→「カード獲得」の順。
@@ -131,14 +131,23 @@ function loadUserProfile() {
         const savedData = localStorage.getItem('shades_seven_profile');
         if (savedData) {
             const parsed = JSON.parse(savedData);
-            // 既存の userProfile に保存データをマージ（新機能追加時の型崩れ防止）
-            userProfile = { ...userProfile, ...parsed, stats: { ...userProfile.stats, ...(parsed.stats || {}) } };
-            isProfileSet = true;
+            // 既存の構造を維持しつつ、不足しているキー（新しく追加されたスタッツ等）を補完
+            userProfile = { ...userProfile, ...parsed };
+            // statsなどのネストされた構造もマージ
+            if (parsed.stats) {
+                userProfile.stats = { ...userProfile.stats, ...parsed.stats };
+            }
+            window.isProfileSet = true;
+            return true;
         }
     } catch (e) {
-        console.error("プロフィール読み込み失敗:", e);
+        console.error("Profile load error:", e);
     }
+    return false;
 }
+
+// ページ読み込み時に即座に実行
+loadUserProfile();
 
 /**
  * localStorage へプロフィールを保存する

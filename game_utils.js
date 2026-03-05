@@ -1,5 +1,5 @@
 /**
- * 7 SHADES OF S:EVEN - Core Logic
+ * 7 SHADES OF S:EVEN - game_utils.js
  * 【共通定義】
  * - 到達: 表向きカードの上に駒が置かれた瞬間
  * - 到達効果: 到達時に発動。原則「効果解決」→「カード獲得」の順。
@@ -349,7 +349,8 @@ function triggerLightningEffect() {
 function gainTime(seconds) {
     if (winner) return;
 
-    const maxPhaseTime = currentPhaseMaxTime || 15;
+    // 変数が存在するかチェックし、なければデフォルトの15秒を使う（安全策）
+    const maxPhaseTime = (typeof currentPhaseMaxTime !== 'undefined') ? currentPhaseMaxTime : 15;
 
     if (useGlobalTimer) {
         const p = players[turn];
@@ -358,12 +359,10 @@ function gainTime(seconds) {
             p.totalTimeLeft = Math.min(maxTimeSetting, p.totalTimeLeft + seconds);
         }
     } else {
-        // timeLeft が NaN や undefined にならないよう担保しながら加算
         const current = isNaN(timeLeft) ? 0 : timeLeft;
         timeLeft = Math.min(maxPhaseTime, current + seconds);
     }
     
-    // 計算が終わった後に描画を呼ぶ
     if (typeof updateTimerVisual === 'function') updateTimerVisual(); 
 }
 

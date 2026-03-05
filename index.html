@@ -1,7 +1,12 @@
 <!--
-修正概要：
-1. 捨て札横の枚数テキストラベルを削除（アイコン上に集約されたため）
+ * 7 SHADES OF S:EVEN - index.html
+ * 【共通定義】
+ * - 到達: 表向きカードの上に駒が置かれた瞬間
+ * - 到達効果: 到達時に発動。原則「効果解決」→「カード獲得」の順。
+ * - 例外: カードに処遇（場に残る、破棄等）が書かれている場合はそれに従う。
+ */
 -->
+ 
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -296,6 +301,8 @@
         
         <button onclick="showFullDeckListModal()" class="w-full py-2 mb-4 bg-yellow-600 hover:bg-yellow-500 text-black rounded font-bold shadow-lg">全山札構成を確認する</button>
 
+<button onclick="confirmResetStats()" class="w-full py-2 mb-4 bg-red-900/60 hover:bg-red-800 text-red-200 rounded font-bold border border-red-700 shadow-lg text-xs">戦歴・プロフィールをリセット</button>
+
 <button onclick="closeSettings()" class="w-full py-2 bg-blue-600 text-white rounded font-bold">設定を閉じる</button>
     </div>
 </div>
@@ -341,8 +348,8 @@
         <div id="result-items-container" class="space-y-3 mb-6">
             </div>
 
-        <button onclick="location.reload()" class="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-xl transition-all shadow-lg active:scale-95">
-            タイトルへ戻る
+        <button id="close-result-btn" class="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-xl transition-all shadow-lg active:scale-95">
+            ランク確認へ
         </button>
     </div>
 </div>

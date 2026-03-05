@@ -1,5 +1,5 @@
 /**
- * 7 SHADES OF S:EVEN - Core Logic
+ * 7 SHADES OF S:EVEN - game_effects.js
  * 【共通定義】
  * - 到達: 表向きカードの上に駒が置かれた瞬間
  * - 到達効果: 到達時に発動。原則「効果解決」→「カード獲得」の順。

@@ -1,5 +1,5 @@
 /**
- * 7 SHADES OF S:EVEN - Core Logic
+ * 7 SHADES OF S:EVEN - game_ui_modal.js
  * 【共通定義】
  * - 到達: 表向きカードの上に駒が置かれた瞬間
  * - 到達効果: 到達時に発動。原則「効果解決」→「カード獲得」の順。
@@ -2597,8 +2597,20 @@ function showUserProfileModal() {
                 <button id="close-profile" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-2xl">×</button>
                 <div class="relative inline-block cursor-pointer group" id="edit-profile-icon">
                     <img src="${p.icon}" class="w-24 h-24 rounded-full border-4 border-yellow-500 shadow-lg object-cover mx-auto bg-gray-200 group-hover:brightness-110 transition-all">
-                    <div class="absolute -bottom-2 -right-2 bg-yellow-500 text-gray-900 text-xs font-bold px-2 py-1 rounded-full shadow">Lv.${p.level}</div>
+                    <div class="absolute -bottom-2 -right-2 bg-yellow-500 text-gray-900 text-xs font-bold px-2 py-1 rounded-full shadow z-10">Lv.${p.level}</div>
                     <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded-full text-white text-[10px] font-bold">編集</div>
+                    
+                    <div class="w-20 mx-auto mt-2 h-1.5 bg-gray-700 rounded-full overflow-hidden border border-gray-600 shadow-sm">
+                        <div style="width: ${(() => {
+                            const curLv = p.level;
+                            const nextLv = curLv + 1;
+                            const getReq = (lv) => Math.ceil((Math.pow(lv - 1, 2)) / 2);
+                            const base = getReq(curLv);
+                            const needed = getReq(nextLv);
+                            const pct = ((p.totalWins - base) / (needed - base)) * 100;
+                            return Math.min(100, Math.max(0, pct));
+                        })()}%" class="h-full bg-blue-500"></div>
+                    </div>
                 </div>
                 <h2 id="edit-profile-name" class="text-2xl font-bold mt-4 text-adjust-main cursor-pointer hover:text-yellow-600 transition-colors flex items-center justify-center gap-2">
                     ${p.name} <span class="text-xs text-gray-400 font-normal">✎</span>
@@ -2651,12 +2663,12 @@ function showUserProfileModal() {
                 <div class="rounded-xl p-4 border bg-adjust-card border-yellow-500/30">
                     <h3 class="text-adjust-mute text-[10px] font-bold mb-3 uppercase tracking-wider">Favorite Card (MVP)</h3>
                     <div class="flex items-center gap-4">
-                        <div class="w-16 h-24 bg-gray-800 rounded-lg border border-gray-700 overflow-hidden shrink-0 shadow-lg">
-                            ${p.stats.mvpCard ? 
-                                `<img src="images/card_${CARD_DATABASE.find(c => c.name === p.stats.mvpCard)?.id}.webp" class="w-full h-full object-cover">` : 
-                                `<div class="w-full h-full flex items-center justify-center text-[10px] text-gray-600 italic">No Data</div>`
-                            }
-                        </div>
+                        <div class="w-20 h-20 bg-gray-800 rounded-lg border border-gray-700 overflow-hidden shrink-0 shadow-lg flex items-center justify-center">
+    ${p.stats.mvpCard ? 
+        `<img src="images/card_${CARD_DATABASE.find(c => c.name === p.stats.mvpCard)?.id}.webp" class="w-full h-full object-cover">` : 
+        `<div class="w-full h-full flex items-center justify-center text-[10px] text-gray-600 italic">No Data</div>`
+    }
+</div>
                         <div class="flex-1 text-left">
                             <div class="text-adjust-main font-black text-sm">${p.stats.mvpCard || "まだデータがありません"}</div>
                             <div class="text-[10px] text-adjust-mute mt-1">
@@ -2691,14 +2703,18 @@ function showUserProfileModal() {
 
     const closeModal = () => modal.remove();
     // --- 外科手術的追加：画像または名前クリックで設定画面へ ---
-    const startEdit = () => {
-        modal.remove(); // プロフィール画面を閉じる
-        if (typeof openProfileSetup === 'function') {
-            // game_state.js のフラグを一時的に倒して設定画面を強制表示
-            window.isProfileSet = false; 
-            openProfileSetup();
-        }
-    };
+    const startEdit = (event) => {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    modal.remove(); // プロフィール詳細を閉じる
+    
+    // 編集専用の関数を呼び出す
+    if (typeof openProfileEdit === 'function') {
+        openProfileEdit();
+    }
+};
     
     // --- 外科手術的追加：称号クリックで変更画面へ ---
     modal.querySelector('#edit-title').onclick = () => {
@@ -2807,18 +2823,25 @@ function showLevelUpModal(type, newValue) {
     const isLevel = type === 'LEVEL';
     const title = isLevel ? "LEVEL UP!" : "RANK UP!";
     const subTitle = isLevel ? `Lv.${newValue} に到達` : `${newValue}`;
-    const colorClass = isLevel ? "text-blue-400" : "text-yellow-400";
+    const colorClass = isLevel ? "text-blue-400" : "text-yellow-500"; // 黄色を少し濃く
     
     const modal = document.createElement('div');
-    modal.className = 'fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 backdrop-blur-md animate-fade-in pointer-events-none';
+    // 背景の透過度をモードで切り替え
+    const overlayBg = isLightMode ? 'bg-white/80' : 'bg-black/60';
+    modal.className = `fixed inset-0 z-[11000] flex items-center justify-center ${overlayBg} backdrop-blur-md animate-fade-in pointer-events-none`;
     
+    // パネルの背景色と文字色をモードで切り替え
+    const panelBg = isLightMode ? 'bg-white' : 'bg-gray-900/90';
+    const textColor = isLightMode ? 'text-gray-900' : 'text-white';
+    const subTextColor = isLightMode ? 'text-gray-600' : 'text-gray-300';
+
     modal.innerHTML = `
         <div class="text-center animate-bounce-in pointer-events-auto">
-            <div class="text-6xl font-black ${colorClass} italic drop-shadow-[0_0_20px_rgba(255,255,255,0.5)] mb-2 uppercase tracking-tighter">${title}</div>
-            <div class="bg-gray-900/80 border-y-2 border-yellow-500 py-4 px-12 transform -skew-x-12 shadow-[0_0_30px_rgba(0,0,0,0.8)]">
-                <div class="text-2xl font-bold text-white skew-x-12">${subTitle}</div>
+            <div class="text-6xl font-black ${colorClass} italic drop-shadow-[0_4px_10px_rgba(0,0,0,0.3)] mb-2 uppercase tracking-tighter">${title}</div>
+            <div class="${panelBg} border-y-4 border-yellow-500 py-6 px-16 transform -skew-x-12 shadow-2xl">
+                <div class="text-3xl font-black ${textColor} skew-x-12 tracking-tight">${subTitle}</div>
             </div>
-            <div class="text-gray-300 text-xs mt-6 animate-pulse">画面をクリックして閉じる</div>
+            <div class="${subTextColor} text-xs mt-8 font-bold animate-pulse">画面をクリックして閉じる</div>
         </div>
     `;
 
@@ -2838,12 +2861,17 @@ function showLevelUpModal(type, newValue) {
 /**
  * ゲーム終了後のランク変動を表示するモーダル
  */
+/** 2026/03/05 11:30 修正：実際のポイント差分を計算して +2pt 等を表示するように修正 **/
 function showPostGameRankModal(isWin, oldPoint, newPoint, onFinish) {
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 z-[11000] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in';
     
-    // 増減のテキスト
-    const changeText = isWin ? "+1pt" : "-1pt";
+    // ポイントの差分を計算（昇格時は newPoint が 0 になるため、isWin で符号を確定）
+    const diff = isWin ? Math.max(1, newPoint - oldPoint) : newPoint - oldPoint;
+    // 昇格（newPoint=0）のケースも考慮しつつ、表示テキストを作成
+    const displayDiff = (isWin && newPoint < oldPoint) ? (7 - oldPoint) : Math.abs(newPoint - oldPoint);
+    
+    const changeText = isWin ? `+${displayDiff}pt` : `-${displayDiff}pt`;
     const changeColor = isWin ? "text-yellow-400" : "text-red-500";
     
     modal.innerHTML = `
@@ -2871,16 +2899,32 @@ function showPostGameRankModal(isWin, oldPoint, newPoint, onFinish) {
 
     document.body.appendChild(modal);
 
-    // 少し遅れてポイントの変動をアニメーションさせる
+    /** 2026/03/05 14:15 修正：ゲージのアニメーション完了を待ってから派手な演出を表示 **/
     setTimeout(() => {
         const blocks = modal.querySelectorAll('[id^="rank-block-"]');
+        
+        // 昇格時（newPointが0に戻っている場合）は全てのブロックを一旦光らせる
+        const isPromotion = (isWin && newPoint < oldPoint);
+        
         blocks.forEach((block, i) => {
-            if (i < newPoint) {
+            const shouldLight = isPromotion ? true : (i < newPoint);
+            if (shouldLight) {
                 block.className = 'flex-1 h-4 rounded-sm border-2 transition-all duration-700 bg-yellow-500 border-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.6)]';
             } else {
                 block.className = 'flex-1 h-4 rounded-sm border-2 transition-all duration-700 bg-transparent border-gray-700 opacity-40';
             }
         });
+
+        // アニメーション時間（0.7秒）を待ってから、予約されたランクアップ演出があれば表示
+        if (window.pendingRankUpEffect) {
+            setTimeout(() => {
+                const { type, value } = window.pendingRankUpEffect;
+                if (typeof showLevelUpModal === 'function') {
+                    showLevelUpModal(type, value);
+                }
+                window.pendingRankUpEffect = null; // 実行したのでクリア
+            }, 800); 
+        }
     }, 500);
 
     const close = () => {
@@ -2893,6 +2937,71 @@ function showPostGameRankModal(isWin, oldPoint, newPoint, onFinish) {
     };
     
     setTimeout(() => document.addEventListener('click', close), 1000);
+}
+
+/** 2026/03/05 15:30 修正：ゲージが空になるバグを修正し、ヌルっとした動きを保証 **/
+function showPostGameLevelModal(data, onFinish) {
+    const modal = document.createElement('div');
+    const overlayBg = isLightMode ? 'bg-white/90' : 'bg-black/70';
+    modal.className = `fixed inset-0 z-[11000] flex items-center justify-center ${overlayBg} backdrop-blur-sm animate-fade-in`;
+    
+    // ライトモード用の配色
+    const panelBg = isLightMode ? 'bg-gray-100' : 'bg-gray-900';
+    const borderColor = isLightMode ? 'border-blue-200' : 'border-blue-900/50';
+    const mainText = isLightMode ? 'text-gray-900' : 'text-white';
+    const muteText = isLightMode ? 'text-gray-500' : 'text-gray-400';
+
+    // 累積勝利数に基づいた正確な進捗計算
+    const range = Math.max(1, data.neededWins - data.baseWins);
+    // ゲージの初期位置（今回の勝利を加算する前）
+    const prevWins = data.currentWins - (data.isLevelUp ? 1 : 1); // 常に直前の状態から見せる
+    const initialPct = Math.max(0, ((prevWins - data.baseWins) / range) * 100);
+    const targetPct = Math.min(100, ((data.currentWins - data.baseWins) / range) * 100);
+
+    modal.innerHTML = `
+        <div class="${panelBg} border-2 ${borderColor} p-8 rounded-3xl shadow-2xl text-center max-w-xs w-full animate-bounce-in">
+            <h3 class="${muteText} text-xs font-bold uppercase tracking-widest mb-1">Level Progress</h3>
+            <div class="text-4xl font-black text-blue-500 mb-2 italic tracking-tighter">Lv.${data.oldLevel}</div>
+            
+            <div class="w-full h-6 bg-gray-300 dark:bg-gray-800 rounded-full border-2 border-gray-400 dark:border-gray-700 p-1 mb-2 relative overflow-hidden shadow-inner">
+                <div id="level-gauge-bar" class="h-full bg-gradient-to-r from-blue-600 to-cyan-400 rounded-full shadow-[0_0_15px_rgba(34,211,238,0.6)]" 
+                     style="width: ${initialPct}%; transition: none;"></div>
+            </div>
+            <div class="flex justify-between text-[10px] font-mono ${muteText} mb-6">
+                <span>Wins: ${data.currentWins}</span>
+                <span>Next: ${data.neededWins}</span>
+            </div>
+            
+            <p class="${muteText} text-[10px] italic">タップして次へ</p>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // 確実に初期描画が終わってからアニメーションさせるための2段構え
+    setTimeout(() => {
+        const bar = document.getElementById('level-gauge-bar');
+        if (bar) {
+            bar.style.transition = "width 2.5s cubic-bezier(0.22, 1, 0.36, 1)"; // よりヌルっとしたイージング
+            bar.style.width = `${targetPct}%`;
+        }
+        
+        if (data.isLevelUp) {
+            setTimeout(() => {
+                if (typeof showLevelUpModal === 'function') showLevelUpModal('LEVEL', data.newLevel);
+            }, 2200);
+        }
+    }, 100); // 0.1秒待機してから開始
+
+    const close = () => {
+        modal.classList.add('animate-fade-out');
+        setTimeout(() => {
+            modal.remove();
+            if (onFinish) onFinish();
+        }, 500);
+        document.removeEventListener('click', close);
+    };
+    setTimeout(() => document.addEventListener('click', close), 1500);
 }
 
 /**
@@ -3013,4 +3122,54 @@ function backToHomeFromCpu() {
     const home = document.getElementById('home-screen');
     if (cpuSetup) cpuSetup.classList.add('hidden');
     if (home) home.classList.remove('hidden');
+}
+
+/**
+ * 戦歴リセットの最終確認を表示
+ */
+function confirmResetStats() {
+    const settingsModal = document.getElementById('settings-modal');
+    if (settingsModal) settingsModal.classList.add('hidden');
+
+    // showDetailModal の OKボタンは通常 gainTime(5) を呼び出しますが、
+    // ここでは gainTime が動かないように特殊なフラグ制御下で実行するか、
+    // もしくはリセット専用の処理として実行します。
+    
+    showDetailModal(
+        "⚠️ データの初期化", 
+        "これまでの戦歴、ランク、称号、設定がすべて消去されます。<br><b class='text-red-500'>この操作は取り消せません。</b><br>本当によろしいですか？", 
+        null, 
+        "すべて削除して再起動", 
+        () => {
+            // gainTime エラーを防ぐため、一時的に window のエラーを無視するか、
+            // 即座にリセット処理へ移行します。
+            executeResetStats();
+        }
+    );
+    
+    const cancelBtn = document.getElementById('detail-cancel-btn');
+    if (cancelBtn) {
+        cancelBtn.onclick = () => {
+            closeDetailModal();
+            if (settingsModal) settingsModal.classList.remove('hidden');
+        };
+    }
+}
+
+/**
+ * 実際のデータ削除とリロードを実行
+ */
+function executeResetStats() {
+    // 1. まず window 内の gainTime 関数を無効化してエラーを封じる（外科手術的処置）
+    window.gainTime = () => {}; 
+
+    // 2. データを削除
+    localStorage.removeItem('shades_seven_profile');
+    localStorage.removeItem('shades_light_mode'); // 設定も一応消す
+    
+    addLog("すべてのデータを初期化しました。");
+
+    // 3. ブラウザを強制的にリロード（キャッシュを無視）
+    // エラーが出る前に即座にページを破棄します
+    window.location.reload();
 }

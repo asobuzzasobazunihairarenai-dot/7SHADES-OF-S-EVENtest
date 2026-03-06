@@ -750,12 +750,84 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }
 
     else if (act.type === 'rainbow_fragment_choice') {
-    const pHand = hands[p.id] || [];
-        // 修正：手札にある「なないろの欠片」の総数をカウント
+        const pHand = hands[p.id] || [];
         const otherFragsCount = pHand.filter(c => Number(c.id) === 29 && c !== contextCard).length;
-    const canDouble = (otherFragsCount + 1) >= 2; 
+        const canDouble = (otherFragsCount + 1) >= 2; 
 
-    const startFlow = () => {
+        // --- 内部関数：1枚ドロー処理 ---
+        const executeSingle = () => {
+            const c = drawCard();
+            if (c) {
+                showCardModal(c, () => {
+                    hands[p.id].push(c);
+                    if (typeof renderHand === 'function') renderHand();
+                    onSuccess({});
+                }, "ドロー", p.name, "「1枚ドロー」を選択しました");
+            } else onSuccess({});
+        };
+
+        // --- 内部関数：2枚ロック＆2枚ドロー処理 ---
+        const executeDouble = () => {
+            const colorOptions = [...BASE_COLORS].reverse().filter(bc => {
+                const slot = collections[p.id][bc.id] || [];
+                return slot.length === 0 || slot.some(card => card.id === 34);
+            });
+
+            if (colorOptions.length === 0) {
+                if(typeof showToast === 'function') showToast("ロックできるスロットがありません");
+                onSuccess({}); return;
+            }
+
+            // ロック先の選択（これは自動・手動問わず必要）
+            showSelectionModal("ロック先選択", "2枚をどの色としてロックしますか？", colorOptions, "card-back-pattern", 1, (sel) => {
+                isAutoAction = false; 
+                const targetColor = sel[0];
+                const tSlot = collections[p.id][targetColor.id];
+                
+                const curseIdx = tSlot.findIndex(c => c.id === 34);
+                if (curseIdx > -1) {
+                    tSlot.splice(curseIdx, 1);
+                    addLog(`「なないろの欠片」の力で${targetColor.name}の呪いが解けました！`);
+                }
+                
+                const secondIdx = hands[p.id].findIndex(c => Number(c.id) === 29 && c !== contextCard);
+                if (secondIdx === -1) { 
+                    onSuccess({}); return; 
+                }
+                const frag2 = hands[p.id].splice(secondIdx, 1)[0];
+                tSlot.push(contextCard);
+                tSlot.push(frag2);
+
+                const drawn = [];
+                for (let k = 0; k < 2; k++) {
+                    const c = drawCard();
+                    if (c) { hands[p.id].push(c); drawn.push(c); }
+                }
+                
+                showCardModal(drawn, () => {
+                    if (typeof checkWin === 'function') checkWin(p.id);
+                    if (typeof renderStatus === 'function') renderStatus();
+                    if (typeof renderHand === 'function') renderHand();
+                    onSuccess({ stayOnBoard: true });
+                }, "2枚ロック＆ドロー", p.name, `「${targetColor.name}」としてロックしました`);
+            }, false, () => { isAutoAction = false; startFlow(); }, null, null, p);
+        };
+
+        const startFlow = () => {
+            // ★ 外科手術：自動処理なら「二択画面」を作らずに即座に分岐
+            if (isAutoAction) {
+                const choiceText = canDouble ? "【2枚ロック＆2枚ドロー】" : "【1枚ドロー】";
+                addLog(`[Auto] ${p.name}は「なないろの欠片」の効果で ${choiceText} を選択。`);
+                
+                // 全プレイヤーへの知らしめモーダル（スキップしない）
+                showMessageOverlay(`${p.name} の選択：\n${choiceText}`, 1500, () => {
+                    if (canDouble) executeDouble();
+                    else executeSingle();
+                });
+                return; 
+            }
+
+            // 手動操作時のみ二択モーダルを表示
             const choiceModal = document.createElement('div');
             choiceModal.className = "fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4";
             choiceModal.innerHTML = `
@@ -765,104 +837,29 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     <div class="flex flex-col gap-3">
                         <button id="btn-choice-single" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg shadow-lg flex flex-col items-center">
                             <span>1枚ドロー</span>
-                            <span class="text-[9px] font-normal opacity-70">（このカードを1枚捨てます）</span>
                         </button>
-                        <button id="btn-choice-double" class="${canDouble ? 'bg-yellow-600 hover:bg-yellow-500 text-black cursor-pointer' : 'bg-gray-700 text-gray-500 cursor-not-allowed'} font-bold py-3 rounded-lg shadow-lg flex flex-col items-center relative overflow-hidden transition-colors">
+                        <button id="btn-choice-double" class="${canDouble ? 'bg-yellow-600 hover:bg-yellow-500 text-black' : 'bg-gray-700 text-gray-500 cursor-not-allowed'} font-bold py-3 rounded-lg shadow-lg flex flex-col items-center relative overflow-hidden transition-colors">
                             <span>2枚ロック ＆ 2枚ドロー</span>
-                            <span class="text-[9px] font-normal opacity-70">（欠片2枚を好きな場所1箇所にロック）</span>
-                            ${!canDouble ? '<div class="absolute inset-0 bg-black/10 pointer-events-none"></div>' : ''}
                         </button>
                     </div>
                 </div>`;
             document.body.appendChild(choiceModal);
 
-            // --- ここから追加：自動処理時の挙動 ---
-            if (isAutoAction) {
-                setTimeout(() => {
-                    // isAutoAction = false;  <-- ここを削除（外科手術的削除）
-                    if (canDouble) {
-                        const btnDouble = choiceModal.querySelector('#btn-choice-double');
-                        if (btnDouble) btnDouble.click();
-                    } else {
-                        const btnSingle = choiceModal.querySelector('#btn-choice-single');
-                        if (btnSingle) btnSingle.click();
-                    }
-                }, 600);
-            }
-            // --- ここまで ---
-
             choiceModal.querySelector('#btn-choice-single').onclick = () => {
                 choiceModal.remove();
-                const c = drawCard();
-                if (c) {
-                    showCardModal(c, () => {
-                        hands[p.id].push(c);
-                        if (typeof renderHand === 'function') renderHand();
-                        onSuccess({});
-                    }, "ドロー", p.name, "使用しました");
-                } else onSuccess({});
+                executeSingle();
             };
 
             if (canDouble) {
                 choiceModal.querySelector('#btn-choice-double').onclick = () => {
                     choiceModal.remove();
-                    const colorOptions = [...BASE_COLORS].reverse().filter(bc => {
-                        const slot = collections[p.id][bc.id] || [];
-                        return slot.length === 0 || slot.some(card => card.id === 34);
-                    });
-
-                    if (colorOptions.length === 0) {
-                        if(typeof showToast === 'function') showToast("ロックできるスロットがありません");
-                        onSuccess({}); return;
-                    }
-
-                    showSelectionModal("ロック先選択", "2枚をどの色としてロックしますか？", colorOptions, "card-back-pattern", 1, (sel) => {
-                        // --- 修正箇所：ここでも念押しでフラグをオフにする（自動処理から呼ばれた際の保険） ---
-                        isAutoAction = false; 
-                        const targetColor = sel[0];
-                        const tSlot = collections[p.id][targetColor.id];
-                        
-                        const curseIdx = tSlot.findIndex(c => c.id === 34);
-                        if (curseIdx > -1) {
-                            const curse = tSlot.splice(curseIdx, 1)[0];
-                            addLog(`「なないろの欠片」の力で${targetColor.name}の呪いが解けました！`);
-                            tempAction = { card: curse };
-                            startSelectionMode('select_cell', 1, 'exile_curse_logic', '呪いを盤面へ追放してください', null, null, null, true, p, false, null, null, null, p);
-                        }
-                        
-                        // 修正：手札から「自分以外の2枚目の欠片」を検索して取得
-                        const secondIdx = hands[p.id].findIndex(c => Number(c.id) === 29 && c !== contextCard);
-                        if (secondIdx === -1) { 
-                            if(typeof showToast === 'function') showToast("エラー：2枚目の欠片が見つかりません");
-                            onSuccess({}); return; 
-                        }
-                        const frag2 = hands[p.id].splice(secondIdx, 1)[0];
-                        const frag1 = contextCard;
-
-                        tSlot.push(frag1);
-                        tSlot.push(frag2);
-
-                        const drawn = [];
-                        for (let k = 0; k < 2; k++) {
-                            const c = drawCard();
-                            if (c) { hands[p.id].push(c); drawn.push(c); }
-                        }
-                        
-                        showCardModal(drawn, () => {
-                            if (typeof checkWin === 'function') checkWin(p.id);
-                            if (typeof renderStatus === 'function') renderStatus();
-                            if (typeof renderHand === 'function') renderHand();
-                            onSuccess({ stayOnBoard: true });
-                        }, "ドロー", p.name, "使用しました");
-                    }, false, () => {
-                        // --- 修正箇所：キャンセル（戻る）ボタンが押された時もフラグをリセット ---
-                        isAutoAction = false;
-                        startFlow();
-                    }, null, null, p);
+                    executeDouble();
                 };
             }
         };
-        startFlow(); return;
+
+        startFlow();
+        return;
     }
 
     else if (act.type === 'greedy_choice') {

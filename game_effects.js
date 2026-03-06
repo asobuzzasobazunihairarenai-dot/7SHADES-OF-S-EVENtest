@@ -1294,13 +1294,12 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     else if (act.type === 'greedy_palette_hand') {
         isHandEffectProcessing = true;
 
-        // 【修正】独自の showCardModal を削除し、直接色宣言を開始
-        showSelectionModal("色宣言", "相手が対処すべき色を選択してください", BASE_COLORS, "card-back-pattern", 1, (selCols) => {
+        // 1. 発動者が色を宣言（発動者がAIならスキップ）
+        showRequestSelectionModal("色宣言", "相手が対処すべき色を選択してください", BASE_COLORS, "card-back-pattern", 1, (selCols) => {
             const declaredColor = selCols[0];
             addLog(`${p.name}が「${declaredColor.name}」を宣言！`);
 
             showMessageOverlay(`${p.name} の宣言：【${declaredColor.name}】\n\n相手全員はカードを渡すか、3枚捨ててください。`, 2000, () => {
-                
                 const pIdx = players.indexOf(p);
                 const ordered = [];
                 for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
@@ -1317,43 +1316,38 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     const matchCards = (hands[opp.id] || []).filter(c => c.colorId === declaredColor.id || c.colorId === 'rainbow');
                     const handCount = (hands[opp.id] || []).length;
 
+                    // --- [内部関数] 3枚捨てる処理 ---
                     const performDiscard3 = () => {
                         const dCount = Math.min(handCount, 3);
                         if (dCount > 0) {
-                            setTimeout(() => {
-                                showSelectionModal("手札破棄", `${opp.name}: 破棄するカードを${dCount}枚選んでください`, hands[opp.id], "card-back-pattern", dCount, (sel) => {
-                                    sel.forEach(c => { hands[opp.id].splice(hands[opp.id].indexOf(c), 1); discardPile.push(c); });
-                                    
-                                    showMessageOverlay(`${opp.name} は【手札を ${dCount} 枚破棄】することを選びました。`, 2000, () => {
-                                        addLog(`${opp.name}は手札を${dCount}枚破棄しました。`);
-                                        renderHand(); renderDeckAndDiscard();
-                                        setTimeout(() => processOpponentPalette(idx + 1), 1500);
-                                    });
-                                }, false, null, null, null, opp);
-                            }, 1500);
+                            // ★外科手術1：捨てるカードの選択（人間なら待機）
+                            showRequestSelectionModal("手札破棄", `${opp.name}: 破棄するカードを${dCount}枚選んでください`, hands[opp.id], "card-back-pattern", dCount, (sel) => {
+                                sel.forEach(c => { hands[opp.id].splice(hands[opp.id].indexOf(c), 1); discardPile.push(c); });
+                                showMessageOverlay(`${opp.name} は【手札を ${dCount} 枚破棄】しました。`, 2000, () => {
+                                    addLog(`${opp.name}は手札を${dCount}枚破棄しました。`);
+                                    renderHand(); renderDeckAndDiscard();
+                                    setTimeout(() => processOpponentPalette(idx + 1), 1500);
+                                });
+                            }, false, null, null, null, opp);
                         } else {
                             addLog(`${opp.name}は手札がないため、何も起こりませんでした。`);
                             setTimeout(() => processOpponentPalette(idx + 1), 1000);
                         }
                     };
 
+                    // --- 対処の選択（渡す or 捨てる） ---
                     if (matchCards.length > 0) {
                         const canChooseDiscard = handCount >= 3;
                         
-                        setTimeout(() => {
-                            showDetailModal(`${opp.name}の選択`, `強欲なパレット：【${declaredColor.name}】\nカードを1枚渡すか、3枚捨ててください。`, null, "カードを渡す", () => {
-                                showSelectionModal("譲渡カード選択", `譲渡する${declaredColor.name}のカードを選んでください`, matchCards, "card-back-pattern", 1, (selCards) => {
-                                    const c = selCards[0];
-                                    hands[opp.id].splice(hands[opp.id].indexOf(c), 1);
-                                    hands[p.id].push(c);
-
-                                    showMessageOverlay(`${opp.name} は ${p.name} に\n【カードを 1 枚譲渡】しました。`, 2000, () => {
-                                        addLog(`${opp.name}が${p.name}に「${c.name}」を渡しました。`);
-                                        renderHand();
-                                        setTimeout(() => processOpponentPalette(idx + 1), 500);
-                                    });
-                                }, false, null, null, null, opp);
-                            });
+                        // ★外科手術2：二択の提示（人間なら表示、AIなら自動決定）
+                        // showDetailModalは自動スキップ機能がないため、ここで人間判定を直接行う
+                        if (isAutoAction && opp.id !== 1) {
+                            // AIの判断：基本は「渡す」を優先（被害が少ないため）
+                            closeDetailModal();
+                            handleGiveCard(); // 内部で「カードを渡す」フローへ
+                        } else {
+                            // 人間(P1)または手動操作時
+                            showDetailModal(`${opp.name}の選択`, `強欲なパレット：【${declaredColor.name}】\nカードを1枚渡すか、3枚捨ててください。`, null, "カードを渡す", handleGiveCard);
 
                             const cnl = document.getElementById('detail-cancel-btn');
                             if (canChooseDiscard) {
@@ -1363,35 +1357,50 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                             } else {
                                 cnl.style.display = "none";
                             }
-                        }, 1500);
+                        }
+
+                        // カードを1枚渡す処理の関数化
+                        function handleGiveCard() {
+                            // ★外科手術3：渡すカードの選択（人間なら待機）
+                            showRequestSelectionModal("譲渡カード選択", `譲渡する${declaredColor.name}のカードを選んでください`, matchCards, "card-back-pattern", 1, (selCards) => {
+                                const c = selCards[0];
+                                hands[opp.id].splice(hands[opp.id].indexOf(c), 1);
+                                hands[p.id].push(c);
+                                showMessageOverlay(`${opp.name} は ${p.name} に\n【カードを 1 枚譲渡】しました。`, 2000, () => {
+                                    addLog(`${opp.name}が${p.name}に「${c.name}」を渡しました。`);
+                                    renderHand();
+                                    setTimeout(() => processOpponentPalette(idx + 1), 500);
+                                });
+                            }, false, null, null, null, opp);
+                        }
 
                     } else {
+                        // 対象色がない場合は強制的に3枚破棄
                         showMessageOverlay(`${opp.name} は【${declaredColor.name}】を持っていません。\n手札を3枚破棄します。`, 2500, performDiscard3);
                     }
                 };
                 processOpponentPalette(0);
             });
-        });
+        }, false, null, null, null, p);
         return;
     }
+
     else if (act.type === 'colorful_hall_hand') {
-    const lockCounts = players.map(pl => {
-        let total = 0, targetable = 0;
-        LOCK_ORDER.forEach(col => {
-            const slot = collections[pl.id][col.id]; // pl.id に修正
-            if (slot && slot.length > 0) {
-                total += slot.length;
-                const top = slot[slot.length - 1];
-                // 対象外カードを考慮して targetable カウントを増やす
-                if (top.type !== 'ETERNAL' && top.type !== 'FIRST' && top.type !== 'BOOST' && top.colorId !== 'white' && top.colorId !== 'black') {
-                    targetable++;
+        const lockCounts = players.map(pl => {
+            let total = 0, targetable = 0;
+            LOCK_ORDER.forEach(col => {
+                const slot = collections[pl.id][col.id];
+                if (slot && slot.length > 0) {
+                    total += slot.length;
+                    const top = slot[slot.length - 1];
+                    if (top.type !== 'ETERNAL' && top.type !== 'FIRST' && top.type !== 'BOOST' && top.colorId !== 'white' && top.colorId !== 'black') {
+                        targetable++;
+                    }
                 }
-            }
-        });
+            });
             return { id: pl.id, name: pl.name, total, targetable };
         });
 
-        // 全プレイヤーの中から、ターゲット可能なカードを持つ最多ロック者を探す（自分を含む）
         const validPlayers = lockCounts.filter(l => l.targetable > 0);
         if (validPlayers.length === 0) {
             addLog("奪えるロックカードを持つプレイヤーがいないため、不発でした。");
@@ -1401,41 +1410,40 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
         const maxLocks = Math.max(...validPlayers.map(l => l.total));
         const candidates = validPlayers.filter(l => l.total === maxLocks).map(l => ({ id: l.id, name: `${l.name} (${l.total}枚)`, type: "PLAYER_SELECT" }));
+        
         showSelectionModal("最多ロック者選択", "ロックカードを奪う相手を選んでください", candidates, "card-back-pattern", 1, (selPl) => {
             const victim = players.find(v => v.id === selPl[0].id);
             
-            // ★演出を追加
             showLockStealModal(p, victim, () => {
                 const victimLocks = [];
                 LOCK_ORDER.forEach(col => {
                     const slot = collections[victim.id][col.id];
                     if (slot && slot.length > 0) {
                         const top = slot[slot.length - 1];
-                        if (top.type !== 'ETERNAL' && top.type !== 'FIRST' &&top.type !== 'BOOST' && top.colorId !== 'white' && top.colorId !== 'black') {
+                        if (top.type !== 'ETERNAL' && top.type !== 'FIRST' && top.type !== 'BOOST' && top.colorId !== 'white' && top.colorId !== 'black') {
                             victimLocks.push(top);
                         }
                     }
                 });
 
-                // 被害者が渡すカードを選択
-                showSelectionModal("カード提供", `${victim.name}さん、渡すロックカードを選んでください`, victimLocks, "card-back-pattern", 1, (selCards) => {
+                // ★外科手術的修正：showRequestSelectionModal を使用し、victim(被害者)を actingPlayer に指定
+                showRequestSelectionModal("カード提供", `${victim.name}さん、渡すロックカードを選んでください`, victimLocks, "card-back-pattern", 1, (selCards) => {
                     const stolen = selCards[0];
                     const slot = collections[victim.id][stolen.colorId];
                     
-                    // カードの移動
+                    // カードの物理的移動
                     slot.splice(slot.indexOf(stolen), 1);
                     hands[p.id].push(stolen);
                     
                     addLog(`${victim.name}が「${stolen.name}」を${p.name}に渡しました。`);
                     
-                    // 獲得演出モーダル
                     showCardModal(stolen, () => {
                         if (typeof renderHand === 'function') renderHand();
                         if (typeof renderStatus === 'function') renderStatus();
                         if (typeof renderMyLockArea === 'function') renderMyLockArea();
                         onSuccess({});
                     }, "カード獲得", p.name, "ロックカードを奪いました");
-                }, false, null, null, null, victim);
+                }, false, null, null, null, victim); // victim を第11引数に渡す
             });
         }, false, null, null, null, p);
         return;
@@ -1443,6 +1451,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
     else if (act.type === 'frog_arrival') {
         const playerOrder = []; 
+        // 発動者から時計回りに順序を生成
         for(let i=0; i<players.length; i++) playerOrder.push(players[(turn + i) % players.length]);
 
         const discardHandsSequence = (idx) => {
@@ -1466,7 +1475,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 discardHandsSequence(idx + 1);
             };
 
-            showSelectionModal(
+            // ★外科手術1：showRequestSelectionModal を使用し、現在の手札所有者を指定
+            showRequestSelectionModal(
                 `${currentPlayer.name}の手札破棄`, 
                 "破棄する順番を選択してください（全手札）", 
                 pHand, 
@@ -1477,7 +1487,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 () => { executeDiscard([...pHand]); }, 
                 null, 
                 null, 
-                currentPlayer
+                currentPlayer // 現在選ぶべきプレイヤーを渡す
             );
         };
 
@@ -1494,6 +1504,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             const minL = Math.min(...lockCounts.map(l => l.count));
             const candidates = lockCounts.filter(l => l.count === minL);
             
+            // 盤面のカード消去処理
             const currentCell = board[p.y][p.x];
             currentCell.empty = true; 
             currentCell.revealed = false; 
@@ -1510,7 +1521,6 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     addLog(`${victim.name}がいろ落ちガエルを受け取りました。`);
                     renderHand();
                     renderStatus();
-                    // 修正箇所：preventGainに加えて stayOnBoard: true を返し、捨て札への移動を阻止
                     onSuccess({ preventGain: true, stayOnBoard: true }); 
                 });
             };
@@ -1524,7 +1534,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     type: "PLAYER_SELECT"
                 }));
 
-                showSelectionModal(
+                // ★外科手術2：ここも発動者(p)が「誰に渡すか」を選ぶ際、CPUならスキップするようにする
+                showRequestSelectionModal(
                     "最少ロックプレイヤー選択", 
                     "いろ落ちガエルを渡すプレイヤーを選んでください", 
                     playerChoices, 
@@ -1535,7 +1546,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     () => { awardFrog(playerChoices[Math.floor(Math.random() * playerChoices.length)].id); }, 
                     null, 
                     null, 
-                    p
+                    p // この選択は「発動者」が行うので p を渡す
                 );
             }
         };
@@ -1548,31 +1559,62 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         const pIdx = players.indexOf(p);
         const ordered = [];
         for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
-        const lockCounts = players.map(pl => ({ id: pl.id, count: LOCK_ORDER.reduce((sum, col) => sum + collections[pl.id][col.id].filter(c => c.colorId !== 'white' && c.colorId !== 'black').length, 0) }));
+        
+        const lockCounts = players.map(pl => ({ 
+            id: pl.id, 
+            count: LOCK_ORDER.reduce((sum, col) => sum + collections[pl.id][col.id].filter(c => c.colorId !== 'white' && c.colorId !== 'black').length, 0) 
+        }));
         const maxL = Math.max(...lockCounts.map(l => l.count)); 
         const victims = ordered.filter(pl => LOCK_ORDER.reduce((sum, col) => sum + collections[pl.id][col.id].filter(c => c.colorId !== 'white' && c.colorId !== 'black').length, 0) === maxL);
 
         const discardLocksSequence = (vIdx) => {
-            if (vIdx >= victims.length) { if (hands[p.id].length > 0) { hands[p.id].forEach(c => discardPile.push(c)); hands[p.id] = []; addLog(`${p.name}が自身の手札をすべて破棄しました。`); } onSuccess({}); return; }
-            const victim = victims[vIdx]; const lockedCards = [];
+            if (vIdx >= victims.length) { 
+                if (hands[p.id].length > 0) { 
+                    hands[p.id].forEach(c => discardPile.push(c)); 
+                    hands[p.id] = []; 
+                    addLog(`${p.name}が自身の手札をすべて破棄しました。`); 
+                } 
+                onSuccess({}); 
+                return; 
+            }
+
+            const victim = victims[vIdx]; 
+            const lockedCards = [];
             LOCK_ORDER.forEach(bc => { 
-    const slot = collections[victim.id][bc.id]; 
-    if (slot && slot.length > 0) { 
-        const topC = slot[slot.length - 1]; 
-        // ブーストカード(BOOST)も選択不可に設定
-        if (topC.colorId === 'white' || topC.colorId === 'black' || topC.type === 'FIRST' || topC.type === 'ETERNAL' || topC.type === 'BOOST') { 
-            lockedCards.push({ ...topC, disabled: true }); 
-        } else { 
-            lockedCards.push(topC); 
-        } 
-    } 
-});
-            if (lockedCards.length === 0 || lockedCards.every(c => c.disabled)) { discardLocksSequence(vIdx + 1); return; }
-            showSelectionModal(`${victim.name}のロック破棄`, "破棄するロックカードを1枚選んでください", lockedCards, "card-back-pattern", 1, (sel) => {
-                const c = sel[0]; collections[victim.id][c.colorId].splice(collections[victim.id][c.colorId].indexOf(c), 1); discardPile.push(c); addLog(`${victim.name}がロックされていた「${c.name}」を破棄しました。`); renderStatus(); renderMyLockArea(); renderDeckAndDiscard(); discardLocksSequence(vIdx + 1);
-            }, false, null, null, null, victim);
+                const slot = collections[victim.id][bc.id]; 
+                if (slot && slot.length > 0) { 
+                    const topC = slot[slot.length - 1]; 
+                    if (topC.colorId === 'white' || topC.colorId === 'black' || topC.type === 'FIRST' || topC.type === 'ETERNAL' || topC.type === 'BOOST') { 
+                        lockedCards.push({ ...topC, disabled: true }); 
+                    } else { 
+                        lockedCards.push(topC); 
+                    } 
+                } 
+            });
+
+            if (lockedCards.length === 0 || lockedCards.every(c => c.disabled)) { 
+                discardLocksSequence(vIdx + 1); 
+                return; 
+            }
+
+            // ★外科手術：showRequestSelectionModal を使用し、victim を指定
+            showRequestSelectionModal(`${victim.name}のロック破棄`, "破棄するロックカードを1枚選んでください", lockedCards, "card-back-pattern", 1, (sel) => {
+                const c = sel[0]; 
+                collections[victim.id][c.colorId].splice(collections[victim.id][c.colorId].indexOf(c), 1); 
+                discardPile.push(c); 
+                addLog(`${victim.name}がロックされていた「${c.name}」を破棄しました。`); 
+                
+                renderStatus(); 
+                renderMyLockArea(); 
+                renderDeckAndDiscard(); 
+                
+                // 次の被害者の処理へ
+                discardLocksSequence(vIdx + 1);
+            }, false, null, null, null, victim); // victimを actingPlayer として渡す
         };
-        discardLocksSequence(0); return;
+        
+        discardLocksSequence(0); 
+        return;
     }
     
     else if (act.type === 'steal_hand_logic') {
@@ -1623,70 +1665,63 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }
 
     if (act.type === 'rich_whim_logic') {
-    const pIdx = players.indexOf(p);
-    const ordered = [];
-    for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
-    const wealthyPlayers = ordered.filter(pl => hands[pl.id].length >= 3); 
-    
-    if (wealthyPlayers.length === 0) { 
-        showMessageOverlay("対象者がいなかったため不発でした。", 2500, () => onSuccess({})); 
-        return; 
-    }
-
-    richWhimHistory = []; // 演出履歴をリセット
-
-    const processWhim = (idx) => {
-        if (idx >= wealthyPlayers.length) {
-            // 全員の配置完了後、2秒間待機して演出を終了
-            setTimeout(() => {
-                richWhimHistory = [];
-                renderBoard();
-                
-                // 【外科手術的修正】自動処理時は onSuccess の後に確実に状態を更新し、
-                // 必要であればフェイズを移行させるガードを差し込む
-                if (onSuccess) {
-                    onSuccess({});
-                    // AI実行中かつハンドフェイズなら、滞留を防ぐため更新をかける
-                    if (isAutoAction || isAutoProcessing) {
-                        setTimeout(() => {
-                            if (typeof updateGameState === 'function') updateGameState();
-                        }, 100);
-                    }
-                }
-            }, 2000); 
-            return;
+        const pIdx = players.indexOf(p);
+        const ordered = [];
+        for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
+        const wealthyPlayers = ordered.filter(pl => (hands[pl.id] || []).length >= 3); 
+        
+        if (wealthyPlayers.length === 0) { 
+            showMessageOverlay("対象者がいなかったため不発でした。", 2500, () => onSuccess({})); 
+            return; 
         }
 
-        const wp = wealthyPlayers[idx];
-        showSelectionModal(`${wp.name}の気まぐれ`, "盤面に置く手札を1枚選んでください", hands[wp.id], "card-back-pattern", 1, (sel) => {
-            const c = sel[0]; 
-            const vacantCells = board.flat().filter(cell => cell.empty);
+        richWhimHistory = [];
 
-            if (vacantCells.length > 0) {
-                // 手札から取り除く
-                hands[wp.id].splice(hands[wp.id].indexOf(c), 1); 
-                activeHandCard = c;
-
-                startSelectionMode('select_cell', 1, 'place_self_facedown_empty', "カードを置く空きマスを選んでください", (resPos) => {
-                    const pos = resPos[0];
-                    // 演出履歴に追加（renderBoardで参照される）
-                    richWhimHistory.push({ pos: pos, player: wp });
-                    
-                    renderBoard(); // 自分の配置とこれまでの履歴を即座に描画
-                    processWhim(idx + 1);
-                }, null, null, true, wp, false, null, "おまかせ", null, wp);
-            } else {
-                // 空きマスがない場合はカードを捨てて次へ
-                hands[wp.id].splice(hands[wp.id].indexOf(c), 1); 
-                discardPile.push(c);
-                addLog(`${wp.name}は置く場所がなかったためカードを捨てました。`);
-                processWhim(idx + 1);
+        const processWhim = (idx) => {
+            if (idx >= wealthyPlayers.length) {
+                setTimeout(() => {
+                    richWhimHistory = [];
+                    renderBoard();
+                    if (onSuccess) {
+                        onSuccess({});
+                        if (isAutoAction || isAutoProcessing) {
+                            setTimeout(() => { if (typeof updateGameState === 'function') updateGameState(); }, 100);
+                        }
+                    }
+                }, 2000); 
+                return;
             }
-        }, false, null, null, null, wp);
-    };
-    processWhim(0); 
-    return;
-}
+
+            const wp = wealthyPlayers[idx];
+
+            // ★外科手術1：showRequestSelectionModal に変更し、wp を指定
+            showRequestSelectionModal(`${wp.name}の気まぐれ`, "盤面に置く手札を1枚選んでください", hands[wp.id], "card-back-pattern", 1, (sel) => {
+                const c = sel[0]; 
+                const vacantCells = board.flat().filter(cell => cell.empty);
+
+                if (vacantCells.length > 0) {
+                    hands[wp.id].splice(hands[wp.id].indexOf(c), 1); 
+                    activeHandCard = c;
+
+                    // ★外科手術2：startSelectionMode にも wp を渡し、人間なら盤面クリックを待つようにする
+                    // startSelectionMode は内部で isAutoAction と wp.id === 1 を見て自動化するか判断します
+                    startSelectionMode('select_cell', 1, 'place_self_facedown_empty', `${wp.name}：置く空きマスを選んでください`, (resPos) => {
+                        const pos = resPos[0];
+                        richWhimHistory.push({ pos: pos, player: wp });
+                        renderBoard();
+                        processWhim(idx + 1);
+                    }, null, null, true, wp, false, null, "おまかせ", null, wp); // 第14引数に wp を渡す
+                } else {
+                    hands[wp.id].splice(hands[wp.id].indexOf(c), 1); 
+                    discardPile.push(c);
+                    addLog(`${wp.name}は置く場所がなかったためカードを捨てました。`);
+                    processWhim(idx + 1);
+                }
+            }, false, null, null, null, wp); // ここでも wp を渡す
+        };
+        processWhim(0); 
+        return;
+    }
 
     else if (act.type === 'favorite_flower_hand') {
         const lockCounts = players.map(pl => LOCK_ORDER.reduce((sum, col) => sum + collections[pl.id][col.id].filter(c => c.colorId !== 'white' && c.colorId !== 'black').length, 0));
@@ -1735,24 +1770,22 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         const emptySlots = LOCK_ORDER.filter(col => collections[victim.id][col.id].length === 0);
         
         if (emptySlots.length > 0) {
-            showSelectionModal("呪いにかかった", `${victim.name}さん、呪いを置くスロットを選んでください`, emptySlots, "card-back-pattern", 1, (slotSel) => {
+            // ★外科手術2：被害者(victim)がスロットを選ぶ（被害者がAIならスキップ）
+            showRequestSelectionModal("呪いにかかった", `${victim.name}さん、呪いを置くスロットを選んでください`, emptySlots, "card-back-pattern", 1, (slotSel) => {
                 const targetCol = slotSel[0];
 
-                // --- 外科手術的修正：既存の場所からカード実体を削除 ---
-                // 手札から発動した場合（手札効果など）は手札から削除
+                // カードの実体移動処理
                 const handIdx = hands[victim.id].indexOf(contextCard);
                 if (handIdx !== -1) {
                     hands[victim.id].splice(handIdx, 1);
                 }
-                // 盤面から獲得しようとした際（到達効果）は、onSuccess({ preventGain: true }) が盤面からの削除を担う
-                // ----------------------------------------------
 
                 collections[victim.id][targetCol.id].push(contextCard);
                 addLog(`${victim.name}の${targetCol.name}が呪われた！`);
                 
                 renderStatus();
                 if (onSuccess) onSuccess({ preventGain: true }); 
-            }, false, null, null, null, victim);
+            }, false, null, null, null, victim); // 被害者(victim)を actingPlayer に指定
         } else {
             addLog(`空きスロットがないため、呪いは${victim.name}の手札に入った。`);
             if (onSuccess) onSuccess(); 
@@ -1762,31 +1795,31 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
     // --- にじいろの呪い：手札効果 ---
     else if (act.type === 'rainbow_curse_hand') {
-    const lockCounts = players.map(pl => ({
-        id: pl.id,
-        count: LOCK_ORDER.reduce((sum, col) => sum + (collections[pl.id][col.id].some(c => c.id !== 34 && c.colorId !== 'white' && c.colorId !== 'black') ? 1 : 0), 0)
-    }));
-    const maxL = Math.max(...lockCounts.map(l => l.count));
+        const lockCounts = players.map(pl => ({
+            id: pl.id,
+            count: LOCK_ORDER.reduce((sum, col) => sum + (collections[pl.id][col.id].some(c => c.id !== 34 && c.colorId !== 'white' && c.colorId !== 'black') ? 1 : 0), 0)
+        }));
+        const maxL = Math.max(...lockCounts.map(l => l.count));
 
-    // 修正：最多ロック者であり、かつ「空きスロットがある」プレイヤーのみを選択肢にする
-    const potentialVictims = players.filter(pl => {
-        const myCount = LOCK_ORDER.reduce((sum, col) => sum + (collections[pl.id][col.id].some(c => c.id !== 34 && c.colorId !== 'white' && c.colorId !== 'black') ? 1 : 0), 0);
-        const hasEmpty = LOCK_ORDER.some(col => collections[pl.id][col.id].length === 0);
-        return myCount === maxL && hasEmpty;
-    }).map(pl => ({ id: pl.id, name: pl.name, type: "PLAYER_SELECT" }));
+        const potentialVictims = players.filter(pl => {
+            const myCount = LOCK_ORDER.reduce((sum, col) => sum + (collections[pl.id][col.id].some(c => c.id !== 34 && c.colorId !== 'white' && c.colorId !== 'black') ? 1 : 0), 0);
+            const hasEmpty = LOCK_ORDER.some(col => collections[pl.id][col.id].length === 0);
+            return myCount === maxL && hasEmpty;
+        }).map(pl => ({ id: pl.id, name: pl.name, type: "PLAYER_SELECT" }));
 
-    // canPlayHandEffect で弾いているため本来ここには来ないが、念のため
-    if (potentialVictims.length === 0) {
-        onSuccess();
+        if (potentialVictims.length === 0) {
+            onSuccess();
+            return;
+        }
+
+        // ★外科手術1：呪う相手を選ぶ（発動者がAIならスキップ）
+        showRequestSelectionModal("呪いの押し付け", "最多ロック者（空きあり）へ呪いを適用します", potentialVictims, "card-back-pattern", 1, (sel) => {
+            const victim = players.find(pl => pl.id === sel[0].id);
+            // logicへ移行
+            runAction({ type: 'rainbow_curse_logic' }, victim, onSuccess, contextCard);
+        }, false, null, null, null, p); // 発動者(p)を actingPlayer に指定
         return;
     }
-
-    showSelectionModal("呪いの押し付け", "最多ロック者（空きあり）へ呪いを適用します", potentialVictims, "card-back-pattern", 1, (sel) => {
-        const victim = players.find(pl => pl.id === sel[0].id);
-        runAction({ type: 'rainbow_curse_logic' }, victim, onSuccess, contextCard);
-    }, false, null, null, null, p);
-    return;
-}
 
     else { if(act.msg) addLog(act.msg); if (onSuccess) onSuccess({}); } 
     if (typeof renderBoard === 'function') renderBoard();

@@ -973,6 +973,69 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
 }
 
 /**
+ * 2026/03/06 新規実装
+ * 相手プレイヤーに選択を要請する専用モーダル
+ * 発動者がCPUであっても、選択者が人間(P1)なら必ず表示して待機する。
+ */
+function showRequestSelectionModal(title, dummy, source, back, count, onComplete, isBlind = false, cancelCallback = null, autoBtnText = null, restrictedCells = null, actingPlayer = null) {
+    
+    // 1. まず誰が選ぶべきかを特定（指定がない場合は現在のターンの人）
+    const selector = actingPlayer || players[turn];
+    const isHumanSelector = (selector.id === 1);
+
+    // 2. タイムアウト設定とタイマーの譲渡
+    if (actingPlayer) {
+        activeTimerPlayerId = actingPlayer.id;
+        const phaseMax = parseInt(document.getElementById('setting-phase-time')?.value || "30");
+        timeLeft = phaseMax; // 被害者の思考時間をリセットしてあげる
+    }
+
+    // 3. 門番：自動スキップの判定
+    // 「自動処理モード」かつ「スキップ設定ON」であっても、
+    // 「選ぶ人が人間」である場合は、この if ブロックを無視して画面表示へ進む
+    if (isAutoAction && isSkipSelectionOnAuto && !isHumanSelector) {
+        addLog(`[Auto] ${selector.name} が ${title} を自動選択中...`);
+
+        const validSource = source.filter(item => !item.disabled);
+        if (validSource.length === 0) {
+            if (cancelCallback) cancelCallback();
+            else onComplete([]);
+            return;
+        }
+
+        // AIによる自動選択（シャッフル）
+        const finalCount = Math.min(count, validSource.length);
+        const shuffled = [...validSource].sort(() => Math.random() - 0.5);
+        const selection = shuffled.slice(0, finalCount);
+        
+        setTimeout(() => {
+            addLog(`[Auto] ${selector.name} は ${selection.map(s => s.name || '対象').join(', ')} を選択しました`);
+            onComplete(selection);
+        }, 600);
+        return; 
+    }
+
+    // 4. ここから下は「画面表示」の処理
+    // 人間が選ぶ場合、またはスキップ設定がOFFの場合は、通常の showSelectionModal と同様に描画する
+    // (既存の showSelectionModal を内部的に呼び出すか、描画ロジックを共通化します)
+    
+    // 今回は確実に表示させるため、isAutoActionフラグを一時的に騙して showSelectionModal を呼び出す
+    const originalAutoAction = isAutoAction;
+    if (isHumanSelector) {
+        isAutoAction = false; // 人間に選ばせる間だけ、一時的に自動フラグを偽装して表示を強制
+    }
+
+    showSelectionModal(title, dummy, source, back, count, (res) => {
+        isAutoAction = originalAutoAction; // 終わったらフラグを戻す
+        onComplete(res);
+    }, isBlind, () => {
+        isAutoAction = originalAutoAction;
+        if (cancelCallback) cancelCallback();
+    }, autoBtnText, restrictedCells, actingPlayer);
+}
+
+
+/**
  * 選択結果の最終確認
  */
 function showSelectionResult(cards, onComplete, effectName, cancelCallback = null, autoBtnText = null, isBlind = false, actingPlayer = null) { 
@@ -2369,26 +2432,35 @@ window.showFullDeckListModal = function() {
     const colorOrder = ['red', 'orange', 'yellow', 'green', 'blue', 'pink', 'purple', 'rainbow', 'white', 'black'];
     const appContainer = document.getElementById('app');
 
+    // ★追加：無色除外フラグの取得
+    const noColorless = document.getElementById('setting-no-colorless')?.checked;
+
     let firstPile = [];
     let eternalPile = [];
     let normalPile = [];
     let specialPile = [];
+    let totalCardCount = 0; // ★追加：合計枚数をカウント
 
     if (typeof CARD_DATABASE !== 'undefined') {
         CARD_DATABASE.forEach(data => {
-            // --- 枚数決定ロジックの修正 ---
+            // ★修正：無色除外がONの場合、白・黒のカード（ID 30-34）はスキップする
+            if (noColorless && (data.colorId === 'white' || data.colorId === 'black')) {
+                return; 
+            }
+
             let num = 0;
             const specialCounts = { 30: 2, 31: 2, 32: 1, 33: 1, 34: 1 };
 
             if (data.type === 'FIRST' || data.type === 'ETERNAL') {
-                num = 1; // 各1枚
+                num = 1; 
             } else if (specialCounts[data.id] !== undefined) {
-                num = specialCounts[data.id]; // 白・黒の個別枚数（30-34）を最優先
+                num = specialCounts[data.id]; 
             } else if (data.type === 'NORMAL') {
-                num = 7; // それ以外の通常カード（ダッシュ、反撃、レインボー等）
+                num = 7; 
             }
 
             for(let i=0; i < num; i++) {
+                totalCardCount++; // 枚数を加算
                 const cardImgHTML = `<div class="deck-list-item"><img src="images/card_${data.id}.webp" loading="lazy"></div>`;
                 
                 if (data.type === 'FIRST') {
@@ -2404,7 +2476,6 @@ window.showFullDeckListModal = function() {
         });
     }
 
-    // （以下、ソート処理やHTML組み立て部分は変更なしのため省略します。既存のコードをそのまま維持してください）
     const sorter = (a, b) => {
         const colorDiff = colorOrder.indexOf(a.colorId) - colorOrder.indexOf(b.colorId);
         return colorDiff !== 0 ? colorDiff : a.id - b.id;
@@ -2414,9 +2485,7 @@ window.showFullDeckListModal = function() {
     normalPile.sort(sorter);
     specialPile.sort(sorter);
 
-    // 管理情報: 2026/03/04 山札構成画面のz-index調整と拡大イベントの確実な登録
     const overlay = document.createElement('div');
-    // z-indexを5000から500に下げ、拡大画面(9999)が上にくるように修正
     overlay.className = "absolute inset-0 z-[500] flex items-center justify-center bg-black/80";
 
     const createSection = (title, pile) => {
@@ -2437,12 +2506,12 @@ window.showFullDeckListModal = function() {
         createSection("【通常カード】", normalPile) +
         createSection("【無色（白・黒）】", specialPile);
 
-    // 管理情報: 2026/03/04 山札構成確認画面にカード拡大機能を追加
+    // ★修正：タイトル内の枚数（計112枚）を totalCardCount 変数を使って動的に表示
     overlay.innerHTML = `
         <div class="bg-gray-900 border-2 border-yellow-600 w-[90%] h-[85%] flex flex-col rounded-lg overflow-hidden shadow-2xl">
             <div class="p-2 border-b border-gray-700 flex justify-between items-center bg-gray-800 shrink-0">
                 <div class="flex flex-col">
-                    <span class="text-yellow-500 font-bold text-[10px]">全山札構成 (計112枚)</span>
+                    <span class="text-yellow-500 font-bold text-[10px]">全山札構成 (計${totalCardCount}枚)</span>
                     <span class="text-[8px] text-gray-400">右クリック/ダブルタップで拡大</span>
                 </div>
                 <button onclick="this.closest('.absolute').remove()" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-bold">閉じる</button>

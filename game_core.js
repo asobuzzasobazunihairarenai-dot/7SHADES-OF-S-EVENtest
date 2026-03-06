@@ -476,6 +476,10 @@ function updateTimerTick() {
                 if (!canPlayHandEffect(c, p)) return false;
 
                 if (autoMode === 'NORMAL') {
+                    // ★ 2026/03/07 修正：ヴァーディアン特攻ロジック
+                        // ヴァーディアンで引いたカード（fromViridian）なら、
+                        // 以下の「温存ロジック」をすべてバイパスして「使用候補」に強制追加する。
+                        if (c.fromViridian) return true;
                     // 1. 温存ロジック（未ロック色の保持）
                     const col = c.colorId;
                     const isBasicColor = ['red', 'orange', 'yellow', 'green', 'blue', 'pink', 'purple'].includes(col);
@@ -484,6 +488,7 @@ function updateTimerTick() {
                         const isNotLocked = !slot || slot.length === 0 || (slot.length === 1 && slot[0].id === 34);
                         if (isNotLocked) return false; 
                     }
+                    
 
                     // 2. 自爆回避ロジック（自分へのデバフ回避）
                     const harmfulAgainstTop = [30, 32, 34]; // カラフルホール、いろ落ちガエル、にじいろの呪い
@@ -503,38 +508,30 @@ function updateTimerTick() {
                             return false;
                         }
                     }
-                }
-                return true;
-            });
+                // ...自爆回避ロジック(30, 32, 34)は、ヴァーディアンであっても適用したほうが安全なので維持...
+                    }
+                    return true;
+                });
 
-            if (usable.length > 0) {
-                addLog(`[自動] 使用可能カードを自動実行します。`);
-                isAutoProcessing = true; 
-                isAutoAction = true; if (usable.length > 0) {
-                const targetCard = usable[0];
-                addLog(`[自動] ${targetCard.name} を自動実行します。`);
-                isAutoProcessing = true; 
-                isAutoAction = true; 
+            // ★さらに賢く：usable の中で、ヴァーディアン由来のカードを最優先で使うようにソート
+                if (usable.length > 0) {
+                    usable.sort((a, b) => (b.fromViridian ? 1 : 0) - (a.fromViridian ? 1 : 0));
+                    
+                    const targetCard = usable[0];
+                    const originStr = targetCard.fromViridian ? " [緊急行使]" : "";
+                    addLog(`[自動] ${targetCard.name}${originStr} を実行します。`);
+                    
+                    isAutoProcessing = true; 
+                    isAutoAction = true; 
 
-                // 【外科手術的修正】
-                // 選ばれたカードが「手札」にあるか「ロックエリア」にあるかを判定し、
-                // 正しい引数で handleHandClick を呼び出す。
-                const handIdx = hands[p.id].indexOf(targetCard);
-                if (handIdx !== -1) {
-                    // 手札にある場合
-                    handleHandClick(handIdx);
-                } else {
-                    // ロックエリアにある場合（手札にないので index は -1）
-                    handleHandClick(-1, targetCard);
+                    const handIdx = hands[p.id].indexOf(targetCard);
+                    if (handIdx !== -1) handleHandClick(handIdx);
+                    else handleHandClick(-1, targetCard);
+                    return;
                 }
-                return;
+                isAutoAction = false;
             }
-                handleHandClick(hands[p.id].indexOf(usable[0]));
-                return;
-            }
-            isAutoAction = false;
         }
-    }
     handleTimeOut(); 
     return;
     }
@@ -646,9 +643,9 @@ function autoMove(p) {
     const enemyGatePos = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
     const otherPlayers = players.filter(pl => pl.id !== p.id);
     
-    // 【外科手術的修正】移動距離を判定し、2マス移動時は方向ベクトルを2倍にする
     const moveRange = (p.dimensionActive && !p.baseMoveUsed) ? 2 : 1;
-    const directions = [[0, moveRange], [0, -moveRange], [moveRange, 0], [-moveRange, 0]]; 
+    // 「その場(0,0)」を含めた5方向をスキャン
+    const directions = [[0, 0], [0, moveRange], [0, -moveRange], [moveRange, 0], [-moveRange, 0]]; 
     
     const cfg = window.AI_SCORE_CONFIG || {
         CARD_COUNT: 10, UNLOCKED_COLOR: 50, ADJACENT_ENEMY: 5,
@@ -662,30 +659,27 @@ function autoMove(p) {
     for (let d of directions) { 
         const nx = p.x + d[0], ny = p.y + d[1]; 
         if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
+
+        // 初手ゲート戻り防止
+        if (!(p.extraMoves > 0) && nx === p.startPos.x && ny === p.startPos.y) continue;
+
         const cell = board[ny][nx];
         const epOn = otherPlayers.find(ep => ep.x === nx && ep.y === ny);
 
-        // 判定条件を明確化：1.カードがある(emptyでない) 2.相手がいる(epOn) 
-        // このどちらかであれば、移動「可能」なはずです。
-        const isSelectable = !cell.empty || epOn;
+        const isSelectable = (d[0] === 0 && d[1] === 0) || !cell.empty || epOn;
 
         if (isSelectable) { 
             let score = 0;
             
-            // NORMALモードの評価（安全装置付き）
             if (autoMode === 'NORMAL') {
                 try {
                     const currentDistToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: p.x, y: p.y}, eg)));
                     const nextDistToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
 
-                    // 1. 敵ゲート評価
                     if (nextDistToGate === 0 && currentDistToGate <= 1) score += cfg.REACH_ENEMY_GATE;
                     if (nextDistToGate < currentDistToGate) score += cfg.MOVE_TOWARD_GATE;
-                    
-                    // 2. 接触・強奪
                     if (epOn) score += cfg.STEAL_ACTION; 
 
-                    // 3. 内容評価
                     if (!cell.empty && cell.revealed && cell.color) {
                         const colId = cell.color.colorId;
                         if (cell.color.isNegativeArrival) score -= 80;
@@ -693,20 +687,25 @@ function autoMove(p) {
                         if (['rainbow', 'white', 'black'].includes(colId)) score += cfg.RARE_COLOR;
                     }
                     
-                    // 枚数評価（最低でも 1 は加算して「移動価値」を作る）
                     const stackCount = (cell.stack ? cell.stack.length : 0) + (cell.empty ? 0 : 1);
                     score += Math.max(1, stackCount * cfg.STACK_COUNT);
 
+                    // ★重要：ここで「その場待機スコア」を確定させる（判定の前！）
+                    if (d[0] === 0 && d[1] === 0) {
+                        const isAtEnemyGate = enemyGatePos.some(eg => eg.x === p.x && eg.y === p.y);
+                        if (isAtEnemyGate) score += 500; 
+                    }
+
                 } catch (e) {
                     console.error("AI Scoring Error:", e);
-                    score = 1; // エラーが起きても「移動する」という意思を維持
+                    score = 1;
                 }
             } else {
-                // EASYモード
                 const distToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
                 score = (100 - distToGate);
             }
 
+            // スコア確定後に比較を行う
             if (score > maxScore) {
                 maxScore = score;
                 bestMoves = [{x: nx, y: ny, cell, epOn}];
@@ -942,7 +941,8 @@ function handleHandClick(cardIndex, lockedCard = null) {
         });
 
     } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime) { 
-        showDetailModal(card.handEffect?.anytime ? "割込使用確認" : "手札使用確認", "このカードを使用しますか？", card, "使用する", () => { 
+        // --- 2026/03/07 外科手術的修正：自動処理時は確認モーダルをスキップ ---
+        const executeLogic = () => {
             showCardModal(card, () => {
                 activeHandCard = card; 
                 executeCardEffect(card.handEffect, p, (res) => { 
@@ -959,7 +959,15 @@ function handleHandClick(cardIndex, lockedCard = null) {
                     updateGameState(); 
                 }, card);
             }, "手札効果発動！", p.name, "手札から効果を発動しました");
-        }); 
+        };
+
+        if (isAI) {
+            // AI/タイムアウト時は即実行（確認画面を出さない）
+            executeLogic();
+        } else {
+            // 人間操作時は確認画面を出す
+            showDetailModal(card.handEffect?.anytime ? "割込使用確認" : "手札使用確認", "このカードを使用しますか？", card, "使用する", executeLogic);
+        }
     }
 }
 

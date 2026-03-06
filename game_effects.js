@@ -1041,6 +1041,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }
 
     if (act.type === 'dash_effect') { p.extraMoves = (p.extraMoves || 0) + 1; if(onSuccess) onSuccess({}); return; }
+    
     if (act.type === 'phoenix_salvage') {
         if (discardPile.length >= 2) {
             const salvageTarget = discardPile.splice(discardPile.length - 2, 1)[0]; hands[p.id].push(salvageTarget);

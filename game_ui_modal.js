@@ -1094,7 +1094,7 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
             } else if (isRelatedToP1) {
                 // 自分の持ち物なら見える
                 isSecretInfo = false;
-            } else if (titleText.includes("ドロー") || titleText.includes("奪") || titleText.includes("スティール")) {
+            } else if (titleText.includes("ドロー") || titleText.includes("奪")|| titleText.includes("自ゲートのカード獲得") || titleText.includes("スティール")) {
                 // 通常のドローや強奪は隠す
                 isSecretInfo = true;
             } else if (card.revealed === false) {
@@ -1315,8 +1315,74 @@ function triggerAutoSelect() {
         }
     }
 
-    const shuffled = allValidCells.sort(() => Math.random() - 0.5);
-    const selection = shuffled.slice(0, selectionState.count);
+    /**
+ * 2026/03/06 修正
+ * triggerAutoSelect を AI_SCORE_CONFIG 連動のスコアリング方式にアップデート
+ * カード効果の対象（破壊・配置・獲得など）を評価基準に基づいて賢く選択します。
+ */
+    // --- スコアリングによる選択ロジックの導入 ---
+    let selection = [];
+    if (allValidCells.length > 0) {
+        if (autoMode === 'NORMAL') {
+            const cfg = window.AI_SCORE_CONFIG;
+            const p = selectionState.actingPlayer || players[turn];
+            const otherPlayers = players.filter(pl => pl.id !== p.id);
+            const enemyGatePos = otherPlayers.map(pl => pl.startPos);
+
+            // 全ての有効な選択肢（マス）を評価
+            const scoredCells = allValidCells.map(pos => {
+                let score = 0;
+                const cell = board[pos.y][pos.x];
+                const epOn = otherPlayers.find(ep => ep.x === pos.x && ep.y === pos.y);
+
+                // 1. 枚数・色の評価
+                const stackCount = (cell.stack ? cell.stack.length : 0) + (cell.empty ? 0 : 1);
+                score += (stackCount * cfg.STACK_COUNT); // 枚数 (+10/枚)
+
+                if (cell.revealed && cell.color) {
+                    const colId = cell.color.colorId;
+                    // 未ロック色 (+50)
+                    if (collections[p.id][colId] && collections[p.id][colId].length === 0) score += cfg.UNLOCKED_COLOR;
+                    // 虹・白・黒 (+20)
+                    if (['rainbow', 'white', 'black'].includes(colId)) score += cfg.RARE_COLOR;
+                }
+
+                /*** * triggerAutoSelect 内で isNegative フラグを判定し、自分への誤爆を防止*/
+                // 2. プレイヤー位置関連
+                if (epOn) score += cfg.STEAL_ACTION; // 接触行為（強奪など） (+50)
+                
+                // ★追加：自分への誤爆防止
+                // 現在使用中のカード(activeHandCard)がネガティブ効果で、かつ対象マスに自分がいる場合
+                const isSelfOn = (p.x === pos.x && p.y === pos.y);
+                if (activeHandCard && activeHandCard.isNegative && isSelfOn) {
+                    score -= 200; // 自分を対象にするのを強力に抑制
+                }
+                
+                const isNextToEnemy = otherPlayers.some(ep => Math.abs(ep.x - pos.x) + Math.abs(ep.y - pos.y) === 1);
+                if (isNextToEnemy && !epOn) score += cfg.ADJACENT_ENEMY; // 相手の隣 (+5)
+
+                // 3. ゲート・防衛関連
+                const distToSelfGate = getDistance(pos, p.startPos);
+                const isEnemyNearSelfGate = otherPlayers.some(ep => getDistance({x: ep.x, y: ep.y}, p.startPos) <= 2);
+                if (isEnemyNearSelfGate && distToSelfGate <= 2) score += cfg.SELF_GATE_DEFENSE; // 自ゲート防衛 (+20)
+
+                const distToEnemyGate = Math.min(...enemyGatePos.map(eg => getDistance(pos, eg)));
+                const currentDistToEnemyGate = Math.min(...enemyGatePos.map(eg => getDistance({x: p.x, y: p.y}, eg)));
+                if (distToEnemyGate === 0 && currentDistToEnemyGate <= 1) score += cfg.REACH_ENEMY_GATE; // 敵ゲート到達 (+100)
+                if (distToEnemyGate < currentDistToEnemyGate) score += cfg.MOVE_TOWARD_GATE; // 敵ゲート接近 (+30)
+
+                return { pos, score };
+            });
+
+            // スコアが高い順にソートし、必要な数（selectionState.count）だけ抽出
+            scoredCells.sort((a, b) => b.score - a.score || Math.random() - 0.5);
+            selection = scoredCells.slice(0, selectionState.count).map(item => item.pos);
+        } else {
+            // EASYモードは従来通りランダム
+            const shuffled = allValidCells.sort(() => Math.random() - 0.5);
+            selection = shuffled.slice(0, selectionState.count);
+        }
+    }
     
     if (selection.length === 0) { 
         if (typeof showToast === 'function') showToast("選択可能な対象がありません"); 

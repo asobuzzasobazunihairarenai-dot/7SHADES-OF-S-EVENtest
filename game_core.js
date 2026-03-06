@@ -641,29 +641,51 @@ function autoMove(p) {
         // カードがあるか、相手プレイヤーがいる場合のみ移動候補
         if (!cell.empty || epOn) { 
             let score = 0;
+            /**
+ * 2026/03/06 修正
+ * AI評価基準を最新の表に基づき刷新（ゲート接近重視・枚数評価・周囲スキャン追加）
+ */
             if (autoMode === 'NORMAL') {
-                // 1. 敵ゲートへの距離評価
-                const distToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
-                if (distToGate === 0) score += cfg.REACH_ENEMY_GATE; // 到達
-                else if (distToGate <= 2) score += cfg.APPROACH_ENEMY_GATE; // 接近
+                const currentDistToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: p.x, y: p.y}, eg)));
+                const nextDistToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
+
+                // 1. 敵ゲート評価
+                if (nextDistToGate === 0 && currentDistToGate <= 1) score += cfg.REACH_ENEMY_GATE; // 1マス以内から到達 (+100)
+                if (nextDistToGate < currentDistToGate) score += cfg.MOVE_TOWARD_GATE; // ゲートに近づく一歩 (+30)
                 
                 // 2. 接触（強奪）評価
                 if (epOn) score += cfg.STEAL_ACTION; 
 
-                // 3. カード内容の評価（表面化している場合）
+                // 3. カード内容・枚数の評価
                 if (cell.revealed && cell.color) {
                     const colId = cell.color.colorId;
+                    
+                    // ★追加：デメリットカード（誰かの好きな花など）への移動抑制
+                    if (cell.color.isNegativeArrival) {
+                        score -= 80; // 強い拒否（未ロック色の加点を打ち消すレベル）
+                    }
                     // 未ロックの色なら加点
                     const isUnlocked = collections[p.id][colId] && collections[p.id][colId].length === 0;
                     if (isUnlocked) score += cfg.UNLOCKED_COLOR;
 
                     // 虹・白・黒の評価
                     if (['rainbow', 'white', 'black'].includes(colId)) score += cfg.RARE_COLOR;
+                    
+                    // 周囲2マス以内のレアカード評価
+                    if (['rainbow', 'white'].includes(colId)) score += cfg.POWER_CARD_NEAR_SELF;
                 }
+                
+                // スタック枚数評価
+                const stackCount = (cell.stack ? cell.stack.length : 0) + (cell.empty ? 0 : 1);
+                if (stackCount > 0) score += (stackCount * cfg.STACK_COUNT);
 
-                // 4. 隣接評価（足場崩し）
+                // 4. 隣接・防衛評価
                 const isNextToEnemy = otherPlayers.some(ep => Math.abs(ep.x - nx) + Math.abs(ep.y - ny) === 1);
                 if (isNextToEnemy && !epOn) score += cfg.ADJACENT_ENEMY;
+
+                const isEnemyNearSelfGate = otherPlayers.some(ep => getDistance({x: ep.x, y: ep.y}, p.startPos) <= 2);
+                const distToSelfGate = getDistance({x: nx, y: ny}, p.startPos);
+                if (isEnemyNearSelfGate && distToSelfGate <= 2) score += cfg.SELF_GATE_DEFENSE;
 
             } else {
                 // EASYモード：単純に敵ゲートに近い場所を選ぶ
@@ -718,17 +740,32 @@ function autoPlace(p) {
         if (board[ny][nx].empty) {
             let score = 0;
             
+            /**
+ * 2026/03/06 修正
+ * autoPlace を最新の評価基準（敵ゲート攻め+30、防衛+20）にアップデート
+ */
             if (autoMode === 'NORMAL') {
                 // 1. 敵ゲートへの距離評価（攻めの配置）
                 const distToEnemyGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
-                if (distToEnemyGate === 0) score += cfg.REACH_ENEMY_GATE;
-                else if (distToEnemyGate <= 3) score += cfg.APPROACH_ENEMY_GATE;
+                const currentDistToEnemyGate = Math.min(...enemyGatePos.map(eg => getDistance({x: p.x, y: p.y}, eg)));
+
+                // 敵ゲートそのもの（1マス以内に自分がいる場合） (+100)
+                if (distToEnemyGate === 0 && currentDistToEnemyGate <= 1) {
+                    score += cfg.REACH_ENEMY_GATE;
+                }
+                // 直近の相手ゲートに近づくためのマス (+30)
+                if (distToEnemyGate < currentDistToEnemyGate) {
+                    score += cfg.MOVE_TOWARD_GATE;
+                }
 
                 // 2. 自ゲート付近の評価（守りの配置）
                 const distToSelfGate = getDistance({x: nx, y: ny}, p.startPos);
+                // 自ゲートの2マス以内に敵がいるかチェック
                 const isEnemyNearSelfGate = otherPlayers.some(ep => getDistance({x: ep.x, y: ep.y}, p.startPos) <= 2);
-                if (distToSelfGate <= 2 && isEnemyNearSelfGate) {
-                    score += cfg.SELF_GATE_DEFENSE; // 敵が自陣に近いなら、足場を供給して防御
+                
+                // 自ゲート防衛（2マス内に敵がいる状況で、自ゲート2マス以内に配置） (+20)
+                if (isEnemyNearSelfGate && distToSelfGate <= 2) {
+                    score += cfg.SELF_GATE_DEFENSE;
                 }
             } else {
                 // EASYモード：単純に敵ゲートに近い場所

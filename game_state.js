@@ -65,6 +65,8 @@ let activeTimerPlayerId = null; // 【追加】現在タイマーを減らして
 let timeLeft = PHASE_TIME_SEC;
 
 let usedOnceEffectsThisTurn = []; // 【追加】そのターンに使用済みの「1回制限カードID」を記録
+// ★追加：フェニックスのコストで捨てられたカードを一時保存するリスト
+let phoenixExclusionList = [];
 
 let isP1HandOnlyView = false; // ★追加：P1の手札のみを表示し続けるフラグ
 

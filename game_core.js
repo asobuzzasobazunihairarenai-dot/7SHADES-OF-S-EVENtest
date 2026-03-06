@@ -76,12 +76,26 @@ function updateGameState() {
         } 
     } 
 
+    /**
+ * 2026/03/06 修正
+ * 「P1のみ手札表示」が有効な場合、P1以外のターンでは「配置モード」ボタンを強制的に非表示にする
+ */
     if (typeof renderBoard === 'function') renderBoard(); 
     if (typeof renderStatus === 'function') renderStatus(); 
     if (typeof renderHand === 'function') renderHand(); 
     if (typeof renderMyLockArea === 'function') renderMyLockArea(); 
     if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); 
     if (typeof updatePhaseIndicator === 'function') updatePhaseIndicator(); 
+
+    // ★追加：配置モードボタンの表示制御
+    const stuckBtn = document.getElementById('stuck-btn');
+    if (stuckBtn) {
+        // P1表示制限がON かつ 現在の手番がP1(index 0)ではない場合
+        if (isP1HandOnlyView && turn !== 0) {
+            stuckBtn.classList.add('hidden');
+        }
+    }
+
     checkAutoSkip(); 
 }
 
@@ -209,6 +223,8 @@ async function startTurn() {
     isHandEffectProcessing = false; 
     isAutoAction = false;
     isPeekingMode = false; 
+
+    
     
     resetTimer(); // 演出が終わってからタイマー開始
     updateGameState(); // 演出が終わってから盤面更新・自動スキップ判定開始
@@ -226,6 +242,7 @@ function nextTurn() {
         totalTurnCount++;
     }
     usedOnceEffectsThisTurn = []; // ターンが変わったので制限をリセット
+    phoenixExclusionList = [];    // ★追加：フェニックスの出禁リストを空にする
     startTurn(); 
 }
 
@@ -250,9 +267,15 @@ function nextPhase(isForced = false) {
     }
 
     checkAnytimeReactions(() => {
-        if (currentPhase === PHASE.LOCK) { currentPhase = PHASE.HAND; addLog(`> ハンド`); } 
-        else if (currentPhase === PHASE.HAND) { currentPhase = PHASE.MOVE; addLog(`> ムーブ`); } 
-        else if (currentPhase === PHASE.MOVE && isForced) { 
+    if (currentPhase === PHASE.LOCK) { 
+    currentPhase = PHASE.HAND; 
+    addLog(`<span class="text-indigo-400 font-bold italic">⏳ [PHASE] HAND</span>`); 
+    }
+    else if (currentPhase === PHASE.HAND) { 
+    currentPhase = PHASE.MOVE; 
+    addLog(`<span class="text-indigo-400 font-bold italic">⏳ [PHASE] MOVE</span>`); 
+    } 
+    else if (currentPhase === PHASE.MOVE && isForced) { 
             isPhaseTransitioning = false; // 終了時は戻す
             endTurn(); return; 
         } 
@@ -596,6 +619,10 @@ function handleTimeOut() {
         const btn = document.getElementById('detail-ok-btn');
         if (btn) { btn.click(); return; } 
     }
+    if (detailModal && !detailModal.classList.contains('hidden')) { 
+        const btn = document.getElementById('detail-ok-btn'); // 「横一列」を優先選択
+        if (btn) { btn.click(); return; } 
+    }
     
     // 5. フェイズ進行の自動化
     if (isProcessingMove || isHandEffectProcessing) return; 
@@ -635,60 +662,47 @@ function autoMove(p) {
     for (let d of directions) { 
         const nx = p.x + d[0], ny = p.y + d[1]; 
         if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
-        const cell = board[ny][nx]; 
+        const cell = board[ny][nx];
         const epOn = otherPlayers.find(ep => ep.x === nx && ep.y === ny);
 
-        // カードがあるか、相手プレイヤーがいる場合のみ移動候補
-        if (!cell.empty || epOn) { 
+        // 判定条件を明確化：1.カードがある(emptyでない) 2.相手がいる(epOn) 
+        // このどちらかであれば、移動「可能」なはずです。
+        const isSelectable = !cell.empty || epOn;
+
+        if (isSelectable) { 
             let score = 0;
-            /**
- * 2026/03/06 修正
- * AI評価基準を最新の表に基づき刷新（ゲート接近重視・枚数評価・周囲スキャン追加）
- */
+            
+            // NORMALモードの評価（安全装置付き）
             if (autoMode === 'NORMAL') {
-                const currentDistToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: p.x, y: p.y}, eg)));
-                const nextDistToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
+                try {
+                    const currentDistToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: p.x, y: p.y}, eg)));
+                    const nextDistToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
 
-                // 1. 敵ゲート評価
-                if (nextDistToGate === 0 && currentDistToGate <= 1) score += cfg.REACH_ENEMY_GATE; // 1マス以内から到達 (+100)
-                if (nextDistToGate < currentDistToGate) score += cfg.MOVE_TOWARD_GATE; // ゲートに近づく一歩 (+30)
-                
-                // 2. 接触（強奪）評価
-                if (epOn) score += cfg.STEAL_ACTION; 
-
-                // 3. カード内容・枚数の評価
-                if (cell.revealed && cell.color) {
-                    const colId = cell.color.colorId;
+                    // 1. 敵ゲート評価
+                    if (nextDistToGate === 0 && currentDistToGate <= 1) score += cfg.REACH_ENEMY_GATE;
+                    if (nextDistToGate < currentDistToGate) score += cfg.MOVE_TOWARD_GATE;
                     
-                    // ★追加：デメリットカード（誰かの好きな花など）への移動抑制
-                    if (cell.color.isNegativeArrival) {
-                        score -= 80; // 強い拒否（未ロック色の加点を打ち消すレベル）
+                    // 2. 接触・強奪
+                    if (epOn) score += cfg.STEAL_ACTION; 
+
+                    // 3. 内容評価
+                    if (!cell.empty && cell.revealed && cell.color) {
+                        const colId = cell.color.colorId;
+                        if (cell.color.isNegativeArrival) score -= 80;
+                        if (collections[p.id][colId] && collections[p.id][colId].length === 0) score += cfg.UNLOCKED_COLOR;
+                        if (['rainbow', 'white', 'black'].includes(colId)) score += cfg.RARE_COLOR;
                     }
-                    // 未ロックの色なら加点
-                    const isUnlocked = collections[p.id][colId] && collections[p.id][colId].length === 0;
-                    if (isUnlocked) score += cfg.UNLOCKED_COLOR;
-
-                    // 虹・白・黒の評価
-                    if (['rainbow', 'white', 'black'].includes(colId)) score += cfg.RARE_COLOR;
                     
-                    // 周囲2マス以内のレアカード評価
-                    if (['rainbow', 'white'].includes(colId)) score += cfg.POWER_CARD_NEAR_SELF;
+                    // 枚数評価（最低でも 1 は加算して「移動価値」を作る）
+                    const stackCount = (cell.stack ? cell.stack.length : 0) + (cell.empty ? 0 : 1);
+                    score += Math.max(1, stackCount * cfg.STACK_COUNT);
+
+                } catch (e) {
+                    console.error("AI Scoring Error:", e);
+                    score = 1; // エラーが起きても「移動する」という意思を維持
                 }
-                
-                // スタック枚数評価
-                const stackCount = (cell.stack ? cell.stack.length : 0) + (cell.empty ? 0 : 1);
-                if (stackCount > 0) score += (stackCount * cfg.STACK_COUNT);
-
-                // 4. 隣接・防衛評価
-                const isNextToEnemy = otherPlayers.some(ep => Math.abs(ep.x - nx) + Math.abs(ep.y - ny) === 1);
-                if (isNextToEnemy && !epOn) score += cfg.ADJACENT_ENEMY;
-
-                const isEnemyNearSelfGate = otherPlayers.some(ep => getDistance({x: ep.x, y: ep.y}, p.startPos) <= 2);
-                const distToSelfGate = getDistance({x: nx, y: ny}, p.startPos);
-                if (isEnemyNearSelfGate && distToSelfGate <= 2) score += cfg.SELF_GATE_DEFENSE;
-
             } else {
-                // EASYモード：単純に敵ゲートに近い場所を選ぶ
+                // EASYモード
                 const distToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
                 score = (100 - distToGate);
             }
@@ -699,7 +713,7 @@ function autoMove(p) {
             } else if (score === maxScore) {
                 bestMoves.push({x: nx, y: ny, cell, epOn});
             }
-        } 
+        }
     } 
     
     const move = bestMoves.length > 0 ? bestMoves[Math.floor(Math.random() * bestMoves.length)] : null;
@@ -916,7 +930,8 @@ function handleHandClick(cardIndex, lockedCard = null) {
             if (typeof triggerLockEffect === 'function') {
                 triggerLockEffect(p.id, card.colorId);
             }
-            addLog(`${p.name} が 【${card.name}】 をロックしました！`);
+            // 2026/03/06 修正：ログの視認性向上（プレイヤーカラー＋アイコン）
+            addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-yellow-500">🔒 LOCK</span> 「${card.name}」`);
 
             setTimeout(() => {
                 isAutoProcessing = false;
@@ -1080,26 +1095,64 @@ function showResultModal(pid, stats) {
 
 function startPlaceCardMode() { if (isPeekingMode) return; isPlacingCard = true; updateGameState(); }
 
+/**
+ * 2026/03/06 修正
+ * 配置演出（3回点滅）を確実に視認できるよう処理順を厳密化。
+ * animateCellBlinkの完了を待ってからデータを更新し、盤面を描画します。
+ */
 function executePlaceCard(x, y) { 
     if (isPeekingMode || !players || !players[turn]) return; 
-    // 【修正】自動処理時は時間を加算しない
+    
     if (!isAutoAction) {
         if (typeof gainTime === 'function') gainTime(Math.min(5, currentPhaseMaxTime));
     }
+    
     isProcessingMove = true;
     const p = players[turn]; 
-    const card = drawCard(); 
-    if (card) { board[y][x].empty = false; board[y][x].revealed = false; board[y][x].color = card; board[y][x].stack = []; }
-    isPlacingCard = false; 
-    if (!p.baseMoveUsed) p.baseMoveUsed = true; 
-    else if (p.extraMoves > 0) p.extraMoves--; 
-    
-    if (p.extraMoves > 0) { 
-        addLog(`追加配置完了！(残り${p.extraMoves}回)`); 
-        isProcessingMove = false; 
-        resetTimer(); 
-        updateGameState(); 
-    } else { endTurn(); } 
+
+    /**
+ * 2026/03/06 修正
+ * 配置時の点滅演出色をモード（ライト/ダーク）に応じて切り替えるように変更。
+ * ライトモード時は黒、ダークモード時は白で発光させ視認性を高めます。
+ */
+    // ステップ1：点滅演出を実行
+    // 表示モードに合わせて色を決定
+    const blinkColor = isLightMode ? '#000000' : '#ffffff';
+
+    const blinkPromise = (typeof animateCellBlink === 'function') 
+        ? animateCellBlink(x, y, blinkColor) 
+        : Promise.resolve();
+
+    blinkPromise.then(() => {
+        // ステップ2：演出が終わった直後にデータを更新
+        const card = drawCard(); 
+        if (card) { 
+            board[y][x].empty = false; 
+            board[y][x].revealed = false; 
+            board[y][x].color = card; 
+            board[y][x].stack = []; 
+            addLog(`${p.name} が (${x}, ${y}) にカードを配置。`);
+        }
+        
+        // 盤面を再描画（ここでカードが表示される）
+        if (typeof renderBoard === 'function') renderBoard();
+
+        // ステップ3：配置されたカードを確認するための「余韻」待機
+        setTimeout(() => {
+            isPlacingCard = false; 
+            if (!p.baseMoveUsed) p.baseMoveUsed = true; 
+            else if (p.extraMoves > 0) p.extraMoves--; 
+            
+            if (p.extraMoves > 0) { 
+                addLog(`追加配置完了！(残り${p.extraMoves}回)`); 
+                isProcessingMove = false; 
+                resetTimer(); 
+                updateGameState(); 
+            } else { 
+                endTurn(); 
+            }
+        }, 800); // 配置後の余韻
+    });
 }
 
 function handleBoardClick(x, y) { 
@@ -1166,7 +1219,8 @@ function executeMove(x, y, cell, epOn) {
         addLog(`${p.name} が ${epOn.name} に接触しました！`);
         startStealSequence(epOn, moveFinish); 
     } else {
-        addLog(`${p.name} が (${x}, ${y}) へ移動しました`);
+        // 2026/03/06 修正：ログの視認性向上（プレイヤーカラー＋アイコン）
+        addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-gray-400">👟 移動</span> (${x}, ${y})`);
         moveToCell(p, x, y, false, moveFinish); 
     }
 }
@@ -1223,8 +1277,8 @@ function finishSteal(victim, card, callback, invader) {
     if (card) { 
         hands[victim.id].splice(hands[victim.id].indexOf(card), 1); 
         hands[invader.id].push(card); 
-        // 【外科手術的修正】奪ったカード名をログに明記して戦況を分かりやすくする
-        addLog(`接触！${invader.name} は ${victim.name} から「${card.name}」を奪いました`);
+        // 2026/03/06 修正：強奪ログの視認性向上（プレイヤーカラー＋アイコン）
+        addLog(`<span style="color:${invader.color.hex}">●</span> <b>${invader.name}</b> <span class="text-red-500">💥 強奪</span> ➔ <b>${victim.name}</b> の「${card.name}」`);
     }
 
     if (victim.x === victim.startPos.x && victim.y === victim.startPos.y) { 
@@ -1730,6 +1784,7 @@ async function initGameInternal(num, isTest = false) {
     const normalCandidates = CARD_DATABASE.filter(d => d.type === 'NORMAL'); 
     let deckArr = []; 
 
+    // --- 既存の山札構築部分（if(!isTest) の中） ---
     if(!isTest) { 
         ['red','orange','yellow','green','blue','pink','purple'].forEach(col => {
             const colorNormals = normalCandidates.filter(d => d.colorId === col);
@@ -1741,14 +1796,23 @@ async function initGameInternal(num, isTest = false) {
         const rb = CARD_DATABASE.find(d => d.id === 29);
         for(let i = 0; i < 7; i++) deckArr.push(createCardInstance(rb));
 
-        const specialCounts = { 30: 2, 31: 2, 32: 1, 33: 1, 34: 1 };
-        Object.keys(specialCounts).forEach(idStr => {
-            const cardId = parseInt(idStr);
-            const cardData = CARD_DATABASE.find(d => d.id === cardId);
-            for(let i = 0; i < specialCounts[idStr]; i++) {
-                deckArr.push(createCardInstance(cardData));
-            }
-        });
+        // ★修正箇所：無色カード不使用フラグをチェック
+        const noColorless = document.getElementById('setting-no-colorless')?.checked;
+        
+        if (!noColorless) {
+            // 通常時：白・黒カードを山札に追加
+            const specialCounts = { 30: 2, 31: 2, 32: 1, 33: 1, 34: 1 };
+            Object.keys(specialCounts).forEach(idStr => {
+                const cardId = parseInt(idStr);
+                const cardData = CARD_DATABASE.find(d => d.id === cardId);
+                for(let i = 0; i < specialCounts[idStr]; i++) {
+                    deckArr.push(createCardInstance(cardData));
+                }
+            });
+        } else {
+            // ONの時：ログに記録
+            addLog(`<span class="text-gray-400">⚙️ 無色カード(白・黒)を除外して開始します</span>`);
+        }
 
         deckArr.sort(() => Math.random() - 0.5); 
     } else {

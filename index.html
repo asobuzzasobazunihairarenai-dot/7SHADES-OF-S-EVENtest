@@ -236,6 +236,11 @@
             <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">対戦人数を選んでください</p>
         </div>
 
+        <div class="flex bg-gray-900 p-1 rounded-xl border border-gray-800">
+            <button id="cpu-mode-normal" onclick="setCpuBoostMode(false)" class="flex-1 py-2 text-[10px] font-black rounded-lg transition-all bg-yellow-600 text-black">NORMAL</button>
+            <button id="cpu-mode-boost" onclick="setCpuBoostMode(true)" class="flex-1 py-2 text-[10px] font-black rounded-lg transition-all text-gray-500">BOOST</button>
+        </div>
+
         <div class="grid grid-cols-1 gap-3">
             <button onclick="startCpuGame(2)" class="group relative py-4 bg-gray-800 hover:bg-gray-700 border-2 border-gray-700 rounded-xl transition-all active:scale-95">
                 <span class="text-white font-black text-lg">2 PLAYERS</span>
@@ -524,6 +529,14 @@
                         <div class="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
                     </label>
                 </div>
+
+                <div class="flex items-center justify-between">
+    <span class="text-[10px] text-gray-400">無色カード（白・黒）不使用</span>
+    <label class="relative inline-flex items-center cursor-pointer">
+        <input type="checkbox" id="setting-no-colorless" class="sr-only peer">
+        <div class="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gray-400"></div>
+    </label>
+</div>
 
                 <div class="flex items-center justify-between border-t border-gray-700 pt-2 mt-1">
                     <div class="flex flex-col">

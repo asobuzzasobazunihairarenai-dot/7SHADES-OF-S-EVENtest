@@ -5,18 +5,33 @@
  * - 到達効果: 到達時に発動。原則「効果解決」→「カード獲得」の順。
  * - 例外: カードに処遇（場に残る、破棄等）が書かれている場合はそれに従う。
  */
-/**
- * game_utils.js
- * ログ、トースト、演出、計算など、汎用的なユーティリティ関数。
- * 修正：雷エフェクトのアニメーション終了後にSVG要素をクリアする処理を追加。
- */
 
 function addLog(text) {
     const logEl = document.getElementById('log-area');
     if(!logEl) return;
+
+    // キーワード変換マップ（よりリッチに）
+    const highlights = [
+        // 勝利：金文字＋王冠
+        { key: /勝利|WIN|WINNER/g, html: '<span class="text-yellow-400 font-black italic drop-shadow-[0_0_3px_rgba(250,204,21,0.8)]">👑 $&</span>' },
+        // 王手：オレンジ＋脈動
+        { key: /王手|リーチ/g, html: '<span class="text-orange-500 font-bold animate-pulse text-[11px]">🔥 $&</span>' },
+        // ゲート侵攻：赤背景
+        { key: /GATE INVASION|侵攻/g, html: '<span class="bg-red-600 text-white px-1 rounded font-black">⚠️ $&</span>' },
+        // フェイズ名：枠線
+        { key: /\[PHASE\]/g, html: '<span class="border border-indigo-500/50 px-1 rounded text-[8px] opacity-70">$&</span>' }
+    ];
+
+    let highlightedText = text;
+    highlights.forEach(h => {
+        highlightedText = highlightedText.replace(h.key, h.html);
+    });
+
     const row = document.createElement('div');
-    row.textContent = `> ${text}`;
+    row.innerHTML = `<span class="opacity-50 mr-1">&gt;</span>${highlightedText}`;
+    
     logEl.insertBefore(row, logEl.firstChild);
+    if (logEl.children.length > 50) logEl.removeChild(logEl.lastChild);
 }
 
 // 【外科手術的追加】ログエリアのクリック・拡大イベント

@@ -484,6 +484,7 @@ function closeDevSettings() {
         'setting-skip-selection', 
         'setting-auto-mode',
         'setting-boost-mode', 
+        'setting-no-colorless', // ★追加
         'setting-max-time'
     ];
 
@@ -1150,8 +1151,10 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
         }
     });
 
-    // メッセージの秘匿（下部の「〇〇を獲得」テキスト）
+    // 2026/03/06 修正：カード獲得ログの視認性向上（プレイヤーカラー＋アイコン）
     if (actualCards.length > 0) {
+        const cardNames = actualCards.map(c => `「${c.name}」`).join('、');
+        addLog(`<span style="color:${players.find(pl => pl.name === playerName)?.color.hex || '#fff'}">●</span> <b>${playerName}</b> <span class="text-green-400">🎁 獲得</span> ${cardNames}`);
         // 条件に !titleText.includes("公開") を追加
         const isSecretMsg = isP1HandOnlyView && 
                              playerName !== players[0].name && 
@@ -3014,12 +3017,18 @@ function showLevelUpModal(type, newValue) {
     // どこをクリックしても閉じるようにする
     const closeHandler = () => {
         modal.classList.add('animate-fade-out');
-        setTimeout(() => modal.remove(), 500);
+        setTimeout(() => {
+            modal.remove();
+            // ★追加：レベルアップ演出が終わったら、タイトルではなくホームへ戻す
+            if (typeof backToTitle === 'function') {
+                backToTitle(); 
+            }
+        }, 500);
         document.removeEventListener('click', closeHandler);
     };
     setTimeout(() => {
         document.addEventListener('click', closeHandler);
-    }, 500); // 誤操作防止のため少し待ってからクリック有効化
+    }, 500);
 }
 
 /**
@@ -3091,10 +3100,23 @@ function showPostGameRankModal(isWin, oldPoint, newPoint, onFinish) {
         }
     }, 500);
 
+    /**
+ * 2026/03/06 修正
+ * レベルアップしなかった場合でも、ゲージを閉じた後にホーム画面へ戻るように修正
+ */
     const close = () => {
         modal.classList.add('animate-fade-out');
         setTimeout(() => {
             modal.remove();
+            
+            // レベルアップしなかった場合（＝次に続く showLevelUpModal が呼ばれない場合）
+            // 確実にホーム画面へ戻すために backToTitle を実行
+            if (!data.isLevelUp) {
+                if (typeof backToTitle === 'function') {
+                    backToTitle();
+                }
+            }
+            
             if (onFinish) onFinish();
         }, 500);
         document.removeEventListener('click', close);
@@ -3177,6 +3199,9 @@ function showCpuBattleSelection() {
     if (home) home.classList.add('hidden');
     if (cpuSetup) {
         cpuSetup.classList.remove('hidden');
+        // ★追加：開始時は常に「通常モード」にリセット
+        setCpuBoostMode(false);
+        
         // CPU戦なのでNORMALモードをデフォルトに設定
         autoMode = 'NORMAL';
         const modeSelect = document.getElementById('setting-auto-mode');
@@ -3363,5 +3388,31 @@ function backToTitle() {
         window.isProfileSet = false; 
         
         addLog("タイトル画面に戻りました。");
+    }
+}
+
+/**
+ * 2026/03/06 修正
+ * CPU戦のブーストモード設定を切り替える
+ */
+function setCpuBoostMode(isBoost) {
+    // グローバル変数の更新
+    isBoostMode = isBoost;
+    
+    // UIの見た目を更新
+    const normalBtn = document.getElementById('cpu-mode-normal');
+    const boostBtn = document.getElementById('cpu-mode-boost');
+    
+    if (isBoost) {
+        boostBtn.className = "flex-1 py-2 text-[10px] font-black rounded-lg transition-all bg-orange-500 text-white shadow-[0_0_10px_rgba(249,115,22,0.4)]";
+        normalBtn.className = "flex-1 py-2 text-[10px] font-black rounded-lg transition-all text-gray-500";
+        // 開発用設定のチェックボックスも同期させる
+        const boostCheck = document.getElementById('setting-boost-mode');
+        if (boostCheck) boostCheck.checked = true;
+    } else {
+        normalBtn.className = "flex-1 py-2 text-[10px] font-black rounded-lg transition-all bg-yellow-600 text-black";
+        boostBtn.className = "flex-1 py-2 text-[10px] font-black rounded-lg transition-all text-gray-500";
+        const boostCheck = document.getElementById('setting-boost-mode');
+        if (boostCheck) boostCheck.checked = false;
     }
 }

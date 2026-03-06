@@ -219,10 +219,14 @@ function canPlayHandEffect(card, p) {
     return true;
 }
 
+/**
+ * 2026/03/06 修正
+ * 効果発動ログをプレイヤーカラー＋アイコン「✨ EFFECT」に変更し、視認性を向上。
+ */
 function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = false) {
     // 【外科手術的修正】効果解決の開始をログに記録
     if (contextCard && contextCard.name) {
-        addLog(`${p.name} が 「${contextCard.name}」 の効果を発動！`);
+        addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-blue-400">✨ EFFECT</span> 「${contextCard.name}」`);
     }
 
     if (!def) { 
@@ -330,6 +334,38 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }
 
     const forceNoCancel = true;
+
+    if (act.type === 'nanairo_no_ame_hand') {
+        // ステップ1：向き（縦か横か）を先に選ぶ
+        showDetailModal("なないろのあめ", "列の向きを選択してください", null, "横一列", () => {
+            // 横を選択した場合：各行(y=0〜6)の左端(x=0)を選択肢として提示
+            const rowChoices = [];
+            for(let i=0; i<GRID_SIZE; i++) rowChoices.push({x: 0, y: i});
+            
+            startSelectionMode('select_cell', 1, 'fill_line_horizontal', '対象の「行」を選択してください', (sel) => {
+                const coords = []; for(let i=0; i<GRID_SIZE; i++) coords.push({x: i, y: sel[0].y});
+                executeSelectionLogic('place_deck_sequential_rainbow', coords, onSuccess);
+            }, null, null, true, p, false, null, "おまかせ", rowChoices, p);
+            
+        });
+
+        const dCancelBtn = document.getElementById('detail-cancel-btn');
+        if (dCancelBtn) {
+            dCancelBtn.textContent = "縦一列";
+            dCancelBtn.onclick = () => {
+                closeDetailModal();
+                // 縦を選択した場合：各列(x=0〜6)の上端(y=0)を選択肢として提示
+                const colChoices = [];
+                for(let i=0; i<GRID_SIZE; i++) colChoices.push({x: i, y: 0});
+                
+                startSelectionMode('select_cell', 1, 'fill_line_vertical', '対象の「列」を選択してください', (sel) => {
+                    const coords = []; for(let i=0; i<GRID_SIZE; i++) coords.push({x: sel[0].x, y: i});
+                    executeSelectionLogic('place_deck_sequential_rainbow', coords, onSuccess);
+                }, null, null, true, p, false, null, "おまかせ", colChoices, p);
+            };
+        }
+        return;
+    }
 
     if (act.type === 'apocalypse_hand') {
         const startApocalypseFlow = () => {
@@ -898,17 +934,30 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         }
         else { 
             const allFaceDowns = []; 
+            /**
+ * 2026/03/06 修正
+ * 情報開示の例外処理において、除外範囲を「周囲8マス」から「隣(前後左右)4マス」へ修正
+ */
             for(let y=0; y<GRID_SIZE; y++) { 
                 for(let x=0; x<GRID_SIZE; x++) { 
-                    const dx = Math.abs(p.x - x), dy = Math.abs(p.y - y); 
-                    if (dx > 1 || dy > 1) { 
+                    // マンハッタン距離（前後左右の歩数）を計算
+                    const dist = Math.abs(p.x - x) + Math.abs(p.y - y); 
+                    // 距離が1（隣）より大きく、かつ自分自身（距離0）でもないマスを抽出
+                    if (dist > 1) { 
                         if (!board[y][x].empty && !board[y][x].revealed) allFaceDowns.push({x, y}); 
                     } 
                 } 
             } 
+            /**
+ * 2026/03/06 修正
+ * 情報開示の例外処理（1枚オープン）において、オープン前にマスの発光点滅演出を追加
+ */
             if (allFaceDowns.length > 0) { 
-                // こちらも同様にロジック名を変更
-                startSelectionMode('select_cell', 1, 'info_disclosure_animate', 'オープンする裏向きカードを1枚選択（自身の周囲以外）', (sel) => {
+                startSelectionMode('select_cell', 1, 'info_disclosure_animate', 'オープンする裏向きカードを1枚選択（自身の隣以外）', async (sel) => {
+                    // ★追加：オープン前に選択されたマスを桃色（情報開示の色）で3回点滅させる
+                    if (sel && sel.length > 0) {
+                        await animateCellBlink(sel[0].x, sel[0].y, '#f472b6');
+                    }
                     animateOpen(sel);
                 }, null, null, forceNoCancel, p, false, null, "おまかせ", allFaceDowns, p); 
             } else { 
@@ -1043,11 +1092,36 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     if (act.type === 'dash_effect') { p.extraMoves = (p.extraMoves || 0) + 1; if(onSuccess) onSuccess({}); return; }
     
     if (act.type === 'phoenix_salvage') {
-        if (discardPile.length >= 2) {
-            const salvageTarget = discardPile.splice(discardPile.length - 2, 1)[0]; hands[p.id].push(salvageTarget);
-            showCardModal(salvageTarget, () => onSuccess({}), "カード回収", p.name, "回収しました"); addLog(`${p.name}がフェニックスの効果で「${salvageTarget.name}」を回収しました。`);
-        } else { addLog("回収できるカードが捨て札にありませんでした。"); if(onSuccess) onSuccess({}); } return;
+    // 1. コストとして捨てられた直近のカードを取得（これは直前に discardPile に入っているはず）
+    if (discardPile.length > 0) {
+        const lastDiscarded = discardPile[discardPile.length - 1];
+        // このカードに「フェニックス出禁」の目印をつける
+        phoenixExclusionList.push(lastDiscarded);
     }
+
+    // 2. 捨て場の「上から2番目」が、出禁リストに入っていないかチェック
+    if (discardPile.length >= 2) {
+        const targetIndex = discardPile.length - 2;
+        const potentialTarget = discardPile[targetIndex];
+
+        // もしそのカードが今回のコストで捨てたもの（出禁）なら、さらにその下を探すか、回収不可にする
+        if (phoenixExclusionList.includes(potentialTarget)) {
+            addLog("直前にコストにしたカードは回収できません（無限ループ防止）。");
+            if(onSuccess) onSuccess({});
+            return;
+        }
+
+        // 3. 通常の回収処理
+        const salvageTarget = discardPile.splice(targetIndex, 1)[0];
+        hands[p.id].push(salvageTarget);
+        showCardModal(salvageTarget, () => onSuccess({}), "カード回収", p.name, "回収しました");
+        addLog(`${p.name}がフェニックスの効果で「${salvageTarget.name}」を回収しました。`);
+    } else {
+        addLog("回収できるカードが捨て札にありませんでした。");
+        if(onSuccess) onSuccess({});
+    }
+    return;
+}
 
     else if (act.type === 'viridian_hand') {
         if (p.viridianUsed) { showToast("1ターンに1度のみ得られる効果です"); return; }

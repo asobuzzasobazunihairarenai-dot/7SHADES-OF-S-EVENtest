@@ -1483,3 +1483,32 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     border: 1px solid #eab308;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
+
+/* 2026/03/06 修正：ログエリアの視認性向上 */
+#log-area {
+    display: flex;
+    flex-direction: column;
+}
+
+/* 常に最新（一番上）のログを強調 */
+#log-area div:first-child {
+    font-size: 11px;
+    color: #ffffff; /* 最新は純白でハッキリ */
+    filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.3));
+    border-left: 2px solid #fbbf24; /* 左側に黄色のインジケータ */
+    padding-left: 4px;
+    margin-bottom: 2px;
+    animation: log-pop 0.3s ease-out;
+}
+
+/* 2番目以降のログを徐々に薄くする（フェードアウト効果） */
+#log-area div:nth-child(2) { opacity: 0.8; font-size: 10px; }
+#log-area div:nth-child(3) { opacity: 0.6; }
+#log-area div:nth-child(4) { opacity: 0.4; }
+#log-area div:nth-child(n+5) { opacity: 0.2; }
+
+/* 最新ログが追加された時のアニメーション */
+@keyframes log-pop {
+    0% { transform: translateX(-5px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+}

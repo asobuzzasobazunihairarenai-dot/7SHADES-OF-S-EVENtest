@@ -63,6 +63,7 @@
             <div>
                 <button class="dc-btn" id="dc-copy">ログをコピー</button>
                 <button class="dc-btn" id="dc-clear">クリア</button>
+                <button class="dc-btn" id="dc-restart-ai" style="background:#b91c1c; border-color:#ef4444;">AI再起動</button>
                 <button class="dc-btn" id="dc-close">▼ 閉じる</button>
             </div>
         </div>
@@ -138,6 +139,17 @@
         }).catch(err => {
             alert('コピーに失敗しました');
         });
+    };
+    
+    // ★ 2026/03/08 追加：AI再起動ボタンの動作
+    document.getElementById('dc-restart-ai').onclick = () => {
+        if (confirm("AIの処理を強制的に再開しますか？")) {
+            if (typeof forceResumeAI === 'function') {
+                forceResumeAI();
+            } else {
+                alert("forceResumeAI 関数が見つかりません。");
+            }
+        }
     };
 
     addLogEntry('info', 'Debug console initialized.');

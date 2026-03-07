@@ -1583,3 +1583,55 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
         opacity: 0; 
     }
 }
+
+/* 燃え盛る溶岩球（ディテールアップ版） */
+.lava-bullet {
+    position: absolute;
+    top: -600px;
+    left: 50%;
+    width: 40px;
+    height: 60px;
+    /* 1. 重厚な色の積層（コアは白熱、外側は冷えた岩石） */
+    background: radial-gradient(ellipse at 50% 30%, #fff 0%, #ffeb3b 20%, #ff5722 50%, #7f0000 80%, #212121 100%);
+    border-radius: 50% 50% 30% 30%;
+    
+    /* 2. 激しい発光（周囲を照らす） */
+    box-shadow: 
+        0 0 30px #ff5722,
+        0 0 60px #bf360c,
+        0 -20px 40px rgba(255, 120, 0, 0.8); /* 上方向に光の尾 */
+    
+    z-index: 1000;
+    transform: translateX(-50%);
+    filter: contrast(1.2) brightness(1.2);
+}
+
+/* 3. 炎の尾（アフターバーナー的な演出） */
+.lava-bullet::after {
+    content: "";
+    position: absolute;
+    top: -40px;
+    left: 5%;
+    width: 90%;
+    height: 60px;
+    background: linear-gradient(to bottom, transparent, #ff9800, #ff5722);
+    filter: blur(8px);
+    opacity: 0.7;
+    border-radius: 50%;
+}
+
+/* 4. 落下アニメーション（さらに高速・衝撃重視） */
+.lava-falling {
+    /* 0.5s -> 0.35s に短縮して衝撃を強める */
+    animation: lava-fall-down 0.35s cubic-bezier(0.5, 0, 1, 1) forwards;
+}
+
+@keyframes lava-fall-down {
+    0% { top: -800px; opacity: 0; transform: translateX(-50%) scale(2.5) skewY(-10deg); }
+    50% { opacity: 1; }
+    100% { 
+        top: 50%; 
+        opacity: 1; 
+        transform: translateX(-50%) translateY(-50%) scale(1.2); /* 着弾時は少し大きく */
+    }
+}

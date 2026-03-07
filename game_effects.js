@@ -68,6 +68,23 @@ function canPlayHandEffect(card, p) {
         if (!hasAnyCard) return false; // 盤面が空ならグレーアウト対象
     }
 
+    // ★ 2026/03/08 追加：なないろの欠片(ID:29) の温存ロジック
+    if (card.id === 29) {
+        if (typeof autoMode !== 'undefined' && autoMode === 'NORMAL' && isAutoAction) {
+            const pHand = hands[p.id] || [];
+            const otherFragsCount = pHand.filter(c => Number(c.id) === 29 && c !== card).length;
+            const canDouble = otherFragsCount >= 1; 
+
+            // 2枚持っていない（2枚ロックができない）場合
+            if (!canDouble) {
+                // 10%の確率(0.1)を引かなかった場合は「使用不可」と判定して温存させる
+                if (Math.random() > 0.1) {
+                    return false; 
+                }
+            }
+        }
+    }
+
     // ID 30: カラフルホール の有効化条件
     if (card.id === 30) {
         // 全プレイヤーのロック数を算出
@@ -468,7 +485,16 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 }
                 
                 if (isPotentiallySelectable) {
-                    if (['place_deck_facedown_empty', 'place_self_facedown_empty', 'place_deck_sequential_empty'].includes(logicName)) {
+                    // ★ 外科手術的修正：CPU(NORMAL以上)の損切りロジック
+                    // 到達効果（isNewReveal=falseかつ駒がその場にある）において、
+                    // 自分の足元のカードを「獲得（add_all_to_hand）」対象から外す
+                    if (isAutoAction && autoMode === 'NORMAL') {
+                        if (logicName === 'add_all_to_hand' && x === p.x && y === p.y) {
+                            isPotentiallySelectable = false;
+                        }
+                    }
+
+                    if (isPotentiallySelectable && ['place_deck_facedown_empty', 'place_self_facedown_empty', 'place_deck_sequential_empty'].includes(logicName)) {
                         if (!cell.empty) isPotentiallySelectable = false;
                     } else if (['add_to_hand', 'add_all_to_hand', 'destroy_all', 'destroy_top', 'civil_path_step1', 'open_facedown', 'gentecnique_logic'].includes(logicName)) {
                         if (cell.empty) isPotentiallySelectable = false;
@@ -767,10 +793,50 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
     // --- 仕掛けられた罠 (ID: 26) ---
     else if (act.type === 'trapped_trap_hand') { 
-    startSelectionMode('select_cell_outside', 1, 'trapped_trap_step1', "罠を設置するマスを選択してください（周囲以外）", (res) => {
-        if (onSuccess) onSuccess({ stayOnBoard: true });
-    }, null, null, true, p, false, null, "おまかせ", null, p); 
-    return; 
+        // ★ 2026/03/08 04:45 修正：設置制限の再修正（カードのあるマスにも置けるように）
+        const validTrapCells = [];
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                // 1. 自分自身の周囲（1マス以内）は設置不可
+                if (Math.abs(p.x - x) <= 1 && Math.abs(p.y - y) <= 1) continue;
+
+                // 2. そのマスの周囲8マスに「破壊可能なカード」があるかチェック
+                let hasCardAround = false;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = x + dx, ny = y + dy;
+                        if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE) {
+                            const targetCell = board[ny][nx];
+                            // 周囲のマスにカードがあり、かつ破壊可能（NORMAL/BOOST等）なら有効
+                            if (!targetCell.empty && targetCell.color && 
+                                targetCell.color.type !== 'FIRST' && targetCell.color.type !== 'ETERNAL') {
+                                hasCardAround = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasCardAround) break;
+                }
+
+                // 周囲に破壊対象があれば、設置するマス自体の空き状況に関わらずリストに入れる
+                if (hasCardAround) {
+                    validTrapCells.push({ x, y });
+                }
+            }
+        }
+
+        if (validTrapCells.length === 0) {
+            showMessageOverlay("周囲に破壊できるカードがあるマスが\nないため、罠を仕掛けられません。", 2500);
+            if (onSuccess) onSuccess({});
+            return;
+        }
+
+        // 制限リスト（validTrapCells）を渡して選択開始
+        startSelectionMode('select_cell_outside', 1, 'trapped_trap_step1', "罠を設置するマスを選択してください（周囲以外）", (res) => {
+            if (onSuccess) onSuccess({ stayOnBoard: true });
+        }, null, null, true, p, false, null, "おまかせ", validTrapCells, p); 
+        return; 
     }
 
     else if (act.type === 'rainbow_fragment_choice') {
@@ -1302,10 +1368,51 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
     // --- 欲しがりの吊り橋 (ID: 19) ---
     else if (act.type === 'greedy_bridge_hand') { 
-    startSelectionMode('select_cell_outside', 1, 'greedy_step1', "裏向きで置くマスを選択してください（周囲以外）", (res) => {
-        if (onSuccess) onSuccess({ stayOnBoard: true });
-    }, null, null, true, p, false, null, "おまかせ", null, p); 
-    return; 
+        // ★ 2026/03/08 05:10 修正：善処の原則に基づく設置制限
+        // 設置するマスの周囲8マスに「下に敷けるカード」が1枚も存在しないマスを除外
+        const validBridgeCells = [];
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                // 1. 自分自身の周囲（1マス以内）はルール上設置不可
+                if (Math.abs(p.x - x) <= 1 && Math.abs(p.y - y) <= 1) continue;
+
+                // 2. そのマスの周囲8マスに「敷けるカード」があるかチェック
+                let hasTargetAround = false;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = x + dx, ny = y + dy;
+                        if (nx >= 0 && nx < GRID_SIZE && ny >= 0 && ny < GRID_SIZE) {
+                            const targetCell = board[ny][nx];
+                            // カードが存在し、かつエターナル/ファースト以外（下に敷ける対象）なら有効
+                            if (!targetCell.empty && targetCell.color && 
+                                targetCell.color.type !== 'FIRST' && targetCell.color.type !== 'ETERNAL') {
+                                hasTargetAround = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasTargetAround) break;
+                }
+
+                // 設置するマス自体のカードの有無は問わず、周囲にターゲットがあれば有効
+                if (hasTargetAround) {
+                    validBridgeCells.push({ x, y });
+                }
+            }
+        }
+
+        if (validBridgeCells.length === 0) {
+            showMessageOverlay("周囲に下に敷けるカードがあるマスが\nないため、吊り橋を架けられません。", 2500);
+            if (onSuccess) onSuccess({});
+            return;
+        }
+
+        // 第13引数に有効なマスのリスト（validBridgeCells）を渡してハイライトを制限
+        startSelectionMode('select_cell_outside', 1, 'greedy_step1', "裏向きで置くマスを選択してください（周囲以外）", (res) => {
+            if (onSuccess) onSuccess({ stayOnBoard: true });
+        }, null, null, true, p, false, null, "おまかせ", validBridgeCells, p); 
+        return; 
     }
 
     else if (act.type === 'return_gate_no_open') { 
@@ -1333,97 +1440,95 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         return; 
     }
 
+    /**
+ * 2026/03/08 03:20 修正
+ * 1. greedy_palette_hand における showCardModal の閉じカッコ不足による構文エラーを修正。
+ * 2. カード画像表示演出と、その後の色宣言フローを正確に結合。
+ */
+
     else if (act.type === 'greedy_palette_hand') {
         isHandEffectProcessing = true;
 
-        // 1. 発動者が色を宣言（発動者がAIならスキップ）
-        showRequestSelectionModal("色宣言", "相手が対処すべき色を選択してください", BASE_COLORS, "card-back-pattern", 1, (selCols) => {
-            const declaredColor = selCols[0];
-            addLog(`${p.name}が「${declaredColor.name}」を宣言！`);
+        // ★ 2026/03/08 修正：強欲なパレット発動時にカード画像モーダルを表示
+        showCardModal(contextCard || card, () => {
+            // 1. 発動者が色を宣言（発動者がAIならスキップ）
+            showRequestSelectionModal("色宣言", "相手が対処すべき色を選択してください", BASE_COLORS, "card-back-pattern", 1, (selCols) => {
+                const declaredColor = selCols[0];
+                addLog(`${p.name}が「${declaredColor.name}」を宣言！`);
 
-            showMessageOverlay(`${p.name} の宣言：【${declaredColor.name}】\n\n相手全員はカードを渡すか、3枚捨ててください。`, 2000, () => {
-                const pIdx = players.indexOf(p);
-                const ordered = [];
-                for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
-                const opponents = ordered.filter(pl => pl.id !== p.id);
+                showMessageOverlay(`${p.name} の宣言：【${declaredColor.name}】\n\n相手全員はカードを渡すか、3枚捨ててください。`, 2000, () => {
+                    const pIdx = players.indexOf(p);
+                    const ordered = [];
+                    for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
+                    const opponents = ordered.filter(pl => pl.id !== p.id);
 
-                const processOpponentPalette = (idx) => {
-                    if (idx >= opponents.length) { 
-                        isHandEffectProcessing = false;
-                        onSuccess({}); 
-                        return; 
-                    }
-                    
-                    const opp = opponents[idx];
-                    const matchCards = (hands[opp.id] || []).filter(c => c.colorId === declaredColor.id || c.colorId === 'rainbow');
-                    const handCount = (hands[opp.id] || []).length;
+                    const processOpponentPalette = (idx) => {
+                        if (idx >= opponents.length) { 
+                            isHandEffectProcessing = false;
+                            onSuccess({}); 
+                            return; 
+                        }
+                        
+                        const opp = opponents[idx];
+                        const matchCards = (hands[opp.id] || []).filter(c => c.colorId === declaredColor.id || c.colorId === 'rainbow');
+                        const handCount = (hands[opp.id] || []).length;
 
-                    // --- [内部関数] 3枚捨てる処理 ---
-                    const performDiscard3 = () => {
-                        const dCount = Math.min(handCount, 3);
-                        if (dCount > 0) {
-                            // ★外科手術1：捨てるカードの選択（人間なら待機）
-                            showRequestSelectionModal("手札破棄", `${opp.name}: 破棄するカードを${dCount}枚選んでください`, hands[opp.id], "card-back-pattern", dCount, (sel) => {
-                                sel.forEach(c => { hands[opp.id].splice(hands[opp.id].indexOf(c), 1); discardPile.push(c); });
-                                showMessageOverlay(`${opp.name} は【手札を ${dCount} 枚破棄】しました。`, 2000, () => {
-                                    addLog(`${opp.name}は手札を${dCount}枚破棄しました。`);
-                                    renderHand(); renderDeckAndDiscard();
-                                    setTimeout(() => processOpponentPalette(idx + 1), 1500);
-                                });
-                            }, false, null, null, null, opp);
+                        // --- [内部関数] 3枚捨てる処理 ---
+                        const performDiscard3 = () => {
+                            const dCount = Math.min(handCount, 3);
+                            if (dCount > 0) {
+                                showRequestSelectionModal("手札破棄", `${opp.name}: 破棄するカードを${dCount}枚選んでください`, hands[opp.id], "card-back-pattern", dCount, (sel) => {
+                                    sel.forEach(c => { hands[opp.id].splice(hands[opp.id].indexOf(c), 1); discardPile.push(c); });
+                                    showMessageOverlay(`${opp.name} は【手札を ${dCount} 枚破棄】しました。`, 2000, () => {
+                                        addLog(`${opp.name}は手札を${dCount}枚破棄しました。`);
+                                        renderHand(); renderDeckAndDiscard();
+                                        setTimeout(() => processOpponentPalette(idx + 1), 1500);
+                                    });
+                                }, false, null, null, null, opp);
+                            } else {
+                                addLog(`${opp.name}は手札がないため、何も起こりませんでした。`);
+                                setTimeout(() => processOpponentPalette(idx + 1), 1000);
+                            }
+                        };
+
+                        // --- 対処の選択（渡す or 捨てる） ---
+                        if (matchCards.length > 0) {
+                            const canChooseDiscard = handCount >= 3;
+                            
+                            if (isAutoAction && opp.id !== 1) {
+                                handleGiveCard(); 
+                            } else {
+                                showDetailModal(`${opp.name}の選択`, `強欲なパレット：【${declaredColor.name}】\nカードを1枚渡すか、3枚捨ててください。`, null, "カードを渡す", handleGiveCard);
+                                const cnl = document.getElementById('detail-cancel-btn');
+                                if (canChooseDiscard) {
+                                    cnl.textContent = "3枚捨てる";
+                                    cnl.style.display = "block";
+                                    cnl.onclick = () => { closeDetailModal(); performDiscard3(); };
+                                } else {
+                                    cnl.style.display = "none";
+                                }
+                            }
+
+                            function handleGiveCard() {
+                                showRequestSelectionModal("譲渡カード選択", `譲渡する${declaredColor.name}のカードを選んでください`, matchCards, "card-back-pattern", 1, (selCards) => {
+                                    const c = selCards[0];
+                                    hands[opp.id].splice(hands[opp.id].indexOf(c), 1);
+                                    hands[p.id].push(c);
+                                    showMessageOverlay(`${opp.name} は ${p.name} に\n【カードを 1 枚譲渡】しました。`, 2000, () => {
+                                        addLog(`${opp.name}が${p.name}に「${c.name}」を渡しました。`);
+                                        renderHand();
+                                        setTimeout(() => processOpponentPalette(idx + 1), 500);
+                                    });
+                                }, false, null, null, null, opp);
+                            }
                         } else {
-                            addLog(`${opp.name}は手札がないため、何も起こりませんでした。`);
-                            setTimeout(() => processOpponentPalette(idx + 1), 1000);
+                            showMessageOverlay(`${opp.name} は【${declaredColor.name}】を持っていません。\n手札を3枚破棄します。`, 2500, performDiscard3);
                         }
                     };
-
-                    // --- 対処の選択（渡す or 捨てる） ---
-                    if (matchCards.length > 0) {
-                        const canChooseDiscard = handCount >= 3;
-                        
-                        // ★外科手術2：二択の提示（人間なら表示、AIなら自動決定）
-                        // showDetailModalは自動スキップ機能がないため、ここで人間判定を直接行う
-                        if (isAutoAction && opp.id !== 1) {
-                            // AIの判断：基本は「渡す」を優先（被害が少ないため）
-                            closeDetailModal();
-                            handleGiveCard(); // 内部で「カードを渡す」フローへ
-                        } else {
-                            // 人間(P1)または手動操作時
-                            showDetailModal(`${opp.name}の選択`, `強欲なパレット：【${declaredColor.name}】\nカードを1枚渡すか、3枚捨ててください。`, null, "カードを渡す", handleGiveCard);
-
-                            const cnl = document.getElementById('detail-cancel-btn');
-                            if (canChooseDiscard) {
-                                cnl.textContent = "3枚捨てる";
-                                cnl.style.display = "block";
-                                cnl.onclick = () => { closeDetailModal(); performDiscard3(); };
-                            } else {
-                                cnl.style.display = "none";
-                            }
-                        }
-
-                        // カードを1枚渡す処理の関数化
-                        function handleGiveCard() {
-                            // ★外科手術3：渡すカードの選択（人間なら待機）
-                            showRequestSelectionModal("譲渡カード選択", `譲渡する${declaredColor.name}のカードを選んでください`, matchCards, "card-back-pattern", 1, (selCards) => {
-                                const c = selCards[0];
-                                hands[opp.id].splice(hands[opp.id].indexOf(c), 1);
-                                hands[p.id].push(c);
-                                showMessageOverlay(`${opp.name} は ${p.name} に\n【カードを 1 枚譲渡】しました。`, 2000, () => {
-                                    addLog(`${opp.name}が${p.name}に「${c.name}」を渡しました。`);
-                                    renderHand();
-                                    setTimeout(() => processOpponentPalette(idx + 1), 500);
-                                });
-                            }, false, null, null, null, opp);
-                        }
-
-                    } else {
-                        // 対象色がない場合は強制的に3枚破棄
-                        showMessageOverlay(`${opp.name} は【${declaredColor.name}】を持っていません。\n手札を3枚破棄します。`, 2500, performDiscard3);
-                    }
-                };
-                processOpponentPalette(0);
-            });
-        }, false, null, null, null, p);
+                    processOpponentPalette(0);
+                });
+            }, false, null, null, null, p);
+        }, "手札効果発動", p.name, "強欲なパレットを使用しました"); // ← この閉じカッコが不足していました
         return;
     }
 
@@ -1908,4 +2013,33 @@ async function triggerCardShatterEffect(x, y) {
 
     targetEl.classList.add('cell-shake');
     setTimeout(() => targetEl.classList.remove('cell-shake'), 400);
+}
+
+async function triggerLavaRockEffect(x, y) {
+    const boardEl = document.getElementById('board-grid');
+    const targetEl = boardEl.children[y * GRID_SIZE + x];
+    if (!targetEl) return;
+
+    const rock = document.createElement('div');
+    rock.className = "lava-bullet lava-falling";
+    
+    const originalOverflow = targetEl.style.overflow;
+    targetEl.style.overflow = "visible";
+    targetEl.appendChild(rock);
+
+    if (typeof playSE === 'function') playSE('se_lava_impact.mp3');
+
+    // ★ 外科手術：0.35sのアニメーションに対し、0.3sで resolve する（着弾と粉砕を重ねる）
+    return new Promise(resolve => {
+        setTimeout(() => {
+            // 着弾の瞬間にボードを揺らす
+            boardEl.classList.add('cell-shake');
+            setTimeout(() => boardEl.classList.remove('cell-shake'), 300);
+            
+            // 溶岩球を即座に消す（粉砕エフェクトにバトンタッチ）
+            rock.remove();
+            targetEl.style.overflow = originalOverflow;
+            resolve(); // ここでJSの制御を戻す
+        }, 300); // 0.35sの終了を待たず、0.3sで次へ！
+    });
 }

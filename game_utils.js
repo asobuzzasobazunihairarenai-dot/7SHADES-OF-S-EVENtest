@@ -484,3 +484,20 @@ function triggerHeartbeatHaptic() {
     // 60ms振動 - 100ms休止 - 150ms振動
     triggerHaptic([60, 100, 150]);
 }
+
+document.addEventListener('visibilitychange', () => {
+    // bgmAudio は global で管理されている BGM 用の Audio オブジェクトと想定
+    if (typeof bgmAudio !== 'undefined' && bgmAudio) {
+        if (document.visibilityState === 'hidden') {
+            // 画面が閉じられた、またはバックグラウンドに回った時
+            bgmAudio.pause();
+        } else if (document.visibilityState === 'visible') {
+            // 再び画面が表示された時
+            // もともと再生中だった場合のみ再開（設定でオフにしている場合は鳴らさないよう配慮）
+            const isBgmOn = localStorage.getItem('shades_bgm_enabled') !== 'false';
+            if (isBgmOn) {
+                bgmAudio.play().catch(e => console.log("BGM auto-resume blocked:", e));
+            }
+        }
+    }
+});

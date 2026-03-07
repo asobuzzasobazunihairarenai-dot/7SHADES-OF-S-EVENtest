@@ -1347,43 +1347,61 @@ function executeMove(x, y, cell, epOn) {
     }
 }
 
+/**
+ * 2026/03/08 02:15 修正
+ * 1. startStealSequence 内の構文エラー（不要な閉じカッコ）を清掃。
+ * 2. 反撃演出(showCardModal)とAI自動処理の分岐ロジックを正確に統合。
+ */
+
 function startStealSequence(victim, callback) { 
     if (!players[turn] || !hands[victim.id]) return;
     const turnPlayer = players[turn]; 
     
-    // 現在の「奪われる側（被害者）」を特定
-    // 初回は接触された側、反撃後は接触した側、再反撃後はまた接触された側...と入れ替わります
+    // 反撃カード(ID:22)を所持しているか確認
     const counterCard = hands[victim.id].find(c => c.id === 22); 
     
     if (counterCard) {
-        showDetailModal("反撃のチャンス", `${victim.name}さん、「反撃」で接触を無効化し、逆に強奪しますか？`, counterCard, "反撃する", () => {
-            // 反撃コスト（カード）の支払い
-            hands[victim.id].splice(hands[victim.id].indexOf(counterCard), 1); 
-            discardPile.push(counterCard); 
-            addLog(`${victim.name}が「反撃」を発動！`); 
+        // ★ 内部関数：反撃の演出と処理を実行
+        const processCounter = () => {
+            showCardModal(counterCard, () => {
+                // 反撃コスト（カード）の支払い
+                hands[victim.id].splice(hands[victim.id].indexOf(counterCard), 1); 
+                discardPile.push(counterCard); 
+                addLog(`${victim.name}が「反撃」を発動！`); 
 
-            // --- 修正ポイント ---
-            // 直接強奪せず、もう一度自分(startStealSequence)を呼び出す。
-            // その際、victim（狙われる側）を「自分を狙ってきた相手」に切り替える。
-            const nextVictim = (victim.id === turnPlayer.id) ? (activeTargetPlayerForCounter || victim) : turnPlayer;
-            startStealSequence(nextVictim, callback); 
-        }, false);
+                // ターゲットを入れ替えて再帰的に反撃の連鎖を確認
+                const nextVictim = (victim.id === turnPlayer.id) ? (typeof activeTargetPlayerForCounter !== 'undefined' ? activeTargetPlayerForCounter : victim) : turnPlayer;
+                startStealSequence(nextVictim, callback); 
+            }, "手札効果発動", victim.name, "「反撃」で逆に奪い返します！");
+        };
 
-        const cnlBtn = document.getElementById('detail-cancel-btn'); 
-        if(cnlBtn) { 
-            cnlBtn.textContent = "使わない"; 
-            cnlBtn.onclick = () => { 
-                closeDetailModal(); 
-                // 反撃しない場合は、そのまま現在の被害者から強奪を実行
-                startStealSequenceInternal(victim, callback); 
-            }; 
+        // --- CPUまたは自動処理(AI)の場合 ---
+        if (isAutoAction) {
+            processCounter();
         } 
-        return;
-    }
-    // 反撃カードがない場合は通常の強奪処理へ
-    startStealSequenceInternal(victim, callback);
-}
+        // --- 人間プレイヤーの場合 ---
+        else {
+            showDetailModal("反撃のチャンス", `${victim.name}さん、「反撃」で接触を無効化し、逆に強奪しますか？`, counterCard, "反撃する", () => {
+                processCounter();
+            }, false);
 
+            const cnlBtn = document.getElementById('detail-cancel-btn'); 
+            if(cnlBtn) { 
+                cnlBtn.textContent = "使わない"; 
+                cnlBtn.onclick = () => { 
+                    closeDetailModal(); 
+                    startStealSequenceInternal(victim, callback); 
+                }; 
+            }
+        }
+        return;
+    } 
+
+    // 反撃カードがない場合は通常の強奪処理へ進む
+    if (typeof startStealSequenceInternal === 'function') {
+        startStealSequenceInternal(victim, callback);
+    }
+}
 function startStealSequenceInternal(victim, callback, overrideInvader = null) {
     const invader = overrideInvader || players[turn];
     if (!hands[victim.id] || hands[victim.id].length === 0) { finishSteal(victim, null, callback, invader); return; } 
@@ -2892,4 +2910,41 @@ function updateProfileAfterGame(winnerId) {
     // データの保存
     saveUserProfile();
     console.log("Profile updated and saved:", userProfile);
+}
+
+/**
+ * 2026/03/08 01:05 修正
+ * 1. AI強制再起動用関数 forceResumeAI を追加。
+ * 2. 停止原因となるフラグ(isAutoProcessing等)を強制リセットし、フェイズに応じたAIルーチンを再点火する。
+ */
+
+// --- 修正箇所：ファイルの最後の方（checkWin関数の後など）に追加 ---
+
+/**
+ * [外科手術的追加] AIが停止した際に強制的にフラグをリセットし、処理を続行させる
+ */
+function forceResumeAI() {
+    addLog(`<span class="text-red-400">🚨 システム：AI強制再起動を実行します...</span>`);
+    
+    // 1. 進行を妨げている可能性があるフラグを強制リセット
+    isAutoProcessing = false;
+    isHandEffectProcessing = false;
+    isPlacingCard = false;
+    
+    // モーダルが残っていると進行を妨げるため、選択モード中ならキャンセルを試みる
+    if (typeof cancelSelection === 'function') cancelSelection(true);
+    
+    const p = players[turn];
+    
+    // 2. 現在のフェイズに応じて適切なAI関数を呼び出す
+    if (currentPhase === PHASE.LOCK) {
+        if (typeof autoLockPhase === 'function') autoLockPhase(p);
+    } else if (currentPhase === PHASE.HAND) {
+        if (typeof autoHandPhase === 'function') autoHandPhase(p);
+    } else if (currentPhase === PHASE.MOVE) {
+        if (typeof autoMovePhase === 'function') autoMovePhase(p);
+    } else {
+        // フェイズが不明な場合は次へ進める
+        if (typeof nextPhase === 'function') nextPhase(true);
+    }
 }

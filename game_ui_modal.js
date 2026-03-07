@@ -1859,74 +1859,93 @@ function executeSelectionLogic(logic, selection, callback) {
             else moveToCell(p, targetPosMove.x, targetPosMove.y, false, callback);
             return;
 
+
         case 'destroy_all':
-            (async () => {
-                // 演出（ワイナウエアは赤なので #ef4444 で発光）
-                for (const pos of selection) {
-                    await animateCellBlink(pos.x, pos.y, '#ef4444');
-                }
+    (async () => {
+        for (const pos of selection) {
+            await animateCellBlink(pos.x, pos.y, '#ef4444');
 
-                if (typeof triggerLightningEffect === 'function') {
-                    triggerLightningEffect();
-                }
+            // 溶岩が降ってくる（0.3秒で着弾判定）
+            if (typeof triggerLavaRockEffect === 'function') {
+                await triggerLavaRockEffect(pos.x, pos.y);
+            }
 
-                selection.forEach(pos => {
-                    const target = board[pos.y][pos.x];
+            // ★ 着弾とほぼ同時に粉砕を開始！
+            if (typeof triggerCardShatterEffect === 'function') {
+                // awaitを付けずに呼ぶか、非常に短い待ちにする
+                triggerCardShatterEffect(pos.x, pos.y);
+            }
 
-                    if (!target.empty) {
-                        // 1. 表面のカードを捨て札へ
-                        if (target.color) {
-                            discardPile.push(target.color);
-                        }
-                        // 2. 重なっているカード（スタック）もすべて捨て札へ
-                        if (target.stack && target.stack.length > 0) {
-                            target.stack.forEach(c => discardPile.push(c));
-                        }
-                        
-                        target.empty = true; 
-                        target.revealed = false; 
-                        target.stack = [];
-                        target.color = null; // 安全のためnullクリア
-                    }
-                });
-                addLog(`${p.name}がマスのカードを全て破壊しました。`);
-                // 捨て場の表示を即時更新
-                if (typeof renderBoard === 'function') renderBoard();
-                if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard();
-                
-                if (callback) callback(selection);
-            })();
-            return;
+            // 粉砕アニメーションの初動だけ待つ
+            await new Promise(r => setTimeout(r, 200));
+
+            // データ処理（カードを消す）
+            const target = board[pos.y][pos.x];
+            if (!target.empty) {
+                if (target.color) discardPile.push(target.color);
+                if (target.stack) target.stack.forEach(c => discardPile.push(c));
+                target.empty = true; 
+                target.revealed = false; 
+                target.stack = [];
+                target.color = null;
+            }
+        }
+
+        addLog(`ワイナウエアの噴火！マスのカードを全て焼き尽くしました。`);
+        
+        // 5. 最後に画面を更新
+        if (typeof renderBoard === 'function') renderBoard();
+        if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard();
+        
+        if (callback) callback(selection);
+    })();
+    return;
+
 
         case 'destroy_top':
-            (async () => {
-                for (const pos of selection) {
-                    // 破壊されるカードの場所を青色で点滅
-                    await animateCellBlink(pos.x, pos.y, '#3b82f6');
+    (async () => {
+        for (const pos of selection) {
+            // 1. 破壊されるカードの場所を青色で点滅（予兆）
+            await animateCellBlink(pos.x, pos.y, '#3b82f6');
 
-                    const target = board[pos.y][pos.x];
-                    if (!target.empty) {
-                        // 表面のカードを捨て札へ送り、下にあるカードを表に出す
-                        if (target.color) discardPile.push(target.color);
-                        
-                        if (target.stack && target.stack.length > 0) {
-                            target.color = target.stack.shift();
-                            target.revealed = target.color.savedRevealedState || false;
-                        } else { 
-                            target.empty = true; 
-                            target.revealed = false; 
-                            target.color = null;
-                            target.stack = [];
-                        }
-                    }
+            const target = board[pos.y][pos.x];
+            if (!target.empty) {
+                // ★ 2026/03/07 外科手術：粉砕演出の実行
+                // 神鳴と同じスロー演出（3秒）がここでも適用されます
+                if (typeof triggerCardShatterEffect === 'function') {
+                    await triggerCardShatterEffect(pos.x, pos.y);
                 }
-                addLog(`${p.name}がマスのカードを1枚破壊しました。`);
-                renderBoard();
-                renderDeckAndDiscard();
-                if (callback) callback(selection);
-            })();
-            return;
 
+                // 演出の余韻のための少しの待ち
+                await new Promise(r => setTimeout(r, 400));
+
+                // 2. 破壊のデータ処理
+                // 表面のカードを捨て札へ
+                if (target.color) discardPile.push(target.color);
+                
+                if (target.stack && target.stack.length > 0) {
+                    // 下にカードがある場合、それを一番上に持ってくる
+                    target.color = target.stack.shift();
+                    // 前の状態（裏表）を復元
+                    target.revealed = target.color.savedRevealedState || false;
+                } else { 
+                    // 下に何もない場合はマスを空にする
+                    target.empty = true; 
+                    target.revealed = false; 
+                    target.color = null;
+                    target.stack = [];
+                }
+            }
+        }
+        addLog(`${p.name}がマスのカードを1枚粉砕しました。`);
+        
+        // 3. 再描画
+        renderBoard();
+        renderDeckAndDiscard();
+        if (callback) callback(selection);
+    })();
+    return;
+    
         case 'add_to_hand':
             (async () => {
                 const acquiredCards = [];
@@ -3192,9 +3211,9 @@ function showPostGameRankModal(isWin, oldPoint, newPoint, onFinish) {
         setTimeout(() => {
             modal.remove();
             
-            // レベルアップしなかった場合（＝次に続く showLevelUpModal が呼ばれない場合）
-            // 確実にホーム画面へ戻すために backToTitle を実行
-            if (!data.isLevelUp) {
+            // ★ 2026/03/08 修正：存在しない変数 data を参照していたバグを修正
+            // レベルアップ演出の予約（pendingRankUpEffect）がない場合のみホームへ戻す
+            if (!window.pendingRankUpEffect) {
                 if (typeof backToTitle === 'function') {
                     backToTitle();
                 }

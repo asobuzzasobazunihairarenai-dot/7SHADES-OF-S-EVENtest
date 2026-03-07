@@ -195,13 +195,47 @@ function checkAnytimeReactions(onProceed) {
 
             // キャンセルボタン（パス）の挙動を上書き
             const cnl = document.getElementById('detail-cancel-btn'); 
-            if(cnl) { 
-                cnl.textContent = "パス"; 
+            const okBtn = document.getElementById('detail-ok-btn'); // 「使用する」ボタン
+
+            if(cnl && okBtn) { 
+                // 1. ボタンの親要素（コンテナ）を Flexbox の折り返し設定にする
+                const btnContainer = cnl.parentNode;
+                btnContainer.className = "flex flex-wrap justify-center gap-2 mt-4"; 
+
+                // 2. 既存ボタンのサイズ調整（「パス」と「使用する」を横並びに）
+                cnl.textContent = "パス";
+                cnl.className = "flex-1 min-w-[80px] py-2 text-xs bg-gray-700 border border-gray-500 rounded text-white";
+                
+                okBtn.className = "flex-1 min-w-[80px] py-2 text-xs bg-blue-600 border border-blue-400 rounded text-white font-bold";
+
+                // 3. 「反応スルー」ボタンの生成と配置
+                // すでにボタンがある場合は一旦削除（重複防止）
+                const oldSkip = document.getElementById('detail-skip-all-btn');
+                if(oldSkip) oldSkip.remove();
+
+                const skipBtn = document.createElement('button');
+                skipBtn.id = "detail-skip-all-btn";
+                skipBtn.textContent = "今後の反応をスルー";
+                // w-full で下に1行で配置、文字をさらに小さく
+                skipBtn.className = "w-full py-1.5 text-[10px] bg-red-900/40 border border-red-700/50 rounded text-red-200 mt-1 opacity-80 hover:opacity-100 transition-opacity";
+                
+                // コンテナの最後に追加することで、下に配置される
+                btnContainer.appendChild(skipBtn);
+
+                // 各ボタンのクリックイベント
                 cnl.onclick = () => { 
                     closeDetailModal(); 
                     pIdx++; 
                     processNext(); 
-                }; 
+                };
+
+                skipBtn.onclick = () => {
+                    addLog(`${pl.name} は今後の反応をスルー設定にしました。`);
+                    pl.reactionSkip = true; 
+                    closeDetailModal();
+                    pIdx++;
+                    processNext();
+                };
             }
         } else {
             // モーダル関数がない場合は次へ

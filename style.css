@@ -1512,3 +1512,74 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     0% { transform: translateX(-5px); opacity: 0; }
     100% { transform: translateX(0); opacity: 1; }
 }
+
+/* --- 2026/03/07 粉砕エフェクト専用 CSS --- */
+
+/* 1. マス(cell)の衝撃揺れアニメーション */
+.cell-shake {
+    /* 揺れるときは overflow を visible にして破片を見せる（重要） */
+    overflow: visible !important;
+    animation: cell-shake-anim 0.4s ease-in-out;
+}
+
+@keyframes cell-shake-anim {
+    0%, 100% { transform: translate(0,0); }
+    25% { transform: translate(3px, -3px) rotate(1deg); }
+    50% { transform: translate(-3px, 3px) rotate(-1deg); }
+    75% { transform: translate(3px, 3px) rotate(0.5deg); }
+}
+
+/* 2. 破片パーツの見た目（いびつな多角形にする） */
+.card-shard {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    /* いびつにするために、元のサイズを少し大きく定義 */
+    width: 12px; 
+    height: 12px;
+    background-color: #fff; /* 破片の色 */
+    
+    /* 1. 角丸を削除（重要！） */
+    border-radius: 0; 
+
+    /* 2. clip-path でランダムな多角形を模倣（いびつさの核心） */
+    /* これで三角形や不等辺四角形のような形になります */
+    clip-path: polygon(
+        50% 0%, 
+        100% 40%, 
+        80% 100%, 
+        20% 80%, 
+        0% 30%
+    );
+
+    /* 3. 光沢を追加（いびつな面を強調） */
+    box-shadow: 0 0 10px rgba(255, 255, 255, 1);
+    
+    pointer-events: none;
+    z-index: 200;
+    
+    /* scale は 1.5 から 3.5 への拡大を維持 */
+    transform: translate(-50%, -50%) scale(1.5) rotate(0deg);
+    
+    /* アニメーション時間は 2.5s を維持 */
+    animation: shard-fly-anim 2.5s cubic-bezier(0.05, 0.8, 0.1, 1) forwards;
+}
+
+/* 3. 破片の動き（スローモーション版） */
+@keyframes shard-fly-anim {
+    0% { 
+        transform: translate(-50%, -50%) scale(1.5) rotate(0deg); 
+        opacity: 0; 
+    }
+    10% { 
+        /* 発生直後にパッと光って拡大 */
+        transform: translate(-50%, -50%) scale(3.5) rotate(15deg); 
+        opacity: 1; 
+        box-shadow: 0 0 15px rgba(255, 255, 255, 1);
+    }
+    100% { 
+        /* ★外科手術：ゆっくりと遠くへ漂いながら、徐々に小さく消える */
+        transform: translate(var(--tx), var(--ty)) scale(0.5) rotate(var(--tr)); 
+        opacity: 0; 
+    }
+}

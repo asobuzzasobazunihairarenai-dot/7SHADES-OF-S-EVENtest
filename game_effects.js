@@ -44,6 +44,7 @@ function canPlayHandEffect(card, p) {
         }
     }
 
+
     if (oncePerTurnIDs.includes(card.id)) {
         if (usedOnceEffectsThisTurn.includes(card.id)) return false;
     }
@@ -59,6 +60,13 @@ function canPlayHandEffect(card, p) {
 
     // ID 22: 反撃
     if (card.id === 22) return false;
+
+    // ★ 2026/03/07 追加：神鳴(ID:24)の特別ルール
+    if (card.id === 24) {
+        // 盤面に1枚でも !empty なマスがあるかチェック
+        const hasAnyCard = board.some(row => row.some(cell => !cell.empty));
+        if (!hasAnyCard) return false; // 盤面が空ならグレーアウト対象
+    }
 
     // ID 30: カラフルホール の有効化条件
     if (card.id === 30) {
@@ -512,6 +520,19 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }
 
     if (act.type === 'thunder_hand') {
+        const validCells = [];
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                if (!board[y][x].empty) validCells.push({ x, y });
+            }
+        }
+
+        if (validCells.length === 0) {
+            addLog("破壊できるカードが盤面にありません。");
+            if (onSuccess) onSuccess({});
+            return;
+        }
+
         startSelectionMode('select_cell', 1, 'thunder_animate_logic', '破壊するマスを選択', async (selection) => {
             if (!selection || selection.length === 0) { 
                 if (onSuccess) onSuccess({}); 
@@ -522,45 +543,48 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             const boardEl = document.getElementById('board-grid');
             const targetEl = boardEl.children[pos.y * GRID_SIZE + pos.x];
 
-            // 1. ビリビリ演出の開始
-            if (targetEl) {
-                targetEl.classList.add('biribiri-active');
-            }
-            
-            // 2秒間電気をまとわせる
-            await new Promise(r => setTimeout(r, 2000));
+            // 1. ビリビリ演出
+            if (targetEl) targetEl.classList.add('biribiri-active');
+            await new Promise(r => setTimeout(r, 1500)); // 少し短縮してテンポアップ
 
-            // 2. 雷エフェクト
-            if (typeof triggerLightningEffect === 'function') {
-                triggerLightningEffect();
-            }
+            // 2. 雷エフェクト ＆ 雷の効果音
+            if (typeof triggerLightningEffect === 'function') triggerLightningEffect();
+            if (typeof playSE === 'function') playSE('se_thunder_impact.mp3');
 
-            // 雷が落ちた瞬間にビリビリを解除
             await new Promise(r => setTimeout(r, 300));
-            if (targetEl) {
-                targetEl.classList.remove('biribiri-active');
+            if (targetEl) targetEl.classList.remove('biribiri-active');
+
+            // ★ 粉砕演出の実行（データ削除の前に行う）
+            if (typeof triggerCardShatterEffect === 'function') {
+                await triggerCardShatterEffect(pos.x, pos.y);
             }
 
-            // カード破棄の最終処理
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise(r => setTimeout(r, 400)); 
 
+            // 3. 【重要】カード削除ロジックの完全復元
             const target = board[pos.y][pos.x];
             if (target && !target.empty) {
+                // 捨て札へ送る
                 if (target.color) discardPile.push(target.color);
-                if (target.stack) target.stack.forEach(c => discardPile.push(c));
+                if (target.stack && target.stack.length > 0) {
+                    target.stack.forEach(c => discardPile.push(c));
+                }
                 
+                // データの初期化
                 target.empty = true;
                 target.revealed = false;
-                target.stack = [];
                 target.color = null;
+                target.stack = [];
                 
-                addLog(`神鳴：(${pos.x}, ${pos.y}) のカードを破壊しました。`);
+                addLog(`神鳴：(${pos.x}, ${pos.y}) のカードを粉砕しました。`);
+                
+                // 再描画
                 if (typeof renderBoard === 'function') renderBoard();
                 if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard();
             }
 
             if (onSuccess) onSuccess({});
-        }, null, null, true, p, false, null, "おまかせ", null, p);
+        }, null, null, true, p, false, null, "おまかせ", validCells, p);
         return;
     }
 
@@ -1843,4 +1867,45 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     if (typeof renderBoard === 'function') renderBoard();
     if (typeof renderHand === 'function') renderHand();
     if (typeof renderStatus === 'function') renderStatus();
+}
+
+/**
+ * カード粉砕エフェクト（汎用）
+ */
+async function triggerCardShatterEffect(x, y) {
+    const boardEl = document.getElementById('board-grid');
+    const targetEl = boardEl.children[y * GRID_SIZE + x];
+    if (!targetEl) return;
+
+    if (typeof playSE === 'function') playSE('se_card_shatter.mp3');
+
+    // ★ 外科手術1：破片の数を増やしてさらに派手に（16 -> 24個）
+    for (let i = 0; i < 24; i++) {
+        const shard = document.createElement('div');
+        shard.className = "card-shard";
+        
+        // ★外科手術： clip-path を少しずつランダムに変える（破片の個性を出す）
+        const p1 = 40 + Math.random() * 20; // 40-60%
+        const p2 = 80 + Math.random() * 20; // 80-100%
+        const p3 = 10 + Math.random() * 20; // 10-30%
+        const p4 = 20 + Math.random() * 20; // 20-40%
+        
+        shard.style.clipPath = `polygon(50% 0%, ${p1}% 40%, ${p2}% 80%, 20% ${p3}%, 0% ${p4}%)`;
+
+        const angle = Math.random() * Math.PI * 2;
+        // スローで見せるため、距離も少しだけ広げます
+        const velocity = 120 + Math.random() * 180; 
+        
+        shard.style.setProperty('--tx', `${Math.cos(angle) * velocity}px`);
+        shard.style.setProperty('--ty', `${Math.sin(angle) * velocity}px`);
+        shard.style.setProperty('--tr', `${Math.random() * 1080}deg`); // 回転をさらに多めに
+
+        targetEl.appendChild(shard);
+
+        // ★外科手術：アニメーション時間(1.5s)に合わせて削除
+        setTimeout(() => shard.remove(), 1500); 
+    }
+
+    targetEl.classList.add('cell-shake');
+    setTimeout(() => targetEl.classList.remove('cell-shake'), 400);
 }

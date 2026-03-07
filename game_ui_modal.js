@@ -777,7 +777,21 @@ function closeDetailModal() {
     const modal = document.getElementById('detail-modal');
     if (modal) modal.classList.add('hidden');
     
-    tempAction = null; 
+    // ★ 2026/03/07 外科手術：追加した「スルーボタン」を確実に削除する
+    const skipBtn = document.getElementById('detail-skip-all-btn');
+    if (skipBtn) skipBtn.remove();
+
+    // ★ 2026/03/07 外科手術：ボタンコンテナのレイアウトを元に戻す
+    const cnl = document.getElementById('detail-cancel-btn');
+    const okBtn = document.getElementById('detail-ok-btn');
+    if (cnl && okBtn) {
+        const btnContainer = cnl.parentNode;
+        // 標準のレイアウト（横並び）に戻す
+        btnContainer.className = "flex justify-center gap-4 mt-4"; 
+        // クラス名も標準的なものにリセット（もし固定のクラスがあればそれに）
+        cnl.className = "px-6 py-2 bg-gray-600 rounded text-white"; 
+        okBtn.className = "px-6 py-2 bg-blue-600 rounded text-white font-bold";
+    }
     
     // 拡大画面（ホバープレビュー）を確実に閉じる
     if (typeof hideHoverPreview === 'function') {
@@ -790,7 +804,8 @@ function closeDetailModal() {
         previewEl.classList.add('hidden');
         previewEl.style.display = 'none'; // 強制的に非表示
     }
-    
+
+    if (typeof hideHoverPreview === 'function') hideHoverPreview();
     managePeekUI(false); 
 }
 
@@ -856,10 +871,12 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
     
     const cancelBtn = document.getElementById('selection-cancel-btn'); 
     if (cancelBtn) {
-        // 修正箇所：ボタンの表示名を「おまかせ」に変更
+        // 毎回、一旦隠してから条件に合う場合だけ出す、という処理を徹底
+        cancelBtn.classList.add('hidden'); 
+        
         if (cancelCallback) { 
             cancelBtn.classList.remove('hidden'); 
-            cancelBtn.textContent = "おまかせ"; 
+            cancelBtn.textContent = "おまかせ";
             cancelBtn.onclick = () => { 
                 activeTimerPlayerId = null; // タイマーを手番プレイヤーに戻す
                 modal.classList.add('hidden'); 
@@ -3482,3 +3499,4 @@ function setCpuBoostMode(isBoost) {
         if (boostCheck) boostCheck.checked = false;
     }
 }
+

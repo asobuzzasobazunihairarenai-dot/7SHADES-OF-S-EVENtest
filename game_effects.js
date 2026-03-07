@@ -763,6 +763,14 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     if (typeof renderHand === 'function') renderHand();
                     onSuccess({});
                 }, "ドロー", p.name, "「1枚ドロー」を選択しました");
+
+                // ★ 2026/03/07 追加
+                if (isAutoAction) {
+                    setTimeout(() => {
+                        const okBtn = document.getElementById('arrival-ok-btn');
+                        if (okBtn) okBtn.click();
+                    }, 1500);
+                }
             } else onSuccess({});
         };
 
@@ -778,9 +786,10 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 onSuccess({}); return;
             }
 
-            // ロック先の選択（これは自動・手動問わず必要）
+            // ロック先の選択
             showSelectionModal("ロック先選択", "2枚をどの色としてロックしますか？", colorOptions, "card-back-pattern", 1, (sel) => {
-                isAutoAction = false; 
+                // --- 2026/03/07 修正：ここにあった isAutoAction = false; を削除または移動 ---
+                
                 const targetColor = sel[0];
                 const tSlot = collections[p.id][targetColor.id];
                 
@@ -810,6 +819,18 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     if (typeof renderHand === 'function') renderHand();
                     onSuccess({ stayOnBoard: true });
                 }, "2枚ロック＆ドロー", p.name, `「${targetColor.name}」としてロックしました`);
+                
+                // ★ 2026/03/07 追加：isAutoAction が生きているうちに判定を行う
+                if (isAutoAction) {
+                    setTimeout(() => {
+                        const okBtn = document.getElementById('arrival-ok-btn');
+                        if (okBtn) okBtn.click();
+                        // モーダルが閉じるタイミングでフラグを折る
+                        isAutoAction = false; 
+                    }, 2000);
+                } else {
+                    isAutoAction = false; // 手動時も念のため
+                }
             }, false, () => { isAutoAction = false; startFlow(); }, null, null, p);
         };
 

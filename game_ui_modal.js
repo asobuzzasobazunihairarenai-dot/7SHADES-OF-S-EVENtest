@@ -991,12 +991,14 @@ function showRequestSelectionModal(title, dummy, source, back, count, onComplete
     }
 
     // 3. 門番：自動スキップの判定
-    // 「自動処理モード」かつ「スキップ設定ON」であっても、
-    // 「選ぶ人が人間」である場合は、この if ブロックを無視して画面表示へ進む
-    if (isAutoAction && isSkipSelectionOnAuto && !isHumanSelector) {
+    // 修正：選ぶのがCPU（!isHumanSelector）なら、
+    // isAutoAction や isSkipSelectionOnAuto の状態に関わらず自動選択させる
+    if (!isHumanSelector) {
         addLog(`[Auto] ${selector.name} が ${title} を自動選択中...`);
 
         const validSource = source.filter(item => !item.disabled);
+        
+        // 選択肢がない場合の安全装置
         if (validSource.length === 0) {
             if (cancelCallback) cancelCallback();
             else onComplete([]);
@@ -1008,6 +1010,7 @@ function showRequestSelectionModal(title, dummy, source, back, count, onComplete
         const shuffled = [...validSource].sort(() => Math.random() - 0.5);
         const selection = shuffled.slice(0, finalCount);
         
+        // 演出のために少し待ってから完了
         setTimeout(() => {
             addLog(`[Auto] ${selector.name} は ${selection.map(s => s.name || '対象').join(', ')} を選択しました`);
             onComplete(selection);
@@ -1015,18 +1018,12 @@ function showRequestSelectionModal(title, dummy, source, back, count, onComplete
         return; 
     }
 
-    // 4. ここから下は「画面表示」の処理
-    // 人間が選ぶ場合、またはスキップ設定がOFFの場合は、通常の showSelectionModal と同様に描画する
-    // (既存の showSelectionModal を内部的に呼び出すか、描画ロジックを共通化します)
-    
-    // 今回は確実に表示させるため、isAutoActionフラグを一時的に騙して showSelectionModal を呼び出す
+    // 4. ここから下は「人間(isHumanSelector)」の場合のみ実行される
     const originalAutoAction = isAutoAction;
-    if (isHumanSelector) {
-        isAutoAction = false; // 人間に選ばせる間だけ、一時的に自動フラグを偽装して表示を強制
-    }
+    isAutoAction = false; // 人間には必ず表示
 
     showSelectionModal(title, dummy, source, back, count, (res) => {
-        isAutoAction = originalAutoAction; // 終わったらフラグを戻す
+        isAutoAction = originalAutoAction;
         onComplete(res);
     }, isBlind, () => {
         isAutoAction = originalAutoAction;

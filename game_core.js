@@ -103,15 +103,67 @@ function checkAnytimeReactions(onProceed) {
     if (!players || players.length === 0) { onProceed(); return; }
     const candidates = players.filter(pl => !pl.reactionSkip && hands[pl.id] && hands[pl.id].some(c => c.id === 33 && !c.sealed)); 
     if (candidates.length === 0) { onProceed(); return; }
+    
     let pIdx = 0;
     const processNext = () => {
-        if (pIdx >= candidates.length) { onProceed(); return; }
+        if (pIdx >= candidates.length) { 
+            // 全員の確認が終わったらタイマーを再開
+            if (typeof resumeTimer === 'function') resumeTimer();
+            onProceed(); 
+            return; 
+        }
+
         const pl = candidates[pIdx]; 
+        
+        // 人間（P1）が候補にいる場合、タイマーを一時停止
+        if (pl.id === 1 && typeof pauseTimer === 'function') {
+            pauseTimer(); 
+        }
+
         const anytimeCards = (hands[pl.id] || []).filter(c => c.id === 33 && !c.sealed);
-        if (anytimeCards.length === 0) { pIdx++; processNext(); return; }
+        if (anytimeCards.length === 0) { 
+            pIdx++; 
+            processNext(); 
+            return; 
+        }
+        
         const firstCard = anytimeCards[0];
         
         if (typeof showDetailModal === 'function') {
+            // ★ 外科手術：CPU（P2〜P4）の場合の思考ルーチン
+            if (pl.id !== 1) {
+                // AIに判断させる（NORMALモードなら状況に応じて、EASYなら確率で）
+                let shouldInterrupt = false;
+                if (autoMode === 'NORMAL') {
+                    // 戦略的判断：相手がゴールに極めて近い、または自分が逆転を狙える時
+                    const enemyNearGate = players.some(opp => {
+                        const dist = Math.min(...players.filter(p => p.id !== opp.id).map(eg => getDistance({x: opp.x, y: opp.y}, eg.startPos)));
+                        return dist <= 1; // 誰かがゴール直前なら割込！
+                    });
+                    shouldInterrupt = enemyNearGate || (Math.random() > 0.7); // 30%の確率、または危機的状況で発動
+                } else {
+                    shouldInterrupt = (Math.random() > 0.8); // EASYは20%の確率で気まぐれに発動
+                }
+
+                if (shouldInterrupt) {
+                    addLog(`[Interrupt] ${pl.name} が「強欲なパレット」で割り込みます！`);
+                    // モーダルを出さずに「使用する」の中身を直接実行
+                    activeHandCard = firstCard; 
+                    executeCardEffect(firstCard.handEffect, pl, () => {
+                        const curIdx = hands[pl.id].indexOf(firstCard); 
+                        if (curIdx > -1) discardPile.push(hands[pl.id].splice(curIdx, 1)[0]);
+                        renderHand(); renderStatus(); updateGameState(); 
+                        pIdx++; processNext();
+                    }, firstCard);
+                } else {
+                    // パスする場合
+                    pIdx++;
+                    processNext();
+                }
+                return; // CPUはこのブロックで完結させる（画面を出さない）
+            }
+
+            // モーダルを表示
             showDetailModal("割込確認", `${pl.name}さん、「強欲なパレット」を使用しますか？`, anytimeCards.length === 1 ? firstCard : null, "使用する", () => {
                 if (anytimeCards.length === 1) {
                     activeHandCard = firstCard; 
@@ -119,7 +171,9 @@ function checkAnytimeReactions(onProceed) {
                         executeCardEffect(firstCard.handEffect, pl, () => {
                             const curIdx = hands[pl.id].indexOf(firstCard); 
                             if (curIdx > -1) discardPile.push(hands[pl.id].splice(curIdx, 1)[0]);
-                            renderHand(); renderStatus(); updateGameState(); processNext();
+                            renderHand(); renderStatus(); updateGameState(); 
+                            pIdx++; // 次の候補へ
+                            processNext();
                         }, firstCard);
                     }
                 } else {
@@ -130,19 +184,29 @@ function checkAnytimeReactions(onProceed) {
                             executeCardEffect(card.handEffect, pl, () => {
                                 const curIdx = hands[pl.id].indexOf(card); 
                                 if (curIdx > -1) discardPile.push(hands[pl.id].splice(curIdx, 1)[0]);
-                                renderHand(); renderStatus(); updateGameState(); processNext();
+                                renderHand(); renderStatus(); updateGameState(); 
+                                pIdx++; // 次の候補へ
+                                processNext();
                             }, card);
                         }, false, null, null, null, pl);
                     }
                 }
             });
+
+            // キャンセルボタン（パス）の挙動を上書き
             const cnl = document.getElementById('detail-cancel-btn'); 
             if(cnl) { 
                 cnl.textContent = "パス"; 
-                cnl.onclick = () => { closeDetailModal(); pIdx++; processNext(); }; 
+                cnl.onclick = () => { 
+                    closeDetailModal(); 
+                    pIdx++; 
+                    processNext(); 
+                }; 
             }
         } else {
-            onProceed();
+            // モーダル関数がない場合は次へ
+            pIdx++;
+            processNext();
         }
     };
     processNext();
@@ -544,10 +608,18 @@ function updateTimerTick() {
 function handleTimeOut() { 
     if (isEndingTurn || winner) return; 
 
+
     const selectionModal = document.getElementById('selection-modal');
     const arrivalModal = document.getElementById('arrival-modal');
     const stealActionModal = document.getElementById('steal-action-modal');
+    // もし今表示されているのが「割込確認」で、かつ対象が P1 なら何もしない
     const detailModal = document.getElementById('detail-modal');
+    if (detailModal && !detailModal.classList.contains('hidden')) {
+        const title = document.getElementById('detail-title')?.textContent;
+        if (title === "割込確認" && actingP && actingP.id === 1) {
+            return; // 人間の思考時間なので、自動クリックを阻止
+        }
+    }
 
     // 現在の実行対象プレイヤー（相手プレイヤーを含む）を特定
     const actingP = activeTimerPlayerId 
@@ -644,54 +716,58 @@ function autoMove(p) {
     const otherPlayers = players.filter(pl => pl.id !== p.id);
     
     const moveRange = (p.dimensionActive && !p.baseMoveUsed) ? 2 : 1;
-    // 「その場(0,0)」を含めた5方向をスキャン
     const directions = [[0, 0], [0, moveRange], [0, -moveRange], [moveRange, 0], [-moveRange, 0]]; 
     
+    // ★外科手術1：欠落していたスコア設定の補完（MOVE_TOWARD_GATE を追加）
     const cfg = window.AI_SCORE_CONFIG || {
         CARD_COUNT: 10, UNLOCKED_COLOR: 50, ADJACENT_ENEMY: 5,
         SELF_GATE_DEFENSE: 20, APPROACH_ENEMY_GATE: 20, REACH_ENEMY_GATE: 100,
-        RARE_COLOR: 20, POWER_CARD_NEAR: 20, STEAL_ACTION: 50
+        MOVE_TOWARD_GATE: 30, // ←ここが抜けていたため NaN になっていた可能性が高い
+        RARE_COLOR: 20, POWER_CARD_NEAR: 20, STEAL_ACTION: 50,
+        STACK_COUNT: 10 // これも追加
     };
 
     let bestMoves = [];
     let maxScore = -Infinity;
 
+    // ★念のため：autoMode が未定義なら NORMAL に強制設定（テストモード対策）
+    const currentAutoMode = (typeof autoMode !== 'undefined') ? autoMode : 'NORMAL';
+
     for (let d of directions) { 
         const nx = p.x + d[0], ny = p.y + d[1]; 
         if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
 
-        // 初手ゲート戻り防止
-        if (!(p.extraMoves > 0) && nx === p.startPos.x && ny === p.startPos.y) continue;
+        const isStaying = (d[0] === 0 && d[1] === 0);
+        if (!isStaying && !(p.extraMoves > 0) && nx === p.startPos.x && ny === p.startPos.y) {
+            continue;
+        }
 
         const cell = board[ny][nx];
         const epOn = otherPlayers.find(ep => ep.x === nx && ep.y === ny);
-
-        const isSelectable = (d[0] === 0 && d[1] === 0) || !cell.empty || epOn;
+        const isSelectable = isStaying || !cell.empty || epOn;
 
         if (isSelectable) { 
             let score = 0;
-            
-            if (autoMode === 'NORMAL') {
+            if (currentAutoMode === 'NORMAL') {
                 try {
                     const currentDistToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: p.x, y: p.y}, eg)));
                     const nextDistToGate = Math.min(...enemyGatePos.map(eg => getDistance({x: nx, y: ny}, eg)));
 
-                    if (nextDistToGate === 0 && currentDistToGate <= 1) score += cfg.REACH_ENEMY_GATE;
-                    if (nextDistToGate < currentDistToGate) score += cfg.MOVE_TOWARD_GATE;
-                    if (epOn) score += cfg.STEAL_ACTION; 
+                    if (nextDistToGate === 0 && currentDistToGate <= 1) score += (cfg.REACH_ENEMY_GATE || 100);
+                    if (nextDistToGate < currentDistToGate) score += (cfg.MOVE_TOWARD_GATE || 30);
+                    if (epOn) score += (cfg.STEAL_ACTION || 50); 
 
                     if (!cell.empty && cell.revealed && cell.color) {
                         const colId = cell.color.colorId;
                         if (cell.color.isNegativeArrival) score -= 80;
-                        if (collections[p.id][colId] && collections[p.id][colId].length === 0) score += cfg.UNLOCKED_COLOR;
-                        if (['rainbow', 'white', 'black'].includes(colId)) score += cfg.RARE_COLOR;
+                        if (collections[p.id][colId] && collections[p.id][colId].length === 0) score += (cfg.UNLOCKED_COLOR || 50);
+                        if (['rainbow', 'white', 'black'].includes(colId)) score += (cfg.RARE_COLOR || 20);
                     }
                     
                     const stackCount = (cell.stack ? cell.stack.length : 0) + (cell.empty ? 0 : 1);
-                    score += Math.max(1, stackCount * cfg.STACK_COUNT);
+                    score += Math.max(1, stackCount * (cfg.STACK_COUNT || cfg.CARD_COUNT || 10));
 
-                    // ★重要：ここで「その場待機スコア」を確定させる（判定の前！）
-                    if (d[0] === 0 && d[1] === 0) {
+                    if (isStaying) {
                         const isAtEnemyGate = enemyGatePos.some(eg => eg.x === p.x && eg.y === p.y);
                         if (isAtEnemyGate) score += 500; 
                     }
@@ -705,7 +781,6 @@ function autoMove(p) {
                 score = (100 - distToGate);
             }
 
-            // スコア確定後に比較を行う
             if (score > maxScore) {
                 maxScore = score;
                 bestMoves = [{x: nx, y: ny, cell, epOn}];
@@ -720,10 +795,15 @@ function autoMove(p) {
     if (move && typeof executeMove === 'function') {
         executeMove(move.x, move.y, move.cell, move.epOn); 
     } else {
-        addLog(`${p.name}は移動可能な場所がないため、ムーブを終了します。`);
-        isProcessingMove = false;
-        isAutoAction = false;
-        endTurn(); 
+        // ★外科手術2：移動できない場合は、ムーブを終了せず配置モード(autoPlace)へ繋ぐ
+        addLog(`${p.name}は移動可能な場所がないため、配置に切り替えます。`);
+        if (typeof autoPlace === 'function') {
+            autoPlace(p);
+        } else {
+            isProcessingMove = false;
+            isAutoAction = false;
+            endTurn();
+        }
     }
 }
 

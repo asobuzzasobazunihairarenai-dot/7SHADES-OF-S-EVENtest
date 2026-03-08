@@ -1342,6 +1342,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         }, false, null, null, null, p); return;
     }
 
+    // --- greedy_palette_hand 等がある else if ブロック内 ---
     else if (act.type === 'force_hand_flow') {
     const playerOptions = players.filter(pl => pl.id !== p.id).map(pl => ({ id: pl.id, name: pl.name, type: "PLAYER_SELECT" }));
     showSelectionModal("移動させる相手", "対象のプレイヤーを選んでください", playerOptions, "card-back-pattern", 1, (selPl) => {
@@ -1476,18 +1477,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
                     const processOpponentPalette = (idx) => {
                         if (idx >= opponents.length) { 
-                            // ★ 2026/03/08 修正：割り込み終了時に確実にフラグをリセット
-                            isHandEffectProcessing = false; 
-                            
-                            // 演出のために少し待ってから成功コールバックを実行
-                            setTimeout(() => {
-                                if (onSuccess) onSuccess({}); 
-                                
-                                // 【重要】CPUの割り込みだった場合、止まったフェイズを再開させる
-                                if (isAutoAction || isAutoProcessing) {
-                                    if (typeof updateGameState === 'function') updateGameState();
-                                }
-                            }, 500);
+                            isHandEffectProcessing = false;
+                            onSuccess({}); 
                             return; 
                         }
                         
@@ -1556,22 +1547,6 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         }, "手札効果発動", p.name, "強欲なパレットを使用しました"); // ← この閉じカッコが不足していました
         return;
     }
-     else { 
-        if(act.msg) addLog(act.msg); 
-        if (onSuccess) onSuccess({}); 
-    } 
-
-
-    // ★ 外科手術：アクション実行後は必ず描画を更新し、フラグが残り続けないようにする
-    if (typeof renderBoard === 'function') renderBoard();
-    
-    // 手札効果ではない「到達効果」などの場合はここでフラグを念のため安全側に倒す
-    if (!act.anytime && act.type !== 'greedy_palette_hand') {
-        isHandEffectProcessing = false;
-    }
-
-
-
 
     else if (act.type === 'colorful_hall_hand') {
         const lockCounts = players.map(pl => {

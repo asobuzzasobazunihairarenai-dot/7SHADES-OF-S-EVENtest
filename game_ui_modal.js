@@ -871,20 +871,19 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
     
     const cancelBtn = document.getElementById('selection-cancel-btn'); 
     if (cancelBtn) {
-        // 毎回、一旦隠してから条件に合う場合だけ出す、という処理を徹底
-        cancelBtn.classList.add('hidden'); 
-        
-        if (cancelCallback) { 
-            cancelBtn.classList.remove('hidden'); 
-            cancelBtn.textContent = "おまかせ";
-            cancelBtn.onclick = () => { 
-                activeTimerPlayerId = null; // タイマーを手番プレイヤーに戻す
-                modal.classList.add('hidden'); 
-                managePeekUI(false); 
-                cancelCallback(); 
+        // ★ 2026/03/08 外科手術的修正：特定のタイトル時は強制的にボタンを隠す
+        // 「手札破棄」と「コスト支払い」の時は、キャンセルもおまかせもさせない
+        if (title === "手札破棄" || title === "コスト支払い") {
+            cancelBtn.classList.add('hidden');
+        } else {
+            cancelBtn.classList.remove('hidden');
+            cancelBtn.textContent = cancelCallback ? "おまかせ" : "閉じる";
+            cancelBtn.onclick = () => {
+                activeTimerPlayerId = null;
+                modal.classList.add('hidden');
+                managePeekUI(false);
+                if (cancelCallback && typeof cancelCallback === 'function') cancelCallback();
             };
-        } else { 
-            cancelBtn.classList.add('hidden'); 
         }
     }
     
@@ -1346,16 +1345,20 @@ function startSelectionMode(type, count, logic, promptText, callback, range = nu
     const msg = promptText || "対象を選択してください";
     selectionState = { active: true, type, count, current: 0, selected: [], logic, callback, range, prompt: msg, forbiddenTile, noCancel, origin, isEightDirection, cancelCallback, autoBtnText, restrictedCells, actingPlayer };
     
-    // ★自動処理(isAutoAction)がONの場合のバイパス処理
-    if (isAutoAction) {
+    // ★ 2026/03/08 修正：誰のターンであっても、操作者が人間(P1)なら手動UIを表示する
+    const p = actingPlayer || players[turn];
+    const isHumanActing = (p.id === 1);
+
+    // CPUのターン(isAutoAction)かつ、操作者がCPUの場合のみ自動処理へ
+    if (isAutoAction && !isHumanActing) {
         addLog(`[Auto] ${msg}`);
-        // 演出のために一瞬だけ待機して自動選択を実行
         setTimeout(() => {
             if (typeof triggerAutoSelect === 'function') triggerAutoSelect();
         }, 300);
-        return; // ここで終了し、人間用のUI（ボタン表示等）は行わない
+        return; 
     }
 
+    // --- ここから下（人間用のUI表示）に P1 の場合は必ず進むようになる ---
     const appEl = document.getElementById('app');
     if (appEl) appEl.classList.add('selection-active');
     
@@ -1383,6 +1386,15 @@ function startSelectionMode(type, count, logic, promptText, callback, range = nu
  */
 function triggerAutoSelect() {
     if (!selectionState.active || isPeekingMode) return;
+
+    // ★ 外科手術：操作している駒の持ち主を確認
+    const p = selectionState.actingPlayer || players[turn];
+    
+    // 操作者が人間(P1)の場合、CPUのターンであっても自動処理を絶対にさせない
+    if (p.id === 1) {
+        addLog("プレイヤーの選択を待機中...");
+        return; 
+    }
     
     let allValidCells = [];
     if (selectionState.restrictedCells && selectionState.restrictedCells.length > 0) {
@@ -1395,11 +1407,6 @@ function triggerAutoSelect() {
         }
     }
 
-    /**
- * 2026/03/06 修正
- * triggerAutoSelect を AI_SCORE_CONFIG 連動のスコアリング方式にアップデート
- * カード効果の対象（破壊・配置・獲得など）を評価基準に基づいて賢く選択します。
- */
     // --- スコアリングによる選択ロジックの導入 ---
     let selection = [];
     if (allValidCells.length > 0) {
@@ -1409,56 +1416,68 @@ function triggerAutoSelect() {
             const otherPlayers = players.filter(pl => pl.id !== p.id);
             const enemyGatePos = otherPlayers.map(pl => pl.startPos);
 
-            // 全ての有効な選択肢（マス）を評価
             const scoredCells = allValidCells.map(pos => {
                 let score = 0;
                 const cell = board[pos.y][pos.x];
                 const epOn = otherPlayers.find(ep => ep.x === pos.x && ep.y === pos.y);
-
+                
                 // 1. 枚数・色の評価
                 const stackCount = (cell.stack ? cell.stack.length : 0) + (cell.empty ? 0 : 1);
-                score += (stackCount * cfg.STACK_COUNT); // 枚数 (+10/枚)
+                score += (stackCount * cfg.STACK_COUNT);
 
                 if (cell.revealed && cell.color) {
                     const colId = cell.color.colorId;
-                    // 未ロック色 (+50)
                     if (collections[p.id][colId] && collections[p.id][colId].length === 0) score += cfg.UNLOCKED_COLOR;
-                    // 虹・白・黒 (+20)
                     if (['rainbow', 'white', 'black'].includes(colId)) score += cfg.RARE_COLOR;
                 }
 
-                /*** * triggerAutoSelect 内で isNegative フラグを判定し、自分への誤爆を防止*/
-                // 2. プレイヤー位置関連
-                if (epOn) score += cfg.STEAL_ACTION; // 接触行為（強奪など） (+50)
-                
-                // ★追加：自分への誤爆防止
-                // 現在使用中のカード(activeHandCard)がネガティブ効果で、かつ対象マスに自分がいる場合
+                // 2. プレイヤー位置関連・特殊保護ロジック
                 const isSelfOn = (p.x === pos.x && p.y === pos.y);
-                if (activeHandCard && activeHandCard.isNegative && isSelfOn) {
-                    score -= 200; // 自分を対象にするのを強力に抑制
+                const isGainLogic = (selectionState.logic === 'add_all_to_hand' || selectionState.logic === 'add_to_hand');
+                const isDestroyLogic = (selectionState.logic === 'destroy_all' || selectionState.logic === 'destroy_top');
+
+                // ★【追加】ゲート侵攻の踏み台保護ロジック
+                const isEnemyGate = enemyGatePos.some(eg => eg.x === pos.x && eg.y === pos.y);
+                const distToPos = Math.abs(p.x - pos.x) + Math.abs(p.y - pos.y);
+                
+                if (isEnemyGate && distToPos === 1) {
+                    if (isGainLogic || isDestroyLogic) {
+                        score -= 9999; // 勝利への一歩を自ら消さないようにする
+                    }
+                }
+
+                // ★【整理】自分の足元・ネガティブ効果の誤爆防止
+                if (isSelfOn) {
+                    if (isGainLogic) {
+                        score -= 9999; // 自分の足元を二重獲得するのは無意味なので絶対避ける
+                    } else if (activeHandCard && activeHandCard.isNegative) {
+                        score -= 200; // 手札からのネガティブ効果誤爆防止
+                    }
                 }
                 
+                // 相手がいるマスへの接触加点
+                if (epOn) score += cfg.STEAL_ACTION; 
+                
+                // 相手の隣接マスの評価
                 const isNextToEnemy = otherPlayers.some(ep => Math.abs(ep.x - pos.x) + Math.abs(ep.y - pos.y) === 1);
-                if (isNextToEnemy && !epOn) score += cfg.ADJACENT_ENEMY; // 相手の隣 (+5)
+                if (isNextToEnemy && !epOn) score += cfg.ADJACENT_ENEMY;
 
                 // 3. ゲート・防衛関連
                 const distToSelfGate = getDistance(pos, p.startPos);
                 const isEnemyNearSelfGate = otherPlayers.some(ep => getDistance({x: ep.x, y: ep.y}, p.startPos) <= 2);
-                if (isEnemyNearSelfGate && distToSelfGate <= 2) score += cfg.SELF_GATE_DEFENSE; // 自ゲート防衛 (+20)
+                if (isEnemyNearSelfGate && distToSelfGate <= 2) score += cfg.SELF_GATE_DEFENSE;
 
                 const distToEnemyGate = Math.min(...enemyGatePos.map(eg => getDistance(pos, eg)));
                 const currentDistToEnemyGate = Math.min(...enemyGatePos.map(eg => getDistance({x: p.x, y: p.y}, eg)));
-                if (distToEnemyGate === 0 && currentDistToEnemyGate <= 1) score += cfg.REACH_ENEMY_GATE; // 敵ゲート到達 (+100)
-                if (distToEnemyGate < currentDistToEnemyGate) score += cfg.MOVE_TOWARD_GATE; // 敵ゲート接近 (+30)
+                if (distToEnemyGate === 0 && currentDistToEnemyGate <= 1) score += cfg.REACH_ENEMY_GATE;
+                if (distToEnemyGate < currentDistToEnemyGate) score += cfg.MOVE_TOWARD_GATE;
 
                 return { pos, score };
             });
 
-            // スコアが高い順にソートし、必要な数（selectionState.count）だけ抽出
             scoredCells.sort((a, b) => b.score - a.score || Math.random() - 0.5);
             selection = scoredCells.slice(0, selectionState.count).map(item => item.pos);
         } else {
-            // EASYモードは従来通りランダム
             const shuffled = allValidCells.sort(() => Math.random() - 0.5);
             selection = shuffled.slice(0, selectionState.count);
         }
@@ -2179,48 +2198,51 @@ case 'open_facedown':
             break;
 
         case 'force_move_logic':
-    if (activeTargetPos) {
+    // selectionState から情報を取得
+    const victim = selectionState.targetVictim;
+    const originalOnSuccess = selectionState.originalCallback;
+
+    if (victim) {
         (async () => {
-            const victim = activeTargetPos; 
             const destPos = selection[0];   
             const cell = board[destPos.y][destPos.x];
+            const p = selectionState.actingPlayer || players[turn];
 
             // 1. 移動演出
             await animateCellBlink(victim.x, victim.y, '#f97316');
 
-            // 2. 移動実行（第4引数を false にして、通常の到達判定を許可する）
-            // callbackを渡さないことで、二重発動を回避しつつ async/await で完了を待機
+            // 2. 移動実行
             await moveToCell(victim, destPos.x, destPos.y, false, null, null, 'moving-unit-glow');
 
             // 3. 移動後の処理
             await animateCellBlink(destPos.x, destPos.y, '#f97316');
             addLog(`${p.name}のフォースにより、${victim.name}が移動させられました。`);
             
-            const card = cell.empty ? null : cell.color;
+            const card = (cell && !cell.empty) ? cell.color : null;
             if (card) {
-                // ここで handleArrivalLogic を直接呼び出す
-                // callback 内で「終了後の AI 再開」を確約する
+                // handleArrivalLogic を呼び出し、全ての連鎖が終わった後に onSuccess を実行
                 handleArrivalLogic(cell, victim, () => {
-                    // 到達（およびコンボ）が全て終わった後の最終処理
                     isProcessingMove = false;
-                    isHandEffectProcessing = false; // ハンドフェイズ処理中フラグを解除
+                    isHandEffectProcessing = false;
                     
                     if (typeof updateGameState === 'function') updateGameState();
-                    
-                    // AIが止まらないようにコールバックを実行
-                    if (callback) callback(selection);
+                    // 手札効果としての全工程が終了したことを通知
+                    if (originalOnSuccess) originalOnSuccess({});
                     
                 }, card, true);
             } else {
-                // カードがない場合は即座にハンドフェイズに復帰
                 isProcessingMove = false;
-                if (callback) callback(selection);
+                isHandEffectProcessing = false;
+                if (typeof updateGameState === 'function') updateGameState();
+                if (originalOnSuccess) originalOnSuccess({});
             }
         })();
         return;
+    } else {
+        addLog("エラー：移動対象が見つかりませんでした。");
+        if (originalOnSuccess) originalOnSuccess({});
     }
     break;
-        
 
         case 'apocalypse_placed_logic':
             (async () => {
@@ -2973,28 +2995,21 @@ function showUserProfileModal() {
     const closeModal = () => modal.remove();
     // --- 外科手術的追加：画像または名前クリックで設定画面へ ---
     const startEdit = (event) => {
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-    modal.remove(); // プロフィール詳細を閉じる
-    
-    // 編集専用の関数を呼び出す
-    if (typeof openProfileEdit === 'function') {
-        openProfileEdit();
-    }
-};
-    
-    // --- 外科手術的追加：称号クリックで変更画面へ ---
-    modal.querySelector('#edit-title').onclick = () => {
-        showTitleSelectionModal(() => {
-            modal.remove(); // 一旦閉じて
-            showUserProfileModal(); // 更新後のデータで再表示
-        });
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        modal.remove(); // プロフィール詳細を一旦閉じる
+        
+        if (typeof openProfileEdit === 'function') {
+            openProfileEdit(); // 共通の編集画面（名前＋画像）を呼ぶ
+        }
     };
 
+    // 画像（edit-profile-icon）と名前（edit-profile-name）両方に同じ関数を割り当てる
     modal.querySelector('#edit-profile-icon').onclick = startEdit;
     modal.querySelector('#edit-profile-name').onclick = startEdit;
+    
     modal.querySelector('#close-profile').onclick = closeModal;
     modal.querySelector('#close-profile-btn').onclick = closeModal;
 }

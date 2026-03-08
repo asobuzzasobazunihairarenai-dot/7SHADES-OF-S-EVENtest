@@ -1338,8 +1338,25 @@ function executeMove(x, y, cell, epOn) {
 
     // 【外科手術的修正】接触か通常移動かを判別して詳細ログを出力
     if (epOn) {
+        // ★ 外科手術的修正：接触時のアナウンス演出を追加
+        const announcement = `<div class="text-xl font-black text-yellow-500 mb-2 italic">CONTACT!!</div>
+                              <div class="text-sm">
+                                <span style="color:${p.color.hex}">●</span><b>${p.name}</b> が<br>
+                                <span style="color:${epOn.color.hex}">●</span><b>${epOn.name}</b> に接触します！
+                              </div>`;
+        
+        // ログ出力
         addLog(`${p.name} が ${epOn.name} に接触しました！`);
-        startStealSequence(epOn, moveFinish); 
+
+        // アナウンスを表示してから、実際の処理（反撃確認など）へ
+        if (typeof showMessageOverlay === 'function') {
+            showMessageOverlay(announcement, 2500, () => {
+                startStealSequence(epOn, moveFinish); 
+            });
+        } else {
+            // 万が一関数がない場合の安全策
+            startStealSequence(epOn, moveFinish);
+        }
     } else {
         // 2026/03/06 修正：ログの視認性向上（プレイヤーカラー＋アイコン）
         addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-gray-400">👟 移動</span> (${x}, ${y})`);
@@ -1353,35 +1370,46 @@ function executeMove(x, y, cell, epOn) {
  * 2. 反撃演出(showCardModal)とAI自動処理の分岐ロジックを正確に統合。
  */
 
+/**
+ * 2026/03/08 11:45 修正
+ * 1. 反撃者が人間(P1)の場合、システム全体の自動化フラグ(isAutoAction等)を一時的に強制解除。
+ * 2. CPUのターン中であっても、P1の反撃確認モーダルがスキップされずに必ず表示されるよう修正。
+ */
 function startStealSequence(victim, callback) { 
     if (!players[turn] || !hands[victim.id]) return;
     const turnPlayer = players[turn]; 
     
-    // 反撃カード(ID:22)を所持しているか確認
     const counterCard = hands[victim.id].find(c => c.id === 22); 
     
     if (counterCard) {
         // ★ 内部関数：反撃の演出と処理を実行
         const processCounter = () => {
             showCardModal(counterCard, () => {
-                // 反撃コスト（カード）の支払い
                 hands[victim.id].splice(hands[victim.id].indexOf(counterCard), 1); 
                 discardPile.push(counterCard); 
                 addLog(`${victim.name}が「反撃」を発動！`); 
 
-                // ターゲットを入れ替えて再帰的に反撃の連鎖を確認
                 const nextVictim = (victim.id === turnPlayer.id) ? (typeof activeTargetPlayerForCounter !== 'undefined' ? activeTargetPlayerForCounter : victim) : turnPlayer;
                 startStealSequence(nextVictim, callback); 
             }, "手札効果発動", victim.name, "「反撃」で逆に奪い返します！");
         };
 
-        // --- CPUまたは自動処理(AI)の場合 ---
-        if (isAutoAction) {
+        // ★ 外科手術的修正：P1(自分)が狙われた場合、自動処理を一時停止させる
+        if (victim.id === 1) {
+            isAutoAction = false;       // 自動実行フラグを折る
+            isAutoProcessing = false;   // 自動処理中フラグを折る
+            if (typeof pauseTimer === 'function') pauseTimer(); // タイマーも止める
+        }
+
+        // 修正：victim.id !== 1 (自分以外) なら自動処理を許可
+        if (isAutoAction && victim.id !== 1) {
             processCounter();
         } 
-        // --- 人間プレイヤーの場合 ---
         else {
+            // 自分(P1)の場合は、ここで確実にモーダルが表示され、入力待ちになります
             showDetailModal("反撃のチャンス", `${victim.name}さん、「反撃」で接触を無効化し、逆に強奪しますか？`, counterCard, "反撃する", () => {
+                // OKを押した後は、必要に応じてフラグを戻すことも検討できますが、
+                // 基本は演出（processCounter）へ流します
                 processCounter();
             }, false);
 
@@ -1397,11 +1425,11 @@ function startStealSequence(victim, callback) {
         return;
     } 
 
-    // 反撃カードがない場合は通常の強奪処理へ進む
     if (typeof startStealSequenceInternal === 'function') {
         startStealSequenceInternal(victim, callback);
     }
 }
+
 function startStealSequenceInternal(victim, callback, overrideInvader = null) {
     const invader = overrideInvader || players[turn];
     if (!hands[victim.id] || hands[victim.id].length === 0) { finishSteal(victim, null, callback, invader); return; } 
@@ -1544,6 +1572,14 @@ async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraC
 function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false) {
     const curC = cardObj || cell.color;
     if (!curC) { if (callback) callback(); return; }
+
+    // ★ 2026/03/08 修正：フォース等で動かされた本人が人間(P1)なら、自動処理を強制解除
+    // これにより、CPUのターン中であっても、あなたの到達効果モーダルはあなたの確認を待ちます。
+    if (player.id === 1) {
+        isAutoAction = false;       // 自動実行をオフにする
+        isAutoProcessing = false;   // 自動思考をストップさせる
+        if (typeof pauseTimer === 'function') pauseTimer(); // あなたが考える間、タイマーも止める
+    }
     
     player.processedArrivalCard = curC; // 処理開始フラグ
 
@@ -2404,50 +2440,74 @@ function setupProfileUI() {
  * プロフィール編集専用の関数。
  * 保存してもホームに戻らず、詳細画面を再表示します。
  */
+/**
+ * 2026/03/08 10:00 修正
+ * 1. openProfileEdit 内の変数名重複エラー(okBtnの再宣言)を修正。
+ * 2. ボタンのクローンによるイベント初期化と、編集用ロジックの割り当てを正常化。
+ */
 function openProfileEdit() {
     const modal = document.getElementById('profile-setup-modal');
     if (!modal) return;
 
-    // 1. 既存のモーダルを表示（HTML構造は使い回すが、ボタンの挙動だけ変える）
+    // ★ 外科手術：1回目からアイコンを表示させるため、まずUIを構築する
+    if (typeof setupProfileUI === 'function') {
+        setupProfileUI();
+    }
+
+    // 1. ボタンのリセット（クローンによるイベント消去）
+    let okBtn = document.getElementById('start-with-profile-btn');
+    if (okBtn) {
+        const newOkBtn = okBtn.cloneNode(true);
+        okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+        okBtn = newOkBtn;
+    }
+
+    // 2. モーダルを表示
     modal.classList.remove('hidden');
     modal.style.display = 'flex';
 
-    // 2. タイトルを「EDIT PROFILE」に変更（素人の方にも編集だと分かりやすく）
+    // 3. 現在の名前を入力欄にセット
+    const nameInput = document.getElementById('p1-name-input');
+    if (nameInput) {
+        nameInput.value = userProfile.name; 
+    }
+
+    // 4. タイトルを「EDIT PROFILE」に変更
     const title = modal.querySelector('h2');
     if (title) title.textContent = "EDIT PROFILE";
 
-    // 3. OKボタンを取得して、挙動を「詳細画面に戻る」ように上書き
-    const okBtn = document.getElementById('start-with-profile-btn');
-    okBtn.textContent = "保存して戻る";
+    // 5. 書き換えた「新品のボタン」に編集用の動きを割り当てる
+    if (okBtn) {
+        okBtn.textContent = "保存して戻る";
 
-    okBtn.onclick = () => {
-        const nameInput = document.getElementById('p1-name-input');
-        const name1 = (nameInput && nameInput.value) ? nameInput.value : userProfile.name;
-        
-        // アイコンは現在選択されているものを取得（setupProfileUIの仕組みを流用）
-        const selectedImg = modal.querySelector('#p1-icon-selector img.border-yellow-500');
-        const iconPath = selectedImg ? selectedImg.src : userProfile.icon;
+        okBtn.onclick = () => {
+            const newName = (nameInput && nameInput.value) ? nameInput.value : userProfile.name;
+            
+            // アイコンは現在選択されているものを取得
+            const selectedImg = modal.querySelector('#p1-icon-selector img.border-yellow-500');
+            const iconPath = selectedImg ? selectedImg.src : userProfile.icon;
 
-        // データの保存
-        userProfile.name = name1;
-        userProfile.icon = iconPath;
-        saveUserProfile();
-        updateProfileButtonVisual();
+            // データの保存と反映
+            userProfile.name = newName;
+            userProfile.icon = iconPath;
+            
+            if (typeof saveUserProfile === 'function') saveUserProfile();
+            if (typeof updateProfileButtonVisual === 'function') updateProfileButtonVisual();
 
-        // モーダルを閉じる
-        modal.classList.add('hidden');
-        modal.style.display = 'none';
+            // モーダルを閉じる
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
 
-        // ★ここがポイント：ホームに行かず、詳細画面を再表示
-        showUserProfileModal();
+            // プロフィール詳細画面を再表示
+            showUserProfileModal();
 
-        // 念のためボタンの文字を元に戻しておく（次回の新規登録のため）
-        okBtn.textContent = "OK";
-        if (title) title.textContent = "PLAYER SETUP";
-        
-        // 元の初期化関数を呼び直して、ボタンの挙動をリセット（重要）
-        setupProfileUI();
-    };
+            // 次回（新規登録時など）のためにボタンとタイトルを初期化
+            okBtn.textContent = "OK";
+            if (title) title.textContent = "PLAYER SETUP";
+            
+            if (typeof setupProfileUI === 'function') setupProfileUI();
+        };
+    }
 }
 
 // --- 追加箇所：game_core.js の任意の場所（末尾などでOK） ---

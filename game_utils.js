@@ -486,17 +486,20 @@ function triggerHeartbeatHaptic() {
 }
 
 document.addEventListener('visibilitychange', () => {
-    // bgmAudio は global で管理されている BGM 用の Audio オブジェクトと想定
-    if (typeof bgmAudio !== 'undefined' && bgmAudio) {
+    // ★ 外科手術的修正：変数名を game_utils.js 内の他の箇所（window.gameBGM）と統一
+    const audio = window.gameBGM; 
+    
+    if (audio) {
         if (document.visibilityState === 'hidden') {
             // 画面が閉じられた、またはバックグラウンドに回った時
-            bgmAudio.pause();
+            audio.pause();
         } else if (document.visibilityState === 'visible') {
             // 再び画面が表示された時
-            // もともと再生中だった場合のみ再開（設定でオフにしている場合は鳴らさないよう配慮）
-            const isBgmOn = localStorage.getItem('shades_bgm_enabled') !== 'false';
-            if (isBgmOn) {
-                bgmAudio.play().catch(e => console.log("BGM auto-resume blocked:", e));
+            // 設定でBGMが有効（'false'ではない）かつ、タイトル画面以外などで再生すべき状態なら再開
+            const isBgmEnabled = localStorage.getItem('shades_bgm_enabled') !== 'false';
+            if (isBgmEnabled) {
+                // iOSの制約回避のため、play()を呼び出す
+                audio.play().catch(e => console.log("BGM auto-resume blocked:", e));
             }
         }
     }

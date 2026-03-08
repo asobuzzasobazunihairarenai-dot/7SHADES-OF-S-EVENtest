@@ -1087,11 +1087,27 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             
             showCardModal(drawn, () => { 
                 if (hands[p.id].length > 0) { 
-                    showSelectionModal("手札破棄", "捨てるカードを1枚選んでください", hands[p.id], "card-back-pattern", 1, (sel) => { 
-                        hands[p.id].splice(hands[p.id].indexOf(sel[0]), 1); 
-                        discardPile.push(sel[0]); 
-                        onSuccess({}); 
-                    }, false, null, null, null, p); 
+                    // ★ 2026/03/08 修正：反撃の到達効果による手札破棄を「強制」にする
+                    // 現在の showSelectionModal には noCancel 引数がないため、
+                    // 第9引数(autoBtnText)を null にし、第8引数(cancelCallback)も null にすることで、
+                    // モーダル側でボタンを隠すロジック（先ほど修正したもの）を働かせます。
+                    showSelectionModal(
+                        "手札破棄", 
+                        "捨てるカードを1枚選んでください", 
+                        hands[p.id], 
+                        "card-back-pattern", 
+                        1, 
+                        (sel) => { 
+                            hands[p.id].splice(hands[p.id].indexOf(sel[0]), 1); 
+                            discardPile.push(sel[0]); 
+                            onSuccess({}); 
+                        }, 
+                        false, // 第7: isBlind
+                        null,  // 第8: cancelCallback (ここを null にするとボタンが「閉じる」になります)
+                        null,  // 第9: autoBtnText
+                        null,  // 第10: restrictedCells
+                        p      // 第11: actingPlayer
+                    ); 
                 } else onSuccess({}); 
             }, "反撃ドロー", p.name, "発動しました");
         } else { 
@@ -1327,44 +1343,40 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }
 
     else if (act.type === 'force_hand_flow') {
-        const playerOptions = players.filter(pl => pl.id !== p.id).map(pl => ({ id: pl.id, name: pl.name, type: "PLAYER_SELECT" }));
-        showSelectionModal("移動させる相手", "対象のプレイヤーを選んでください", playerOptions, "card-back-pattern", 1, (selPl) => {
-            const victim = players.find(v => v.id === selPl[0].id);
-            
-            // --- 修正箇所：カードがあり、かつ「誰もいない」マスだけを抽出 ---
-            const validCells = [];
-            for (let y = 0; y < GRID_SIZE; y++) {
-                for (let x = 0; x < GRID_SIZE; x++) {
-                    const cell = board[y][x];
-                    // 駒が既にそのマスにいるかチェック
-                    const isOccupied = players.some(pl => pl.x === x && pl.y === y);
-                    // 「カードがあり」かつ「誰もいない」
-                    if (!cell.empty && !isOccupied) {
-                        validCells.push({ x, y });
-                    }
+    const playerOptions = players.filter(pl => pl.id !== p.id).map(pl => ({ id: pl.id, name: pl.name, type: "PLAYER_SELECT" }));
+    showSelectionModal("移動させる相手", "対象のプレイヤーを選んでください", playerOptions, "card-back-pattern", 1, (selPl) => {
+        const victim = players.find(v => v.id === selPl[0].id);
+        
+        const validCells = [];
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                const cell = board[y][x];
+                const isOccupied = players.some(pl => pl.x === x && pl.y === y);
+                if (!cell.empty && !isOccupied) {
+                    validCells.push({ x, y });
                 }
             }
+        }
 
-            if (validCells.length > 0) {
-                // 移動完了後の到達処理が終わったときに初めて onSuccess を呼ぶように修正
-                startSelectionMode('select_cell', 1, 'force_move_logic', "移動先の空きマスを選択", 
-                    () => {
-                        // 駒の移動アニメーション自体は開始されているが、
-                        // 到達処理のQueueが空になるまで待つ必要があるため、ここでは何もしないか、
-                        // システムに「まだ継続中」であることを明示する。
-                        // movePlayerWithArrival側で最終的な解決が行われるため、
-                        // onSuccessは連鎖の最後で呼ばれるようにします。
-                    }, 
-                    null, null, true, p, false, validCells, "おまかせ", validCells, victim);
-                       activeTargetPos = victim;
-            } 
-            else {
-                addLog("移動できる有効な空きマスがないため移動できませんでした。");
-                onSuccess({});
-            }
-        }, false, null, null, null, p);
-        return;
-    }
+        if (validCells.length > 0) {
+            startSelectionMode(
+                'select_cell', 1, 'force_move_logic', `${victim.name}の移動先を選択`, 
+                (res) => {
+                    // ここで onSuccess を呼ぶと、移動演出の前にカードが捨てられて終了してしまうため、
+                    // 実際の移動完了は executeSelectionLogic 側に任せます。
+                }, 
+                null, null, true, p, false, null, "おまかせ", validCells, p
+            );
+            // ★重要：selectionState に被害者を直接保存する（これで伝言ゲームを繋ぐ）
+            selectionState.targetVictim = victim;
+            selectionState.originalCallback = onSuccess; // 元の終了合図を保存しておく
+        } else {
+            addLog("移動できる有効な空きマスがないため移動できませんでした。");
+            onSuccess({});
+        }
+    }, false, null, null, null, p);
+    return;
+}
 
     // --- 欲しがりの吊り橋 (ID: 19) ---
     else if (act.type === 'greedy_bridge_hand') { 
@@ -1464,8 +1476,18 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
                     const processOpponentPalette = (idx) => {
                         if (idx >= opponents.length) { 
-                            isHandEffectProcessing = false;
-                            onSuccess({}); 
+                            // ★ 2026/03/08 修正：割り込み終了時に確実にフラグをリセット
+                            isHandEffectProcessing = false; 
+                            
+                            // 演出のために少し待ってから成功コールバックを実行
+                            setTimeout(() => {
+                                if (onSuccess) onSuccess({}); 
+                                
+                                // 【重要】CPUの割り込みだった場合、止まったフェイズを再開させる
+                                if (isAutoAction || isAutoProcessing) {
+                                    if (typeof updateGameState === 'function') updateGameState();
+                                }
+                            }, 500);
                             return; 
                         }
                         
@@ -1477,6 +1499,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                         const performDiscard3 = () => {
                             const dCount = Math.min(handCount, 3);
                             if (dCount > 0) {
+                                // ★ 2026/03/08 修正：第11引数に opp を指定。
+                                // これにより、相手がCPUなら自動で捨て、人間ならあなたの画面に選択が出ます。
                                 showRequestSelectionModal("手札破棄", `${opp.name}: 破棄するカードを${dCount}枚選んでください`, hands[opp.id], "card-back-pattern", dCount, (sel) => {
                                     sel.forEach(c => { hands[opp.id].splice(hands[opp.id].indexOf(c), 1); discardPile.push(c); });
                                     showMessageOverlay(`${opp.name} は【手札を ${dCount} 枚破棄】しました。`, 2000, () => {
@@ -1484,13 +1508,12 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                                         renderHand(); renderDeckAndDiscard();
                                         setTimeout(() => processOpponentPalette(idx + 1), 1500);
                                     });
-                                }, false, null, null, null, opp);
+                                }, false, null, null, null, opp); // ← ここで opp を指定！
                             } else {
                                 addLog(`${opp.name}は手札がないため、何も起こりませんでした。`);
                                 setTimeout(() => processOpponentPalette(idx + 1), 1000);
                             }
                         };
-
                         // --- 対処の選択（渡す or 捨てる） ---
                         if (matchCards.length > 0) {
                             const canChooseDiscard = handCount >= 3;
@@ -1510,6 +1533,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                             }
 
                             function handleGiveCard() {
+                                // ★ 2026/03/08 修正：ここも第11引数に opp を指定。
+                                // これにより「誰がカードを渡すか」の選択権が正しく当事者に渡ります。
                                 showRequestSelectionModal("譲渡カード選択", `譲渡する${declaredColor.name}のカードを選んでください`, matchCards, "card-back-pattern", 1, (selCards) => {
                                     const c = selCards[0];
                                     hands[opp.id].splice(hands[opp.id].indexOf(c), 1);
@@ -1519,7 +1544,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                                         renderHand();
                                         setTimeout(() => processOpponentPalette(idx + 1), 500);
                                     });
-                                }, false, null, null, null, opp);
+                                }, false, null, null, null, opp); // ← ここで opp を指定！
                             }
                         } else {
                             showMessageOverlay(`${opp.name} は【${declaredColor.name}】を持っていません。\n手札を3枚破棄します。`, 2500, performDiscard3);
@@ -1531,6 +1556,22 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         }, "手札効果発動", p.name, "強欲なパレットを使用しました"); // ← この閉じカッコが不足していました
         return;
     }
+     else { 
+        if(act.msg) addLog(act.msg); 
+        if (onSuccess) onSuccess({}); 
+    } 
+
+
+    // ★ 外科手術：アクション実行後は必ず描画を更新し、フラグが残り続けないようにする
+    if (typeof renderBoard === 'function') renderBoard();
+    
+    // 手札効果ではない「到達効果」などの場合はここでフラグを念のため安全側に倒す
+    if (!act.anytime && act.type !== 'greedy_palette_hand') {
+        isHandEffectProcessing = false;
+    }
+
+
+
 
     else if (act.type === 'colorful_hall_hand') {
         const lockCounts = players.map(pl => {
@@ -1850,14 +1891,29 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     hands[wp.id].splice(hands[wp.id].indexOf(c), 1); 
                     activeHandCard = c;
 
-                    // ★外科手術2：startSelectionMode にも wp を渡し、人間なら盤面クリックを待つようにする
-                    // startSelectionMode は内部で isAutoAction と wp.id === 1 を見て自動化するか判断します
-                    startSelectionMode('select_cell', 1, 'place_self_facedown_empty', `${wp.name}：置く空きマスを選んでください`, (resPos) => {
-                        const pos = resPos[0];
-                        richWhimHistory.push({ pos: pos, player: wp });
-                        renderBoard();
-                        processWhim(idx + 1);
-                    }, null, null, true, wp, false, null, "おまかせ", null, wp); // 第14引数に wp を渡す
+                    // ★ 2026/03/08 修正：操作権(actingPlayer)をwp(カード所有者)に固定
+                    // 第9引数(origin)に wp を、第14引数(actingPlayer)にも wp を確実に渡します
+                    startSelectionMode(
+                        'select_cell', 
+                        1, 
+                        'place_self_facedown_empty', 
+                        `${wp.name}：置く空きマスを選んでください`, 
+                        (resPos) => {
+                            const pos = resPos[0];
+                            richWhimHistory.push({ pos: pos, player: wp });
+                            renderBoard();
+                            processWhim(idx + 1);
+                        }, 
+                        null,  // range
+                        null,  // forbiddenTile
+                        true,  // noCancel
+                        wp,    // ★ 第9引数(origin): wpの駒を基準にする
+                        false, // isEightDirection
+                        null,  // cancelCallback
+                        "おまかせ", 
+                        null,  // restrictedCells
+                        wp     // ★ 第14引数(actingPlayer): 操作する人をwpに固定！
+                    );
                 } else {
                     hands[wp.id].splice(hands[wp.id].indexOf(c), 1); 
                     discardPile.push(c);

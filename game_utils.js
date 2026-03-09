@@ -10,8 +10,11 @@ function addLog(text) {
     const logEl = document.getElementById('log-area');
     if(!logEl) return;
 
+    /** 2026/03/08 修正：カード名強調（『 』）の追加 **/
     // キーワード変換マップ（よりリッチに）
     const highlights = [
+        // カード名：『 』で囲まれた部分を青白く光らせ、背景を少し暗くする
+        { key: /『(.*?)』/g, html: '<span class="bg-gray-900/50 text-cyan-300 font-bold px-1 rounded border border-cyan-500/30 shadow-[0_0_5px_rgba(34,211,238,0.4)]">$&</span>' },
         // 勝利：金文字＋王冠
         { key: /勝利|WIN|WINNER/g, html: '<span class="text-yellow-400 font-black italic drop-shadow-[0_0_3px_rgba(250,204,21,0.8)]">👑 $&</span>' },
         // 王手：オレンジ＋脈動
@@ -504,3 +507,23 @@ document.addEventListener('visibilitychange', () => {
         }
     }
 });
+
+/** 2026/03/09 修正：カードを捨てる際にログを表示する共通関数を追加 **/
+/**
+ * カードを捨て札に送り、その内容をログに表示する
+ * @param {number} pId - プレイヤーID
+ * @param {Object} card - 捨てるカードオブジェクト
+ */
+function discardCardWithLog(pId, card) {
+    if (!card) return;
+    
+    // 捨て札に追加
+    discardPile.push(card);
+    
+    // ログを表示（カード名を『』で囲むことで、既存の強調ルールを適用）
+    const pName = players[pId - 1].name;
+    addLog(`[${pName}] が 『${card.name}』 を捨てました。`);
+    
+    // 手札の再描画（手札から捨てた場合を想定）
+    if (typeof renderHand === 'function') renderHand(pId);
+}

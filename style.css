@@ -679,16 +679,43 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     border: 2px solid rgba(255, 255, 255, 0.8);
 }
 
+/** 2026/03/09 修正：ライトモード時のログ文字色と強調表示の視認性向上 **/
 /* ログエリア */
 #log-area {
-    background-color: var(--bg-main); /* 黒固定から背景色連動へ */
+    background-color: var(--bg-main);
     border-color: var(--border-color);
-    color: var(--text-main); /* 緑固定からテキスト色連動へ */
+    color: var(--text-main);
 }
 
 .light-mode #log-area {
-    color: #1f2937; /* ライトモード時は読みやすい濃いグレー */
+    color: #111827 !important; /* 視認性の高い純粋な黒に近いグレー */
     border-width: 2px;
+}
+
+/* ライトモード時のログ内特殊装飾の補正 */
+.light-mode #log-area span {
+    /* 共通：白飛び防止のため、薄い文字には暗い影を落とす */
+    text-shadow: none !important; 
+}
+
+/* カード名強調（『 』）をライトモードで見やすく変更 */
+.light-mode #log-area .text-cyan-300 {
+    color: #0891b2 !important; /* 明るいシアンから濃いシアンへ */
+    background-color: rgba(0, 0, 0, 0.05) !important;
+    border-color: rgba(8, 145, 178, 0.3) !important;
+}
+
+/* 勝利・王手などの黄色/オレンジ文字が白背景で消えないように補正 */
+.light-mode #log-area .text-yellow-400,
+.light-mode #log-area .text-orange-500 {
+    color: #9a3412 !important; /* 濃い茶・オレンジ系に変更 */
+    font-weight: 900;
+}
+
+/* フェイズ名などの薄い文字 */
+.light-mode #log-area .opacity-70 {
+    opacity: 1 !important;
+    color: #4b5563 !important;
 }
 
 /* 手札エリア・ロックエリアのコンテナ */
@@ -1490,15 +1517,22 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     flex-direction: column;
 }
 
+/** 2026/03/09 修正：ライトモード時のログ1行目の色被りを解消 **/
 /* 常に最新（一番上）のログを強調 */
 #log-area div:first-child {
     font-size: 11px;
-    color: #ffffff; /* 最新は純白でハッキリ */
+    color: #ffffff; /* ダークモード時のデフォルト */
     filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.3));
     border-left: 2px solid #fbbf24; /* 左側に黄色のインジケータ */
     padding-left: 4px;
     margin-bottom: 2px;
     animation: log-pop 0.3s ease-out;
+}
+
+/* ライトモード時は1行目の白文字を解除し、視認性を高める */
+.light-mode #log-area div:first-child {
+    color: #000000 !important; /* 最新ログを真っ黒にして強調 */
+    filter: drop-shadow(0 0 5px rgba(0, 0, 0, 0.1));
 }
 
 /* 2番目以降のログを徐々に薄くする（フェードアウト効果） */
@@ -1635,3 +1669,4 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
         transform: translateX(-50%) translateY(-50%) scale(1.2); /* 着弾時は少し大きく */
     }
 }
+

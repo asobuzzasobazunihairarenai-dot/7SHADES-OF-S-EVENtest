@@ -41,11 +41,15 @@ function drawCard() {
     return card; 
 }
 
-function discardCard(card) { 
+/** 2026/03/09 修正：捨て札ログをより明確に（プレイヤー特定可能な場合は名前を出す） **/
+function discardCard(card, player = null) { 
     if(!card) return;
-    // 【外科手術的修正】捨てられたカード名をログに記録（エターナルはルール上捨てられないが、念のため判定に含める）
     if(card.type !== "ETERNAL") {
-        addLog(`「${card.name}」 が捨て札に送られました`);
+        if (player) {
+            addLog(`[${player.name}] が 『${card.name}』 を捨て札に送りました。`);
+        } else {
+            addLog(`『${card.name}』 が捨て札に送られました。`);
+        }
         discardPile.push(card); 
     }
     if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); 
@@ -1436,26 +1440,45 @@ function startStealSequenceInternal(victim, callback, overrideInvader = null) {
     showSelectionModal("強奪チャンス", `${invader.name}さん、1枚奪え！`, hands[victim.id], "card-back-pattern", 1, (cards) => finishSteal(victim, cards[0], callback, invader), true, null, null, null, invader);
 }
 
+/** 2026/03/09 修正：接触強奪時のカード確認モーダルを追加 **/
 function finishSteal(victim, card, callback, invader) { 
-    // 【外科手術的追加】接触演出（衝撃波と画面揺れ）を実行
+    // 接触演出（衝撃波と画面揺れ）を実行
     if (typeof playContactEffect === 'function') {
         playContactEffect(victim.x, victim.y);
     }
 
+    // 次のステップに進むための共通処理を関数化
+    const proceed = () => {
+        if (victim.x === victim.startPos.x && victim.y === victim.startPos.y) { 
+            if(callback) callback(); 
+        } 
+        else { 
+            moveToCell(victim, victim.startPos.x, victim.startPos.y, true, callback); 
+        }
+    };
+
     if (card) { 
+        // データの移動
         hands[victim.id].splice(hands[victim.id].indexOf(card), 1); 
         hands[invader.id].push(card); 
-        // 2026/03/06 修正：強奪ログの視認性向上（プレイヤーカラー＋アイコン）
-        addLog(`<span style="color:${invader.color.hex}">●</span> <b>${invader.name}</b> <span class="text-red-500">💥 強奪</span> ➔ <b>${victim.name}</b> の「${card.name}」`);
-    }
+        
+        // ログの出力（『 』で強調）
+        addLog(`<span style="color:${invader.color.hex}">●</span> <b>${invader.name}</b> <span class="text-red-500">💥 強奪</span> ➔ <b>${victim.name}</b> の 『${card.name}』`);
 
-    if (victim.x === victim.startPos.x && victim.y === victim.startPos.y) { 
-        if(callback) callback(); 
-    } 
-    else { 
-        // 相手を自身のゲートへ移動させる。
-        // 第6引数に 'contact-knockback' クラスを渡せるよう拡張（演出用）
-        moveToCell(victim, victim.startPos.x, victim.startPos.y, true, callback); 
+        // ★ 修正箇所：奪ったカードをモーダルで表示する
+        if (typeof showCardModal === 'function') {
+            showCardModal(card, () => {
+                renderHand();
+                proceed();
+            }, "カード強奪", invader.name, `${victim.name} から奪いました！`);
+        } else {
+            renderHand();
+            proceed();
+        }
+    } else {
+        // カードを奪えなかった場合（相手の手札が0など）
+        addLog(`${victim.name} は手札を持っていませんでした。`);
+        proceed();
     }
 }
 

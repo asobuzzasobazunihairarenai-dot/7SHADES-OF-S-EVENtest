@@ -248,10 +248,12 @@ function canPlayHandEffect(card, p) {
  * 2026/03/06 修正
  * 効果発動ログをプレイヤーカラー＋アイコン「✨ EFFECT」に変更し、視認性を向上。
  */
+/** 2026/03/09 修正：効果発動ログの強調表示対応 **/
 function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = false) {
     // 【外科手術的修正】効果解決の開始をログに記録
     if (contextCard && contextCard.name) {
-        addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-blue-400">✨ EFFECT</span> 「${contextCard.name}」`);
+        // 「 」を 『 』 に変更
+        addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-blue-400">✨ EFFECT</span> 『${contextCard.name}』`);
     }
 
     if (!def) { 
@@ -288,12 +290,15 @@ function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = 
             return; 
         }
         showSelectionModal("コスト支払い", "捨てるカードを選択してください", candidates, "card-back-pattern", def.cost.amount, (sel) => {
+            /** 2026/03/09 修正：コスト支払いのログを詳細化 **/
             // 1. まずコスト（追色に使ったカード）を捨てる
             sel.forEach(c => { 
                 const curIdx = hands[p.id].indexOf(c); 
                 if(curIdx > -1) {
                     const removed = hands[p.id].splice(curIdx, 1)[0];
-                    discardCard(removed); // ログに出力するため discardCard を使用
+                    // プレイヤー名と強調されたカード名を表示
+                    addLog(`[${p.name}] がコストとして 『${removed.name}』 を捨てました。`);
+                    discardPile.push(removed); 
                 }
             });
 
@@ -1076,6 +1081,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         return;
     }
     
+    /** 2026/03/09 修正：「反撃」効果で捨てたカードをモーダル表示 **/
     else if (act.type === 'counter_arrival') {
         const minHand = Math.min(...players.map(pl => hands[pl.id].length));
         if (hands[p.id].length === minHand) {
@@ -1087,10 +1093,6 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             
             showCardModal(drawn, () => { 
                 if (hands[p.id].length > 0) { 
-                    // ★ 2026/03/08 修正：反撃の到達効果による手札破棄を「強制」にする
-                    // 現在の showSelectionModal には noCancel 引数がないため、
-                    // 第9引数(autoBtnText)を null にし、第8引数(cancelCallback)も null にすることで、
-                    // モーダル側でボタンを隠すロジック（先ほど修正したもの）を働かせます。
                     showSelectionModal(
                         "手札破棄", 
                         "捨てるカードを1枚選んでください", 
@@ -1098,20 +1100,21 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                         "card-back-pattern", 
                         1, 
                         (sel) => { 
-                            hands[p.id].splice(hands[p.id].indexOf(sel[0]), 1); 
-                            discardPile.push(sel[0]); 
-                            onSuccess({}); 
+                            const discardedCard = sel[0];
+                            hands[p.id].splice(hands[p.id].indexOf(discardedCard), 1); 
+                            
+                            // 修正：捨てたカードをモーダルで表示してから終了する
+                            showCardModal(discardedCard, () => {
+                                discardCard(discardedCard); // 共通関数でログ出力と破棄を実行
+                                onSuccess({});
+                            }, "反撃：手札破棄", p.name, "このカードを捨てました");
                         }, 
-                        false, // 第7: isBlind
-                        null,  // 第8: cancelCallback (ここを null にするとボタンが「閉じる」になります)
-                        null,  // 第9: autoBtnText
-                        null,  // 第10: restrictedCells
-                        p      // 第11: actingPlayer
+                        false, null, null, null, p
                     ); 
                 } else onSuccess({}); 
             }, "反撃ドロー", p.name, "発動しました");
-        } else { 
-            // 【修正箇所】ログ出力だけでなく、不発モーダルを表示する
+        } else {
+            // （不発処理）
             addLog(`${p.name}の手札が最少ではないため、反撃は不発でした。`); 
             showMessageOverlay("手札が最少ではないため、\n反撃は発動しませんでした。", 2000, () => {
                 onSuccess({}); 
@@ -1263,8 +1266,14 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         const processNextCelestia = (idx) => {
             if (idx >= victims.length) { onSuccess({}); return; }
             const victim = victims[idx];
+            /** 2026/03/09 修正：セレスティアによる破棄ログを詳細化 **/
             showSelectionModal("CELESTIA DISCARD", `${victim.name}の手札から破棄するカードを1枚選んでください（無作為）`, hands[victim.id], "card-back-pattern", 1, (sel) => {
-                const cardToDiscard = sel[0]; const h = hands[victim.id]; h.splice(h.indexOf(cardToDiscard), 1); discardPile.push(cardToDiscard); addLog(`${victim.name}の手札から「${cardToDiscard.name}」を捨てさせました。`);
+                const cardToDiscard = sel[0]; 
+                const h = hands[victim.id]; 
+                h.splice(h.indexOf(cardToDiscard), 1); 
+                discardPile.push(cardToDiscard); 
+                // 強調表示に変更
+                addLog(`[${victim.name}] の手札から 『${cardToDiscard.name}』 が捨てられました。`);
                 renderHand(); renderDeckAndDiscard(); renderStatus(); processNextCelestia(idx + 1);
             }, true, null, null, null, victim);
         };

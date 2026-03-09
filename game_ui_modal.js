@@ -1228,15 +1228,25 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
     });
 
     // 2026/03/06 修正：カード獲得ログの視認性向上（プレイヤーカラー＋アイコン）
-    if (actualCards.length > 0) {
-        const cardNames = actualCards.map(c => `「${c.name}」`).join('、');
-        addLog(`<span style="color:${players.find(pl => pl.name === playerName)?.color.hex || '#fff'}">●</span> <b>${playerName}</b> <span class="text-green-400">🎁 獲得</span> ${cardNames}`);
-        // 条件に !titleText.includes("公開") を追加
-        const isSecretMsg = isP1HandOnlyView && 
-                             playerName !== players[0].name && 
-                             !titleText.includes("公開") && // ★ここを追加
-                             (actualCards[0].revealed === false || titleText.includes("ドロー") || titleText.includes("奪"));
-                             
+    /** 2026/03/09 修正：到達と獲得のログを分離し、強調表示に対応 **/
+if (actualCards.length > 0) {
+    // カード名を『 』で囲み、highlightsルールが適用されるようにする
+    const cardNames = actualCards.map(c => `『${c.name}』`).join('、');
+    const pColor = players.find(pl => pl.name === playerName)?.color.hex || '#fff';
+    
+    // モーダルのタイトルによって「到達」か「獲得」かを出し分ける
+    if (titleText.includes("到達")) {
+        addLog(`<span style="color:${pColor}">●</span> <b>${playerName}</b> <span class="text-orange-400">📍 到達</span> ${cardNames}`);
+    } else {
+        addLog(`<span style="color:${pColor}">●</span> <b>${playerName}</b> <span class="text-green-400">🎁 獲得</span> ${cardNames}`);
+    }
+    
+    // 元のロジックを維持
+    const isSecretMsg = isP1HandOnlyView && 
+                         playerName !== players[0].name && 
+                         !titleText.includes("公開") && 
+                         (actualCards[0].revealed === false || titleText.includes("ドロー") || titleText.includes("奪"));
+                                                 
         if (isSecretMsg) {
             msgEl.textContent = "？？？";
         } else {
@@ -1384,17 +1394,21 @@ function startSelectionMode(type, count, logic, promptText, callback, range = nu
 /**
  * 自動選択ロジック
  */
+/** 2026/03/09 修正：「おまかせ」ボタン押下時はP1でも自動選択を許可する **/
 function triggerAutoSelect() {
     if (!selectionState.active || isPeekingMode) return;
 
-    // ★ 外科手術：操作している駒の持ち主を確認
+    // 操作しているプレイヤーを特定
     const p = selectionState.actingPlayer || players[turn];
     
-    // 操作者が人間(P1)の場合、CPUのターンであっても自動処理を絶対にさせない
-    if (p.id === 1) {
+    // ★ 修正：isAutoAction(CPUの思考中) かつ P1 の場合のみ待機させる。
+    // 「おまかせ」ボタンを手動で押した場合は isAutoAction が false なので、この下の処理に進めます。
+    if (isAutoAction && p.id === 1) {
         addLog("プレイヤーの選択を待機中...");
         return; 
     }
+
+    // --- 以下、自動選択ロジック ---
     
     let allValidCells = [];
     if (selectionState.restrictedCells && selectionState.restrictedCells.length > 0) {

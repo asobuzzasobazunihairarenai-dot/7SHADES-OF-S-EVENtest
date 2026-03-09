@@ -99,9 +99,20 @@ let expandedLockColor = null;
 let richWhimHistory = []; // {pos: {x,y}, player: object} の配列
 
 
-let playerStats = {}; // 各プレイヤーの統計（移動距離など）を保持
+/** 2026/03/09 修正：新称号判定用の統計カウンターを追加 **/
+let playerStats = {}; 
 
-let useGlobalTimer = false; // タイマー形式フラグ (false: フェイズ固定, true: 全体持ち時間併用)
+// 1試合ごとの特殊アクション記録用
+/** 2026/03/09 修正：追加称号用の統計カウンターを拡張 **/
+let matchStats = {
+    stolenCount: {}, matchVictimCount: {}, counterSuccess: {},
+    flowerGifts: {}, apocalypseChain: {}, lavaDestroyCount: {},
+    hasContacted: {}, wasCursed: {}, gateInvaded: {},
+    gateInvasionCount: {}, handEffectUsedCount: {}, // ここが undefined だとエラーになる
+    firstCardUseCount: {}, lockBreakCount: {}
+};
+
+let useGlobalTimer = false;
 
 let timeAtTurnStart = 0;
 
@@ -119,12 +130,16 @@ let userProfile = {
     icon: "images/piece_001.png",
     selectedTitle: "駆け出しの旅人",
     unlockedTitles: ["駆け出しの旅人"],
+    seenTitles: ["駆け出しの旅人"],
     level: 1,
     totalWins: 0,
+    totalEternalGets: 0,
+    usedCardIds: [],      // ★追加：人生で一度でも手札として使ったカードIDリスト
+    usedIconPaths: [],    // ★追加：一度でも使用したアイコンパスのリスト
     rankPoint: 0,
     rank: 1,
     stats: {
-        totalGames: 0,
+        totalGames: 0,    // すでにあるこの数値を対局数称号に使用
         colorUsage: { red: 0, orange: 0, yellow: 0, green: 0, blue: 0, pink: 0, purple: 0 },
         mvpCard: null
     }

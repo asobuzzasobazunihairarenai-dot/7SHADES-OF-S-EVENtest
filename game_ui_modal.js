@@ -627,7 +627,20 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false) {
         okBtn.classList.replace('bg-blue-700', 'bg-blue-600');
     }
 
+    /** 2026/03/09 修正：ボタンサイズを確実に等幅・横並びに固定する **/
     okBtn.textContent = btnText || "実行";
+    
+    // 親コンテナを取得して、Tailwindの等幅・横並び設定を再適用
+    const btnContainer = okBtn.parentNode;
+    if (btnContainer) {
+        btnContainer.className = "flex justify-center gap-4 w-full px-2 mt-4 shrink-0";
+        
+        // キャンセルボタンと実行ボタンの両方に w-1/2（半分サイズ）を強制
+        if (cancelBtn) {
+            cancelBtn.className = "bg-gray-600 hover:bg-gray-500 text-white px-6 py-3 rounded-lg text-sm w-1/2 transition-all";
+        }
+        okBtn.className = "bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg text-sm font-bold w-1/2 shadow-lg transition-all";
+    }
 
     // --- 使用可能判定ロジック ---
     let isPlayable = true;
@@ -1895,6 +1908,7 @@ function executeSelectionLogic(logic, selection, callback) {
 
         case 'destroy_all':
     (async () => {
+        let count = 0; // 破壊した枚数
         for (const pos of selection) {
             await animateCellBlink(pos.x, pos.y, '#ef4444');
 
@@ -1923,6 +1937,9 @@ function executeSelectionLogic(logic, selection, callback) {
                 target.color = null;
             }
         }
+
+        /** 2026/03/09 修正：称号「ワイナウエアの怒り」用のカウント **/
+                matchStats.lavaDestroyCount[p.id] = (matchStats.lavaDestroyCount[p.id] || 0) + count;
 
         addLog(`ワイナウエアの噴火！マスのカードを全て焼き尽くしました。`);
         
@@ -2920,9 +2937,27 @@ function showUserProfileModal() {
                 <h2 id="edit-profile-name" class="text-2xl font-bold mt-4 text-adjust-main cursor-pointer hover:text-yellow-600 transition-colors flex items-center justify-center gap-2">
                     ${p.name} <span class="text-xs text-gray-400 font-normal">✎</span>
                 </h2>
-                <div id="edit-title" class="text-yellow-600 dark:text-yellow-500 font-mono text-sm mt-1 cursor-pointer hover:brightness-125 transition-all flex items-center justify-center gap-1 group">
-    <span>称号: ${p.selectedTitle}</span>
-    <span class="text-[10px] bg-yellow-500/20 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">変更</span>
+
+           
+<div id="edit-title" class="mt-2 cursor-pointer group" 
+     onclick="event.stopPropagation(); showTitleSelectionModal(() => { 
+         const oldModal = document.querySelector('.animate-fade-in'); 
+         if(oldModal) oldModal.remove(); 
+         showUserProfileModal(); 
+     });">
+    <div class="flex flex-col items-center leading-tight transition-all group-hover:scale-105 origin-top">
+        <span class="text-[9px] text-gray-500 dark:text-gray-400 font-bold uppercase tracking-[0.2em] mb-1">称号</span>
+        
+        <span class="text-base font-black text-yellow-600 dark:text-yellow-500 font-mono italic">
+            ${p.selectedTitle}
+        </span>
+
+        <div class="h-4 mt-1 flex items-center justify-center">
+            <span class="text-[8px] bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 px-2 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 font-bold border border-yellow-500/30">
+                変更
+            </span>
+        </div>
+    </div>
 </div>
             </div>
 
@@ -3029,14 +3064,57 @@ function showUserProfileModal() {
 }
 
 
+/** 2026/03/09 修正：勲章ロジックと名前を統一 **/
 const TITLE_DESCRIPTION_MAP = {
-    "駆け出しの旅人": { desc: "この世界に足を踏み入れた者に与えられる。 ", hint: "初期称号" },
+    "駆け出しの旅人": { desc: "この世界に足を踏み入れた者に与えられる。", hint: "初期称号" },
     "韋駄天": { desc: "1ターンに驚異的な移動距離を記録した証。", hint: "1ターンに一定マス以上移動して勝利する" },
     "電光石火": { desc: "目にも止まらぬ速さで決着をつけた証。", hint: "少ないターン数で勝利する" },
-    "虹の覇者": { desc: "七色の輝きをすべて手中に収めた真の勝者。", hint: "7色すべてをロックして勝利する" },
-    "不屈の闘志": { desc: "逆境から立ち上がり、勝利を掴んだ証。", hint: "大量のロックを奪われた後に逆転勝利する" },
-    "慎重派": { desc: "一歩一歩、確実な布石を打つ戦略家。", hint: "タイムアップにならずに一定ターンプレイする" }
-    // 今後、新しい称号が増えるたびにここに追加できます
+    /** 2026/03/09 修正：虹の覇者の条件説明を変更 **/
+    "虹の覇者": { desc: "七色の輝き（なないろの欠片）をすべて手中に収めた真の勝者。", hint: "カード「なないろの欠片」を計7枚ロックして勝利する" },
+    /** 2026/03/09 修正：カード愛好家を7色に分離 **/
+    "不動の精神": { desc: "一歩も無駄にせぬ支配。最小限の移動で勝利した証。", hint: "最も移動距離が短いプレイヤーに贈られる" },
+    "一点突破": { desc: "特定のカードを極めし者に与えられる称号。", hint: "1種類のカードを集中して使用する" },
+    "逆転の覇者": { desc: "絶望から這い上がった伝説の体現者。", hint: "劣勢から逆転勝利をおさめる" },
+    "赤の愛好家": { desc: "情熱的な赤のカードを使いこなした証。", hint: "赤のカードを多く使用して勝利する" },
+    "橙の愛好家": { desc: "活気に満ちた橙のカードを使いこなした証。", hint: "橙のカードを多く使用して勝利する" },
+    "黄の愛好家": { desc: "希望に満ちた黄のカードを使いこなした証。", hint: "黄のカードを多く使用して勝利する" },
+    "緑の愛好家": { desc: "生命力溢れる緑のカードを使いこなした証。", hint: "緑のカードを多く使用して勝利する" },
+    "青の愛好家": { desc: "冷静沈着な青のカードを使いこなした証。", hint: "青のカードを多く使用して勝利する" },
+    "桃の愛好家": { desc: "愛情豊かな桃のカードを使いこなした証。", hint: "桃のカードを多く使用して勝利する" },
+    "紫の愛好家": { desc: "神秘的な紫のカードを使いこなした証。", hint: "紫のカードを多く使用して勝利する" },
+    "ラスト・エターニティ": { desc: "決して奪われぬ永遠の輝きと共に、勝利の幕を引いた証。", hint: "エターナルカードで最後のロックをして勝利する" },
+    "静かなる侵攻者": { desc: "境界を越え、禁断の領域に足を踏み入れた新鋭。", hint: "累計でゲート侵攻に1回以上成功する" },
+    "エターナラー": { desc: "ゲートの守護を潜り抜け、幾多の至高のカードを手にした実力者。", hint: "累計でゲート侵攻に3回以上成功する" },
+    /** 2026/03/09 修正：新称号（バトル・コンボ・スタイル・累計）を一斉追加 **/
+    "レジェンド・エターナラー": { desc: "全てのゲートを蹂躙し、歴史に名を刻む伝説の略奪者。", hint: "累計でゲート侵攻に7回以上成功する" },
+    // バトル・テクニカル系
+    "不落のゲートキーパー": { desc: "鉄壁の守り。一度も侵入を許さず勝利を掴んだ証。", hint: "自分のゲートに一度も到達されずに勝利する" },
+    "カウンター・ストライク": { desc: "窮地を好機に変える、鮮やかな反撃の達人。", hint: "1試合中に「反撃」を2回以上成功させる" },
+    "デッドヒート": { desc: "極限の緊張感。全員が王手の状態から勝利を捥ぎ取った証。", hint: "全員が残り1色の状態で勝利する" },
+    "無慈悲な強奪者": { desc: "情け無用。相手の希望を根こそぎ奪い去る者。", hint: "1試合中に相手から合計5枚以上のカードを奪う" },
+    // カード・コンボ系
+    "予言の完成者": { desc: "未来はすべて掌の上。予言を完璧に的中させた証。", hint: "「アポカリプス」で3回連続的中させて勝利する" },
+    "ワイナウエアの怒り": { desc: "全てを灰にする破壊の権身。火山の怒りを体現した者。", hint: "1試合中に「ワイナウエア」でカードを10枚以上破壊する" },
+    "レインボー・メーカー": { desc: "七色の輝きを束ね、奇跡の光を放った証。", hint: "「なないろの欠片」を3枚以上ロックして勝利する" },
+    "スカイ・ウォーカー": { desc: "地を駆け、空を舞う。戦場を自在に渡り歩く旅人。", hint: "「ディメンション」と「ダッシュ」を併用して移動する" },
+    // プレイスタイル・特殊系
+    "平和の使者": { desc: "争いを避け、ただ純粋に色を求めた高潔な魂。", hint: "一度も相手からカードを奪わずに勝利する" },
+    "ラッキーセブン": { desc: "数字の魔法。聖なる「7」に愛された者の称号。", hint: "7の倍数のターンに勝利を決める" },
+    "博愛主義": { desc: "勝利よりも大切なもの。見返りなき愛を捧げた証。", hint: "「誰かの好きな花」で相手に3回以上カードを贈る" },
+    "呪いからの生還": { desc: "闇を払い、再び光を掴んだ。不屈の精神の持ち主。", hint: "「にじいろの呪い」を克服して勝利する" },
+    // 累計・やり込み系
+    "七色の旅人": { desc: "多種多様な姿で戦場を渡り歩いた証。", hint: "全プレイヤーアイコンを一度は使用して対局する" },
+    "歴戦の勇士": { desc: "積み重ねた経験は裏切らない。戦い続けた真の戦士。", hint: "通算対局数が100回に到達する" },
+    "0thの理解者": { desc: "原点にして頂点。すべてのカードを理解し使いこなした証。", hint: "0th EDITION全34種のカードを一度は手札として使用する" },
+    // 被侵攻系
+    "不屈の防衛線": { desc: "幾度ゲートを破られようとも、決して心を折らずに戦い抜いた。", hint: "ゲート侵攻を1〜2回許した状態で勝利する" },
+    "オープンハウス": { desc: "もはやゲートは公共の場。招かれざる客を迎え入れ続けた災難の証。", hint: "ゲート侵攻を3回以上許す" },
+    "名高き聖域": { desc: "誰もが欲しがる財宝が眠る場所。侵入者の絶えない高貴なゲート。", hint: "ゲート侵攻を5回以上許す" },
+    "鉄の門番（自称）": { desc: "守り抜く意志（だけ）は誰よりも強い、愛すべき門番。", hint: "短期間に何度もゲートを突破される" },
+    // プレイスタイル系
+    "無為自然": { desc: "余計な細工をせず、流れに身を任せて勝利を掴んだ高潔なスタイル。", hint: "手札効果を一度も使わずに勝利する" },
+    "国宝の使い手": { desc: "国宝キューブに愛され、その力を最も深く引き出した職人。", hint: "ファーストカードの効果を最も多く使用して勝利する" },
+    "ロック・ブレイカー": { desc: "相手が積み上げた守りを粉々に砕き、絶望を与える破壊神。", hint: "相手のロックを合計3枚以上「破壊」または「強奪」する" }
 };
 
 
@@ -3044,72 +3122,86 @@ const TITLE_DESCRIPTION_MAP = {
 /**
  * 獲得済みの称号から表示するものを選ぶモーダル
  */
+/** 2026/03/09 修正：称号リストの挙動とデザインの改善 **/
 function showTitleSelectionModal(onChanged) {
-    const titles = userProfile.unlockedTitles || ["駆け出しの旅人"];
-    
+    const unlocked = userProfile.unlockedTitles || ["駆け出しの旅人"];
+    const seen = userProfile.seenTitles || ["駆け出しの旅人"];
+    const allTitles = Object.keys(TITLE_DESCRIPTION_MAP);
+    const collectionRate = Math.floor((unlocked.length / allTitles.length) * 100);
+
     const modal = document.createElement('div');
-    modal.className = 'fixed inset-0 z-[10001] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4';
+    modal.className = 'fixed inset-0 z-[10001] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in p-4';
     
-    let titleOptionsHtml = titles.map(t => {
-        const info = TITLE_DESCRIPTION_MAP[t] || { desc: "謎に包まれた称号。", hint: "獲得条件不明" };
+    let titleOptionsHtml = allTitles.map(t => {
+        const isUnlocked = unlocked.includes(t);
+        const isNew = isUnlocked && !seen.includes(t);
+        const info = TITLE_DESCRIPTION_MAP[t];
         const isSelected = userProfile.selectedTitle === t;
         
         return `
-            <div class="flex flex-col gap-1 mb-2">
-                <div class="flex items-center gap-2">
-                    <button class="flex-1 p-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-white font-bold transition-all text-left flex justify-between items-center group ${isSelected ? 'border-yellow-500 bg-gray-700' : ''}" onclick="window._selectTitle('${t}')">
-                        <span>${t}</span>
-                        ${isSelected ? '<span class="text-yellow-500 text-sm">●</span>' : ''}
-                    </button>
-                    <button class="w-10 h-10 flex items-center justify-center bg-gray-700 hover:bg-gray-600 rounded-xl text-gray-400 border border-gray-600" 
-                            onclick="event.stopPropagation(); window._toggleTitleInfo('${t}')">
-                        <span class="text-xs">？</span>
-                    </button>
-                </div>
-                <div id="info-${t}" class="hidden p-3 bg-gray-800/50 rounded-lg border border-gray-700/50 text-[11px] space-y-1 animate-fade-in">
-                    <div class="text-yellow-500/80">【由来】${info.desc}</div>
-                    <div class="text-gray-400 italic">【獲得条件】${info.hint}</div>
+            <div class="relative group h-20">
+                <button 
+                    class="w-full h-full p-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all relative overflow-hidden
+                    ${isUnlocked ? (isSelected ? 'border-yellow-500 bg-gray-700 shadow-[0_0_10px_rgba(234,179,8,0.4)]' : 'border-gray-600 bg-gray-800 hover:border-gray-400') : 'border-gray-800 bg-gray-900/50 cursor-not-allowed opacity-60'}"
+                    onclick="${isUnlocked ? `window._confirmTitle('${t}')` : ''}"
+                    ${!isUnlocked ? 'disabled' : ''}>
+                    
+                    ${isNew ? '<span class="absolute top-1 right-1 bg-red-500 text-white text-[8px] font-black px-1 rounded-sm animate-pulse z-20">NEW</span>' : ''}
+                    
+                    <span class="text-[10px] font-bold text-center leading-tight ${isUnlocked ? 'text-white' : 'text-gray-600'}">
+                        ${isUnlocked ? t : '？？？'}
+                    </span>
+                    ${isUnlocked && isSelected ? '<span class="text-[8px] text-yellow-500 mt-1">装着中</span>' : ''}
+                </button>
+                
+                <div class="title-tooltip">
+                    <div class="font-bold mb-1 text-[9px] border-b border-gray-500/30 pb-1">${isUnlocked ? t : '未開放の称号'}</div>
+                    ${isUnlocked ? info.desc : '獲得条件：<br>' + info.hint}
                 </div>
             </div>
         `;
     }).join('');
 
     modal.innerHTML = `
-        <div class="bg-gray-900 border-2 border-yellow-500/50 w-full max-w-xs rounded-2xl overflow-hidden shadow-2xl flex flex-col">
-            <div class="p-4 border-b border-gray-800 text-center bg-gray-800/50">
-                <h3 class="text-yellow-500 font-bold">称号変更</h3>
+        <div class="bg-gray-900 border-2 border-yellow-500/50 w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
+            <div class="p-4 border-b border-gray-800 bg-gray-800/50 flex justify-between items-end">
+                <div>
+                    <h3 class="text-yellow-500 font-black italic tracking-tighter">TITLE COLLECTION</h3>
+                    <p class="text-[9px] text-gray-400 font-bold uppercase">収集率: ${collectionRate}% (${unlocked.length}/${allTitles.length})</p>
+                </div>
             </div>
-            <div class="p-4 space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                ${titleOptionsHtml}
+            <div class="p-4 overflow-y-auto custom-scrollbar">
+                <div class="grid grid-cols-3 gap-3">
+                    ${titleOptionsHtml}
+                </div>
             </div>
-            <div class="p-3 bg-gray-800/30">
-                <button id="close-title-select" class="w-full py-2 text-gray-400 hover:text-white text-sm">キャンセル</button>
+            <div class="p-4 bg-gray-800/30 border-t border-gray-800 flex gap-2">
+                <button id="close-title-select" class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold rounded-xl transition-colors">閉じる</button>
             </div>
         </div>
     `;
 
-    // グローバルに関数を一時登録（簡易化のため）
-    window._selectTitle = (titleName) => {
+    // 確定処理
+    window._confirmTitle = (titleName) => {
         userProfile.selectedTitle = titleName;
+        if (!userProfile.seenTitles) userProfile.seenTitles = ["駆け出しの旅人"];
+        if (!userProfile.seenTitles.includes(titleName)) userProfile.seenTitles.push(titleName);
         saveUserProfile();
+        
+        // 閉じて親画面に通知
         modal.remove();
         if (onChanged) onChanged();
     };
 
-    // 説明文の表示切り替え
-    window._toggleTitleInfo = (titleName) => {
-        const infoEl = document.getElementById(`info-${titleName}`);
-        if (infoEl) {
-            const isHidden = infoEl.classList.contains('hidden');
-            // 他の開いている説明を全部閉じる（スッキリさせるため）
-            document.querySelectorAll('[id^="info-"]').forEach(el => el.classList.add('hidden'));
-            // クリックしたものだけトグル
-            if (isHidden) infoEl.classList.remove('hidden');
-        }
-    };
-
     document.body.appendChild(modal);
-    modal.querySelector('#close-title-select').onclick = () => modal.remove();
+    modal.querySelector('#close-title-select').onclick = () => {
+        unlocked.forEach(t => {
+            if (!userProfile.seenTitles.includes(t)) userProfile.seenTitles.push(t);
+        });
+        saveUserProfile();
+        modal.remove();
+        if (onChanged) onChanged(); // 閉じる際にも親（プロフ）を更新
+    };
 }
 
 /**

@@ -1214,7 +1214,27 @@ function showResultModal(pid, stats) {
         </div>
     `;
 
-    // 4. すべてをまとめて一度に描画
+    /** 2026/03/09 修正：リザルトの勲章をプロフィール称号に反映 **/
+    // 4. 勲章（アワード）の計算とプロフィールへの反映
+    const currentAwards = calculateAwards(pid);
+    
+    // P1（自分）が勝った、またはP1が勲章を取った場合にプロフィールを更新
+    currentAwards.forEach(award => {
+        if (award.pid === 1) {
+            // 絵文字や記号を除去して純粋な称号名にする（例: "⚡ 電光石火" -> "電光石火"）
+            const cleanTitleName = award.name.replace(/[^\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]/g, "").trim();
+            
+            if (!userProfile.unlockedTitles.includes(cleanTitleName)) {
+                userProfile.unlockedTitles.push(cleanTitleName);
+                addLog(`🏆 新しい称号『${cleanTitleName}』をコレクションに加えました！`);
+            }
+        }
+    });
+
+    // データの永続化
+    saveUserProfile();
+
+    // 5. すべてをまとめて一度に描画
     container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + lineChartHtml + chartHtml;
     resultOverlay.classList.remove('hidden');
 }
@@ -1501,8 +1521,19 @@ async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraC
         }
         player.prevX = player.x; 
         player.prevY = player.y; 
+        /** 2026/03/09 修正：ゲート侵入の監視 **/
         player.x = tx; 
         player.y = ty;
+
+        const gateOwner = players.find(pl => pl.startPos.x === tx && pl.startPos.y === ty);
+        if (gateOwner && gateOwner.id !== player.id) {
+            // 侵攻回数をプラス
+            matchStats.gateInvasionCount[gateOwner.id] = (matchStats.gateInvasionCount[gateOwner.id] || 0) + 1;
+            
+            if (!matchStats.gateInvaded) matchStats.gateInvaded = {};
+            matchStats.gateInvaded[gateOwner.id] = true; 
+            addLog(`[System] ${gateOwner.name} のゲートが ${player.name} に突破されました！ (通算 ${matchStats.gateInvasionCount[gateOwner.id]} 回目)`);
+        }
 
         if (marker && extraClass) marker.classList.remove(extraClass);
         if (destinationCard && !isNoOpen) cell.revealed = true; 
@@ -1621,9 +1652,18 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
         executeCardEffect(curC.arrivalEffect, player, (res = {}) => {
             
             // 【重要】cleanupCellを修正：カードが消えたらフラグをリセット
+            /** 2026/03/09 修正：エターナル獲得時のカウントと勝利時フラグの記録 **/
             const cleanupCell = () => {
                 if (!(res && res.stayOnBoard)) {
+                    // エターナル獲得時のカウントアップ（P1のみ）
+                    if (player.id === 1 && curC.type === "ETERNAL") {
+                        userProfile.totalEternalGets = (userProfile.totalEternalGets || 0) + 1;
+                    }
+                    // 勝利判定用に、最後にロックしたカードのタイプを記憶（checkWin直前で使用）
+                    player.lastLockedCardType = curC.type;
+
                     if (cell.stack && cell.stack.length > 0) {
+                   
                         cell.color = cell.stack.shift();
                         cell.revealed = cell.color.savedRevealedState || false;
                         delete cell.color.savedRevealedState;
@@ -1877,11 +1917,31 @@ function cleanupGame() {
 
 async function initGameInternal(num, isTest = false) { 
 
-    // ★追加：各統計データの初期化
+    /** 2026/03/09 修正：試合開始時の統計リセットと履歴記録 **/
     gameStartTime = Date.now(); 
     totalTurnCount = 1; 
     cardUsageStats = {}; 
-    lockHistory = []; // ★追加: リセット
+    lockHistory = [];
+
+    // --- 称号判定用カウンター(matchStats)の初期化 ---
+    matchStats = {
+        stolenCount: {},
+        matchVictimCount: {}, // 強奪された数
+        counterSuccess: {},
+        flowerGifts: {},
+        apocalypseChain: {},
+        lavaDestroyCount: {},
+        hasContacted: {},
+        wasCursed: {},        // 一度でも呪われたか
+        gateInvaded: {}       // ゲートを突破されたか
+    };
+
+    // --- 長期称号用：使用アイコン履歴の記録（P1のみ） ---
+    const p1Icon = (window.pendingProfiles && window.pendingProfiles[0]) ? window.pendingProfiles[0].icon : userProfile.icon;
+    if (!userProfile.usedIconPaths) userProfile.usedIconPaths = [];
+    if (!userProfile.usedIconPaths.includes(p1Icon)) {
+        userProfile.usedIconPaths.push(p1Icon);
+    }
 
     // ライトモードの反映
     if (isLightMode) {
@@ -2156,7 +2216,26 @@ async function initGameInternal(num, isTest = false) {
 
     // 【外科手術的修正】テストモード時は自動的なターン開始(startTurn)を徹底的にブロックする
     if (!isTest) {
-        showOpeningLogo(startTurn);
+        // 1. 全プレイヤーからランダムに先手を選択
+        const startIndex = Math.floor(Math.random() * players.length);
+        turn = startIndex; // グローバル変数の turn を更新
+        
+        const firstPlayer = players[startIndex];
+        const msg = `<div class="flex flex-col items-center gap-4 animate-bounce">
+            <span class="text-xs text-gray-400 font-bold tracking-[0.3em] uppercase">Starting Order</span>
+            <div class="flex items-center gap-3 bg-white/10 px-6 py-3 rounded-full border border-white/20">
+                <span class="text-2xl font-black text-yellow-400">1st</span>
+                <img src="${firstPlayer.icon}" class="w-10 h-10 rounded-full border-2 border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)]">
+                <span class="text-xl font-bold text-white">${firstPlayer.name}</span>
+            </div>
+        </div>`;
+
+        // 2. メッセージを2秒表示してからロゴ→ゲーム開始へ
+        showMessageOverlay(msg, 2000, () => {
+            showOpeningLogo(startTurn);
+        });
+        
+        addLog(`[System] 先手決定：<b>${firstPlayer.name}</b> からゲームを開始します。`);
     } else {
         // テストモード時はアニメーション完了のログだけ出し、
         // flowPos 側の制御（駒の配置待ち）に処理を明け渡す
@@ -2574,9 +2653,25 @@ function recordLockHistory() {
     lockHistory.push(currentCounts);
 }
 
+/** 2026/03/09 修正：エターナル関連の称号判定ロジックを追加 **/
 function calculateAwards(winnerId) {
     const awards = [];
     if (!players || players.length === 0) return awards;
+
+    const winner = players.find(p => p.id === winnerId);
+
+    // --- [新規] ラスト・エターニティの判定 ---
+    if (winner && winner.lastLockedCardType === "ETERNAL") {
+        awards.push({ pid: winnerId, name: "💎 ラスト・エターニティ", desc: "永遠のカードで勝利を確約せし者" });
+    }
+
+    // --- [新規] ゲート侵攻回数（エターナラー系）の累計判定 ---
+    if (winnerId === 1) { // P1（自分）のみプロフィールに反映
+        const count = userProfile.totalEternalGets || 0;
+        if (count >= 7) awards.push({ pid: 1, name: "🏆 レジェンド・エターナラー", desc: "七つの門を越えし伝説" });
+        else if (count >= 3) awards.push({ pid: 1, name: "⚔️ エターナラー", desc: "禁断の力を集めし実力者" });
+        else if (count >= 1) awards.push({ pid: 1, name: "👣 静かなる侵攻者", desc: "境界を越えた新鋭の足跡" });
+    }
 
     // --- 外科手術的修正：プレイヤー数に応じたボーダー（人数×7ターン）を算出 ---
     const turnThreshold = players.length * 7;
@@ -2638,19 +2733,21 @@ function calculateAwards(winnerId) {
                 break;
             }
         }
-        // スペシャリスト
+        /** 2026/03/09 修正：色ごとの「愛好家」勲章を判定 **/
         const colorUsage = {};
         BASE_COLORS.forEach(c => colorUsage[c.id] = 0);
         cardEntries.forEach(([name, count]) => {
             const data = CARD_DATABASE.find(d => d.name === name);
             if (data && colorUsage[data.colorId] !== undefined) colorUsage[data.colorId] += count;
         });
-        const colorVals = Object.values(colorUsage);
-        const avgColor = colorVals.reduce((a, b) => a + b, 0) / 7;
+
         for (const [colId, count] of Object.entries(colorUsage)) {
-            if (count >= avgColor * 2 && count >= 4) {
+            // その色のカードを3回以上使用、かつその試合での最多使用色であれば「愛好家」
+            const isMostUsedColor = Object.values(colorUsage).every(v => count >= v);
+            if (count >= 3 && isMostUsedColor) {
                 const cName = BASE_COLORS.find(bc => bc.id === colId).name;
-                awards.push({ pid: winnerId, name: `🎨 ${cName}職人`, desc: `${cName}の力を引き出した` });
+                awards.push({ pid: winnerId, name: `✨ ${cName}の愛好家`, desc: `${cName}のカードを最も愛用した` });
+                // 一番多い色を1つ取ったら抜ける
                 break;
             }
         }
@@ -2668,6 +2765,142 @@ function calculateAwards(winnerId) {
         });
         if (alwaysFirst) awards.push({ pid: winnerId, name: "🛡️ 堅実な守り手", desc: "一度も首位を譲らぬ完封" });
         else if (wasLastFirstHalf) awards.push({ pid: winnerId, name: "🔄 逆転の覇者", desc: "絶望から這い上がった伝説" });
+    }
+    
+    // 7. 虹の覇者 (Rainbow Master) ★2026/03/09 新条件適用
+    if (winner) {
+        // 勝者の全ロックエリアをフラットな配列にして、カード名が「なないろの欠片」のものを抽出
+        const lockedFragments = Object.values(collections[winnerId] || {})
+            .flat()
+            .filter(card => card && card.name === "なないろの欠片");
+
+        if (lockedFragments.length >= 7) {
+            awards.push({ 
+                pid: winnerId, 
+                name: "🌈 虹の覇者", 
+                desc: "「なないろの欠片」を七つ揃えし伝説の証" 
+            });
+        }
+    }
+
+    // --- 1. バトル・テクニカル系 ---
+    // カウンター・ストライク
+    if ((matchStats.counterSuccess[winnerId] || 0) >= 2) {
+        awards.push({ pid: winnerId, name: "⚔️ カウンター・ストライク", desc: "1試合に2回以上の反撃を成功" });
+    }
+
+    // 無慈悲な強奪者
+    if ((matchStats.stolenCount[winnerId] || 0) >= 5) {
+        awards.push({ pid: winnerId, name: "🧤 無慈悲な強奪者", desc: "相手から合計5枚以上のカードを強奪" });
+    }
+
+    // デッドヒート（全員が残り1色の状態で勝利）
+    const isDeadHeat = players.every(pl => {
+        const count = LOCK_ORDER.filter(col => collections[pl.id][col.id].length > 0).length;
+        return count >= 6;
+    });
+    if (isDeadHeat && winner) {
+        awards.push({ pid: winnerId, name: "🔥 デッドヒート", desc: "全員がリーチ状態の極限戦を制した" });
+    }
+
+    // --- 2. カード・コンボ系 ---
+    // 予言の完成者
+    if ((matchStats.apocalypseChain[winnerId] || 0) >= 3) {
+        awards.push({ pid: winnerId, name: "🔮 予言の完成者", desc: "アポカリプスを3回連続で的中" });
+    }
+
+    // ワイナウエアの怒り
+    if ((matchStats.lavaDestroyCount[winnerId] || 0) >= 10) {
+        awards.push({ pid: winnerId, name: "🌋 ワイナウエアの怒り", desc: "火山で10枚以上のカードを灰にした" });
+    }
+
+    // レインボー・メーカー
+    const fragCount = Object.values(collections[winnerId] || {}).flat().filter(c => c.name === "なないろの欠片").length;
+    if (fragCount >= 3) {
+        awards.push({ pid: winnerId, name: "🌈 レインボー・メーカー", desc: "「なないろの欠片」を3枚以上ロック" });
+    }
+
+    // --- 3. プレイスタイル・特殊系 ---
+    // 平和の使者（一度も接触による強奪を行わずに勝利）
+    if (!matchStats.hasContacted[winnerId]) {
+        awards.push({ pid: winnerId, name: "🕊️ 平和の使者", desc: "一度も相手からカードを奪わず勝利" });
+    }
+
+    // ラッキーセブン（7の倍数ターンで勝利）
+    if (totalTurnCount > 0 && totalTurnCount % 7 === 0) {
+        awards.push({ pid: winnerId, name: "🎰 ラッキーセブン", desc: `${totalTurnCount}ターン目、運命の数字で勝利` });
+    }
+
+    // 博愛主義
+    if ((matchStats.flowerGifts[winnerId] || 0) >= 3) {
+        awards.push({ pid: winnerId, name: "🌸 博愛主義", desc: "相手に3回以上カードをプレゼントした" });
+    }
+
+    // 呪いからの生還
+    // （ロックエリアにID:34が1枚以上あった形跡があり、且つ勝利時に呪いが0枚の場合）
+    const currentCurses = Object.values(collections[winnerId]).flat().filter(c => c.id === 34).length;
+    if (matchStats.wasCursed && matchStats.wasCursed[winnerId] && currentCurses === 0) {
+        awards.push({ pid: winnerId, name: "✨ 呪いからの生還", desc: "呪いをすべて振り払って勝利" });
+    }
+
+    // --- 不落のゲートキーパーの判定 ---
+    // ゲート突破フラグ(gateInvaded)が立っていない勝者なら獲得
+    if (winner && (!matchStats.gateInvaded || !matchStats.gateInvaded[winnerId])) {
+        awards.push({ pid: winnerId, name: "🛡️ 不落のゲートキーパー", desc: "一度もゲートへの侵入を許さず完全勝利" });
+    }
+
+    /** 2026/03/09 修正：長期累計称号の最終判定ロジック **/
+    if (winnerId === 1) { // 累計称号はプレイヤー1（自分）の統計を参照
+        
+        // --- 1. 七色の旅人 (全プレイヤーアイコンを一度は使用) ---
+        // 選択可能なアイコン数（例: 8種類）に対して、使用済みのパス数を比較
+        // ここでは便宜上 4種類以上としていますが、実際のアイコン数に合わせて調整可能です
+        if (userProfile.usedIconPaths && userProfile.usedIconPaths.length >= 4) {
+            awards.push({ pid: 1, name: "🌈 七色の旅人", desc: "様々な姿で戦場を渡り歩いた旅の記録" });
+        }
+
+        // --- 2. 歴戦の勇士 (通算対局数 100回) ---
+        if (userProfile.stats && userProfile.stats.totalGames >= 100) {
+            awards.push({ pid: 1, name: "🎖️ 歴戦の勇士", desc: "百戦錬磨の経験を持つ真の戦士" });
+        }
+
+        // --- 3. 0thの理解者 (全カード ID 1〜34 を一度は使用) ---
+        // 重複を除いた使用済みID数が 34 に達しているかチェック
+        if (userProfile.usedCardIds && userProfile.usedCardIds.length >= 34) {
+            awards.push({ pid: 1, name: "📖 0thの理解者", desc: "全34種のカードの真髄を極めし賢者" });
+        }
+        
+        // --- 4. スカイ・ウォーカー (ディメンションとダッシュを併用) ---
+        // 1試合中のフラグとして判定
+        if (p.dimensionActive && p.extraMoves > 0) {
+            awards.push({ pid: 1, name: "🚀 スカイ・ウォーカー", desc: "次元と速度を支配し戦場を舞った" });
+        }
+    }
+
+
+    /** 2026/03/09 修正：追加称号の最終判定 **/
+    // --- 1. 被侵攻系 ---
+    const invasionCount = matchStats.gateInvasionCount[winnerId] || 0;
+    if (winner && invasionCount >= 5) awards.push({ pid: winnerId, name: "🏰 名高き聖域", desc: "5回以上侵入されながらも勝利" });
+    else if (winner && invasionCount >= 3) awards.push({ pid: winnerId, name: "🏠 オープンハウス", desc: "3回以上侵入されながらも勝利" });
+    else if (winner && invasionCount >= 1) awards.push({ pid: winnerId, name: "🛡️ 不屈の防衛線", desc: "侵入を許しながらも戦い抜いた証" });
+    
+    if (invasionCount >= 4) awards.push({ pid: winnerId, name: "💂 鉄の門番（自称）", desc: "何度も突破されたが心は折れず" });
+
+    // --- 2. 無為自然 (一度も手札効果を使わなかった勝者) ---
+    if (winner && (matchStats.handEffectUsedCount[winnerId] || 0) === 0) {
+        awards.push({ pid: winnerId, name: "🧘 無為自然", desc: "一切の小細工なしに勝利を掴んだ" });
+    }
+
+    // --- 3. 国宝の使い手 (ファーストカードを一番多く使った勝者) ---
+    const myFirstCount = matchStats.firstCardUseCount[winnerId] || 0;
+    if (winner && myFirstCount >= 3) {
+        awards.push({ pid: winnerId, name: "💎 国宝の使い手", desc: "ファーストカードを最大限に愛用した" });
+    }
+
+    // --- 4. ロック・ブレイカー ---
+    if ((matchStats.lockBreakCount[winnerId] || 0) >= 3) {
+        awards.push({ pid: winnerId, name: "🔨 ロック・ブレイカー", desc: "相手のロックを3枚以上粉砕・強奪した" });
     }
 
     return awards;

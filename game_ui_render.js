@@ -676,10 +676,26 @@ function renderStatus() {
             slotEl.style.pointerEvents = "auto"; 
             slotEl.style.position = "relative"; 
 
+            /** 2026/03/09 修正：特殊カードの強調クラス付与ロジックを追加 **/
             if (slotCards && slotCards.length > 0) { 
                 const topC = slotCards[slotCards.length - 1];
                 let txtCls = topC.colorId === 'white' ? 'text-gray-800' : (topC.colorId === 'black' ? 'text-gray-200' : 'text-white');
-                slotEl.className = `mini-slot rounded-sm border border-white relative ${topC.bg}`; 
+                
+                // 基本クラスを設定
+                let slotClasses = `mini-slot rounded-sm border border-white relative ${topC.bg}`;
+
+                // --- 特殊カード（ETERNAL/FIRST）の強調判定 ---
+                if (topC.type === "ETERNAL" || topC.type === "FIRST") {
+                    // 他人のターンでも「特別なカード」であることがわかるように常に光らせる
+                    slotClasses += " special-lock-active";
+                    
+                    // 自分のターン 且つ ハンドフェイズなら、使用可能であることを示す「 playable 」クラスを追加
+                    if (isMyTurn && currentPhase === PHASE.HAND) {
+                        slotClasses += " special-lock-playable";
+                    }
+                }
+                
+                slotEl.className = slotClasses; 
                 if (topC.image) {
                     slotEl.style.backgroundImage = `url('${topC.image}')`;
                     slotEl.style.backgroundSize = 'cover';

@@ -302,17 +302,24 @@ function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = 
                 }
             });
 
-            // 2. 【外科手術的修正】発動した本体（フォースなど）を即座に特定して捨てる
-            // activeHandCard よりも引数の contextCard を優先して確実に掴む
+            /** 2026/03/09 修正：FIRST/ETERNALカード発動時のフリーズを防止 **/
+            // 2. 発動した本体カードの特定
             const cardToDiscard = contextCard || activeHandCard;
             const selfIdx = hands[p.id].indexOf(cardToDiscard);
             
-            let usedCardForAction = null;
             if (selfIdx > -1) {
-                usedCardForAction = hands[p.id].splice(selfIdx, 1)[0];
-                // stayOnBoard指定がない限り、即座に捨て札へ送る
-                if (!(def.action && def.action.stayOnBoard)) {
-                    discardCard(usedCardForAction);
+                // セレナーデ(FIRST)やワイナウエア(ETERNAL)は手札から取り除くだけで、捨て札には送らない
+                const isPermanent = cardToDiscard.type === 'FIRST' || cardToDiscard.type === 'ETERNAL';
+                
+                if (isPermanent) {
+                    // 永続カードは手札から抜くだけ（この後ロックエリア等へ移動するため）
+                    hands[p.id].splice(selfIdx, 1);
+                } else {
+                    // 通常カードは手札から抜いて捨て札へ
+                    const removed = hands[p.id].splice(selfIdx, 1)[0];
+                    if (!(def.action && def.action.stayOnBoard)) {
+                        discardCard(removed);
+                    }
                 }
             }
 
@@ -357,7 +364,25 @@ function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = 
 function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     if (!act) { if (onSuccess) onSuccess({}); return; }
 
-    // ★追加：発動回数の記録（contextCardが存在する場合のみ）
+    /** 安全なカウントアップ処理へ差し替え **/
+    if (!matchStats.handEffectUsedCount) matchStats.handEffectUsedCount = {};
+    matchStats.handEffectUsedCount[p.id] = (matchStats.handEffectUsedCount[p.id] || 0) + 1;
+
+    if (contextCard && contextCard.type === 'FIRST') {
+        if (!matchStats.firstCardUseCount) matchStats.firstCardUseCount = {};
+        matchStats.firstCardUseCount[p.id] = (matchStats.firstCardUseCount[p.id] || 0) + 1;
+    }
+
+    /** 2026/03/09 修正：長期称号「0thの理解者」用の使用履歴記録 **/
+    if (p.id === 1 && contextCard && contextCard.id) {
+        if (!userProfile.usedCardIds) userProfile.usedCardIds = [];
+        if (!userProfile.usedCardIds.includes(contextCard.id)) {
+            userProfile.usedCardIds.push(contextCard.id);
+            addLog(`[History] 新しいカード「${contextCard.name}」の真髄を理解しました。`);
+        }
+    }
+
+    // ★既存：発動回数の記録
     if (contextCard && contextCard.name) {
         if (!cardUsageStats[p.id]) cardUsageStats[p.id] = {};
         cardUsageStats[p.id][contextCard.name] = (cardUsageStats[p.id][contextCard.name] || 0) + 1;
@@ -423,9 +448,13 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                         renderHand();
                         if (targetIds.includes(drawn.colorId) || drawn.colorId === 'rainbow') {
                             addLog(`的中！「${drawn.name}」を引き当てました。`);
+                            /** 2026/03/09 修正：称号「予言の完成者」用の連続カウント **/
+                            matchStats.apocalypseChain[p.id] = (matchStats.apocalypseChain[p.id] || 0) + 1;
                             showMessageOverlay("予言的中！\n効果を繰り返します。", 1500, startApocalypseFlow);
                         } else {
                             addLog(`不的中。「${drawn.name}」でした。`);
+                            // 失敗したらリセット
+                            matchStats.apocalypseChain[p.id] = 0;
                             showMessageOverlay("予言失敗。\n効果を終了します。", 1500, () => {
                                 if (onSuccess) onSuccess({});
                             });
@@ -738,13 +767,33 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             if (onSuccess) onSuccess({});
         };
 
+        /** 2026/03/09 修正：「民の道の建設」の移動先から相手の周囲を除外 **/
         // 1段階目：移動させるカードを選択
         startSelectionMode('select_cell', 2, 'civil_path_step1_dummy', '移動させる裏向きカードを2枚選択', (selectedFrom) => {
             // 2段階目：移動先を選択
             setTimeout(() => {
+                // CPU（または「おまかせ」）の場合、移動先候補から相手の周囲を除外する
+                let validDestCells = null;
+                const opponents = players.filter(pl => pl.id !== p.id);
+                
+                // 全ての空きマスのうち、相手の周囲8マスに含まれないマスをリストアップ
+                const safeDestinations = board.flat().filter(cell => {
+                    if (!cell.empty) return false;
+                    // 相手の誰かの周囲1マス以内ならNG
+                    const isNearOpponent = opponents.some(opp => 
+                        Math.abs(opp.x - cell.x) <= 1 && Math.abs(opp.y - cell.y) <= 1
+                    );
+                    return !isNearOpponent;
+                }).map(cell => ({ x: cell.x, y: cell.y }));
+
+                // 候補がある場合のみ制限をかける（候補ゼロで詰まるのを防ぐため）
+                if (safeDestinations.length >= 2) {
+                    validDestCells = safeDestinations;
+                }
+
                 startSelectionMode('select_cell', 2, 'civil_path_step2_dummy', '移動先の空きマスを選択', (selectedTo) => {
                     animateCivilPath(selectedFrom, selectedTo);
-                }, null, null, true, p, false, null, "おまかせ", null, p);
+                }, null, null, true, p, false, null, "おまかせ", validDestCells, p);
             }, 300);
         }, null, null, true, p, false, null, "おまかせ", faceDownCards, p);
         return;
@@ -1085,6 +1134,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     else if (act.type === 'counter_arrival') {
         const minHand = Math.min(...players.map(pl => hands[pl.id].length));
         if (hands[p.id].length === minHand) {
+            // カウントアップ
+            matchStats.counterSuccess[p.id] = (matchStats.counterSuccess[p.id] || 0) + 1;
             const drawn = []; 
             for(let i=0; i<2; i++) { 
                 const c = drawCard(); 
@@ -1132,6 +1183,10 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             
             // 演出モーダルを表示
             showPresentFlowerModal(p, victim, contextCard, () => {
+                /** 2026/03/09 修正：称号「博愛主義」用のカウント **/
+                if (p.id !== victim.id) {
+                    matchStats.flowerGifts[p.id] = (matchStats.flowerGifts[p.id] || 0) + 1;
+                }
                 // 演出終了後にカードを移動
                 hands[victim.id].push(contextCard);
 
@@ -1606,6 +1661,9 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     // カードの物理的移動
                     slot.splice(slot.indexOf(stolen), 1);
                     hands[p.id].push(stolen);
+
+                    /** 2026/03/09 修正：ロック破壊・奪取カウントを追加 **/
+                    matchStats.lockBreakCount[p.id] = (matchStats.lockBreakCount[p.id] || 0) + 1;
                     
                     addLog(`${victim.name}が「${stolen.name}」を${p.name}に渡しました。`);
                     
@@ -1774,7 +1832,12 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 const c = sel[0]; 
                 collections[victim.id][c.colorId].splice(collections[victim.id][c.colorId].indexOf(c), 1); 
                 discardPile.push(c); 
+
+                /** 2026/03/09 修正：ロック破壊・奪取カウントを追加 **/
+                matchStats.lockBreakCount[p.id] = (matchStats.lockBreakCount[p.id] || 0) + 1;
+
                 addLog(`${victim.name}がロックされていた「${c.name}」を破棄しました。`); 
+                // ...以下略
                 
                 renderStatus(); 
                 renderMyLockArea(); 
@@ -1815,6 +1878,11 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     const stolen = selCards[0]; 
                     hands[victim.id].splice(hands[victim.id].indexOf(stolen), 1); 
                     hands[p.id].push(stolen);
+
+                    /** 2026/03/09 修正：称号「無慈悲な強奪者」「平和の使者」用のカウント **/
+                    matchStats.hasContacted[p.id] = true; // 接触フラグ
+                    matchStats.stolenCount[p.id] = (matchStats.stolenCount[p.id] || 0) + 1; // 強奪数
+                    matchStats.matchVictimCount[victim.id] = (matchStats.matchVictimCount[victim.id] || 0) + 1; // 被害数
 
                     // ★外科手術的追加：奪われる側がP1(自分)なら目印を付ける
                     if (victim.id === 1) {
@@ -1967,8 +2035,12 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     hands[victim.id].splice(handIdx, 1);
                 }
 
+                /** 2026/03/09 修正：呪われた履歴を統計に記録 **/
                 collections[victim.id][targetCol.id].push(contextCard);
                 addLog(`${victim.name}の${targetCol.name}が呪われた！`);
+
+                if (!matchStats.wasCursed) matchStats.wasCursed = {};
+                matchStats.wasCursed[victim.id] = true;
                 
                 renderStatus();
                 if (onSuccess) onSuccess({ preventGain: true }); 

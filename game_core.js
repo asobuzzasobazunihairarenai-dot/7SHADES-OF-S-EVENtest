@@ -1925,16 +1925,20 @@ async function initGameInternal(num, isTest = false) {
 
     // --- 称号判定用カウンター(matchStats)の初期化 ---
     matchStats = {
-        stolenCount: {},
-        matchVictimCount: {}, // 強奪された数
-        counterSuccess: {},
-        flowerGifts: {},
-        apocalypseChain: {},
-        lavaDestroyCount: {},
-        hasContacted: {},
-        wasCursed: {},        // 一度でも呪われたか
-        gateInvaded: {}       // ゲートを突破されたか
-    };
+    stolenCount: {},        // 奪った数
+    matchVictimCount: {},   // 攻撃を受けた数
+    counterSuccess: {},     // 反撃成功数
+    flowerGifts: {},        // 花の贈り物（0th等）
+    apocalypseChain: {},    // 連鎖数
+    lavaDestroyCount: {},   // 溶岩での破壊数
+    hasContacted: {},       // 接触履歴
+    wasCursed: {},          // 呪いを受けた履歴
+    gateInvaded: {},        // ゲート侵攻履歴
+    gateInvasionCount: {},  // ゲート侵攻回数
+    handEffectUsedCount: {}, // 手札効果使用数
+    firstCardUseCount: {},   // FIRSTカード使用数
+    lockBreakCount: {}      // ★ここが漏れていた：ロック破壊・奪取数
+};
 
     // --- 長期称号用：使用アイコン履歴の記録（P1のみ） ---
     const p1Icon = (window.pendingProfiles && window.pendingProfiles[0]) ? window.pendingProfiles[0].icon : userProfile.icon;
@@ -2870,9 +2874,9 @@ function calculateAwards(winnerId) {
             awards.push({ pid: 1, name: "📖 0thの理解者", desc: "全34種のカードの真髄を極めし賢者" });
         }
         
+        /** 2026/03/10 修正：未定義変数 p を winner に差し替え **/
         // --- 4. スカイ・ウォーカー (ディメンションとダッシュを併用) ---
-        // 1試合中のフラグとして判定
-        if (p.dimensionActive && p.extraMoves > 0) {
+        if (winner && winner.dimensionActive && winner.extraMoves > 0) {
             awards.push({ pid: 1, name: "🚀 スカイ・ウォーカー", desc: "次元と速度を支配し戦場を舞った" });
         }
     }

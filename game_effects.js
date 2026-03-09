@@ -1662,7 +1662,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     slot.splice(slot.indexOf(stolen), 1);
                     hands[p.id].push(stolen);
 
-                    /** 2026/03/09 修正：ロック破壊・奪取カウントを追加 **/
+                    /** 安全なカウントアップ処理 **/
+                    if (!matchStats.lockBreakCount) matchStats.lockBreakCount = {};
                     matchStats.lockBreakCount[p.id] = (matchStats.lockBreakCount[p.id] || 0) + 1;
                     
                     addLog(`${victim.name}が「${stolen.name}」を${p.name}に渡しました。`);
@@ -1945,6 +1946,12 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
                     // ★ 2026/03/08 修正：操作権(actingPlayer)をwp(カード所有者)に固定
                     // 第9引数(origin)に wp を、第14引数(actingPlayer)にも wp を確実に渡します
+                    /** 2026/03/10 修正：CPUが対象の場合、自動処理フラグを強制的にONにする **/
+                    // カード所有者(wp)がCPU（IDが1以外）なら自動処理モードを一時的にON
+                    if (wp.id !== 1) {
+                        isAutoAction = true;
+                    }
+
                     startSelectionMode(
                         'select_cell', 
                         1, 
@@ -1956,15 +1963,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                             renderBoard();
                             processWhim(idx + 1);
                         }, 
-                        null,  // range
-                        null,  // forbiddenTile
-                        true,  // noCancel
-                        wp,    // ★ 第9引数(origin): wpの駒を基準にする
-                        false, // isEightDirection
-                        null,  // cancelCallback
-                        "おまかせ", 
-                        null,  // restrictedCells
-                        wp     // ★ 第14引数(actingPlayer): 操作する人をwpに固定！
+                        null, null, true, wp, false, null, "おまかせ", null, wp 
                     );
                 } else {
                     hands[wp.id].splice(hands[wp.id].indexOf(c), 1); 

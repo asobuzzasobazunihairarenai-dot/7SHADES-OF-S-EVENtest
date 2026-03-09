@@ -3181,14 +3181,29 @@ function showTitleSelectionModal(onChanged) {
         </div>
     `;
 
-    // 確定処理
+    /** 2026/03/10 修正：スマホで説明を一瞬で見失わないよう、2回タップで確定に変更 **/
+    let lastTappedTitle = null; 
+
     window._confirmTitle = (titleName) => {
+        // すでに選択中（装着中）のものを押した場合は、何もしない（説明だけ見せる）
+        if (userProfile.selectedTitle === titleName) return;
+
+        // まだ一度もタップされていない、または別の称号をタップした直後の場合
+        if (lastTappedTitle !== titleName) {
+            lastTappedTitle = titleName;
+            // 視覚的に「選択中」であることを伝えるためにログを出すか、ボタンの状態を変える処理
+            // スマホではこれで「説明（ツールチップ）」が表示された状態をキープできます
+            return; 
+        }
+
+        // 同じ称号を2回連続でタップした、あるいは1回目で lastTappedTitle にセットされた後
+        // もう一度同じものをタップした瞬間に確定処理を行う
         userProfile.selectedTitle = titleName;
         if (!userProfile.seenTitles) userProfile.seenTitles = ["駆け出しの旅人"];
         if (!userProfile.seenTitles.includes(titleName)) userProfile.seenTitles.push(titleName);
         saveUserProfile();
         
-        // 閉じて親画面に通知
+        // ここで初めて画面を閉じる
         modal.remove();
         if (onChanged) onChanged();
     };

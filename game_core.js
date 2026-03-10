@@ -1214,28 +1214,95 @@ function showResultModal(pid, stats) {
         </div>
     `;
 
-    /** 2026/03/09 修正：リザルトの勲章をプロフィール称号に反映 **/
-    // 4. 勲章（アワード）の計算とプロフィールへの反映
+    /** 2026/03/10 修正：未取得の称号獲得時に「NEW」バッジを表示する **/
     const currentAwards = calculateAwards(pid);
     
-    // P1（自分）が勝った、またはP1が勲章を取った場合にプロフィールを更新
-    currentAwards.forEach(award => {
+    const awardsHtml = currentAwards.map(award => {
+        const cleanTitleName = award.name.replace(/[^\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]/g, "").trim();
+        let isNew = false;
+
         if (award.pid === 1) {
-            // 絵文字や記号を除去して純粋な称号名にする（例: "⚡ 電光石火" -> "電光石火"）
-            const cleanTitleName = award.name.replace(/[^\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]/g, "").trim();
-            
             if (!userProfile.unlockedTitles.includes(cleanTitleName)) {
                 userProfile.unlockedTitles.push(cleanTitleName);
+                isNew = true; // 今回初めて手に入れたフラグ
                 addLog(`🏆 新しい称号『${cleanTitleName}』をコレクションに加えました！`);
             }
         }
-    });
 
-    // データの永続化
+        return `
+            <div class="relative flex flex-col items-center bg-gray-800/50 p-3 rounded-lg border border-gray-700 shadow-sm min-w-[80px]">
+                ${isNew ? '<span class="absolute -top-2 -right-1 bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">NEW</span>' : ''}
+                <span class="text-lg mb-1">${award.name.split(' ')[0]}</span>
+                <span class="text-[9px] font-bold text-gray-300 text-center leading-tight">${award.name.split(' ')[1] || ""}</span>
+                <span class="text-[7px] text-gray-500 mt-1 uppercase">${award.desc}</span>
+            </div>
+        `;
+    }).join('');
+
+    // データの保存
     saveUserProfile();
 
-    // 5. すべてをまとめて一度に描画
-    container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + lineChartHtml + chartHtml;
+    // 勲章セクションをHTMLにまとめる
+    const awardsSectionHtml = `
+        <div class="mt-6 pt-4 border-t border-gray-700">
+            <p class="text-[9px] text-gray-500 font-bold mb-3 text-center uppercase tracking-widest">Match Awards</p>
+            <div class="flex flex-wrap justify-center gap-3">
+                ${awardsHtml}
+            </div>
+        </div>
+    `;
+
+    // 5. すべてをまとめて一度に描画（awardsSectionHtml を追加）
+    container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + resultRankHtml + awardsSectionHtml + lineChartHtml + chartHtml;
+
+    /** 2026/03/10 修正：リザルト画面にも色鮮やかなランク表示を適用 **/
+    const p = userProfile;
+    const rankData = [
+        { en: "NONE", jp: "なし", hex: "#9ca3af" },
+        { en: "Red Apprentice", jp: "赤の門下生", hex: "#ef4444" },
+        { en: "Orange Survivor", jp: "橙の生存者", hex: "#f97316" },
+        { en: "Yellow Seeker", jp: "黄の探求者", hex: "#eab308" },
+        { en: "Green Guardian", jp: "緑の守護者", hex: "#22c55e" },
+        { en: "Blue Tactician", jp: "青の策士", hex: "#3b82f6" },
+        { en: "Pink Specialist", jp: "桃の専門家", hex: "#ec4899" },
+        { en: "Purple Master", jp: "紫の熟練者", hex: "#a855f7" },
+        { en: "SEVEN", jp: "虹の覇者", hex: "rainbow" }
+    ];
+    const currentRank = rankData[p.rank] || { en: "Unknown", jp: "", hex: "#9ca3af" };
+    const isRainbow = currentRank.hex === "rainbow";
+
+    const resultRankHtml = `
+        <div class="mt-6 p-3 bg-gray-800/40 rounded-xl border border-gray-700 shadow-inner">
+            <div class="flex justify-between items-end mb-2">
+                <span class="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Player Rank</span>
+                <div class="flex flex-col items-end leading-tight">
+                    <span class="text-[10px] font-black uppercase ${isRainbow ? 'animate-rainbow-text' : ''}" 
+                          style="${!isRainbow ? `color: ${currentRank.hex}` : ''}">
+                        ${currentRank.en}
+                    </span>
+                    <span class="text-[9px] font-bold ${isRainbow ? 'animate-rainbow-text' : ''}" 
+                          style="${!isRainbow ? `color: ${currentRank.hex}; opacity: 0.8;` : ''}">
+                        ${currentRank.jp}
+                    </span>
+                </div>
+            </div>
+            <div class="flex justify-between items-center gap-1">
+                ${Array.from({ length: 7 }).map((_, i) => {
+                    const isReached = i < p.rankPoint;
+                    return `
+                        <div class="flex-1 h-2 rounded-full border transition-all duration-1000 ${
+                            isReached ? (isRainbow ? 'animate-rainbow-bg' : '') : 'bg-gray-900 border-gray-800'
+                        }" style="${isReached && !isRainbow ? `background-color: ${currentRank.hex}; border-color: ${currentRank.hex}aa; box-shadow: 0 0 8px ${currentRank.hex}44;` : ''}">
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+            <p class="text-[8px] text-gray-500 text-right mt-1 font-mono italic">Next Rank: ${7 - p.rankPoint}pt</p>
+        </div>
+    `;
+
+    // 5. すべてをまとめて一度に描画（resultRankHtml を追加）
+    container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + resultRankHtml + lineChartHtml + chartHtml;
     resultOverlay.classList.remove('hidden');
 }
 
@@ -1878,18 +1945,19 @@ function processEternalAcquisition(invader, victim) {
             eternalDeck.splice(eternalDeck.indexOf(c), 1); 
             const slot = collections[invader.id][c.colorId]; 
 
-            // 修正箇所：既存のカードを手札に戻す前に、ファーストカードが含まれているかチェック
-            const hasFirst = slot.some(card => card.type === 'FIRST');
-
-            if (hasFirst) {
-                // ファーストカードがある場合は、既存のカード（ファースト）をそのまま残し、エターナルを追加
-                slot.push(c);
-                addLog(`${invader.name}はファーストカードがあるスロットにエターナルを獲得！両方がロックされます。`);
-            } else {
-                // ファーストカードがない従来通りの処理：既存のカードをすべて手札に戻してからエターナルを置く
-                while(slot.length > 0) hands[invader.id].push(slot.pop()); 
-                slot.push(c); 
+            // より厳密な処理（混在対応版）
+            const persistentCards = [];
+            while(slot.length > 0) {
+                const top = slot.pop();
+                if (top.type === 'FIRST' || top.type === 'BOOST') {
+                    persistentCards.push(top); // 保護対象は一時避難
+                } else {
+                    hands[invader.id].push(top); // 通常カードは手札へ
+                }
             }
+            // 保護したカードを戻し、最後にエターナルを追加
+            persistentCards.forEach(pc => slot.push(pc));
+            slot.push(c);
 
             checkWin(invader.id); 
             processForcedReturn(invader); 
@@ -2685,14 +2753,17 @@ function calculateAwards(winnerId) {
         awards.push({ pid: winnerId, name: "⚡ 電光石火", desc: `${turnThreshold}ターン以内の電撃決着` });
     }
 
-    // 2. 韋駄天 (Idaten) & 3. 不動の精神 (Immovable)
+    /** 2026/03/10 修正：不動の精神を「最小移動で勝利した勝者」限定に変更 **/
+    // 2. 韋駄天 & 不動の精神 の基礎データ算出
     let maxDist = -1, fastestId = null;
     let minDist = Infinity, slowestId = null;
     let maxTypes = -1, collectorId = null;
 
     players.forEach(p => {
         const d = (playerStats[p.id] && playerStats[p.id].moveCount) || 0;
+        // 最長距離の特定
         if (d > maxDist) { maxDist = d; fastestId = p.id; }
+        // 最短距離の特定
         if (d < minDist) { minDist = d; slowestId = p.id; }
 
         const stats = cardUsageStats[p.id] || {};
@@ -2700,12 +2771,24 @@ function calculateAwards(winnerId) {
         if (typesCount > maxTypes) { maxTypes = typesCount; collectorId = p.id; }
     });
 
-    // --- 外科手術的修正：韋駄天にもターン制限ボーダーを適用 ---
-    if (fastestId && totalTurnCount <= turnThreshold) {
-        awards.push({ pid: fastestId, name: "👟 韋駄天", desc: `${turnThreshold}ターン以内に戦場を最も駆け抜けた` });
+    // 韋駄天：最長距離を走ったのが「勝者」かつターン制限以内
+    if (fastestId === winnerId && totalTurnCount <= turnThreshold) {
+        awards.push({ pid: winnerId, name: "👟 韋駄天", desc: `${turnThreshold}ターン以内に戦場を最も駆け抜けた` });
     }
-    if (slowestId && slowestId !== fastestId) awards.push({ pid: slowestId, name: "🧘 不動の精神", desc: "一歩も無駄にせぬ支配" });
-    if (collectorId && maxTypes >= 3) awards.push({ pid: collectorId, name: "📚 カード愛好家", desc: "誰よりも多彩な技を披露" });
+
+    // 不動の精神：最短距離なのが「勝者」である場合のみ授与
+    if (slowestId === winnerId) {
+        awards.push({ pid: winnerId, name: "🧘 不動の精神", desc: "一歩も無駄にせぬ支配で勝利を掴んだ" });
+    }
+
+    /** 2026/03/10 修正：カード愛好家の条件を14種類（カード名ベース）に強化 **/
+    if (collectorId === winnerId && maxTypes >= 14) {
+        awards.push({ 
+            pid: winnerId, 
+            name: "📚 カード愛好家", 
+            desc: "14種以上のカードを駆使して戦場を支配した証" 
+        });
+    }
 
     // 4. 特定色のスペシャリスト & 5. 一点突破
     const wStats = cardUsageStats[winnerId] || {};
@@ -3151,16 +3234,27 @@ function updateProfileAfterGame(winnerId) {
     window.pendingRankUpdate = { isWin, oldPoint, newPoint }; // リザルト終了時に使うためのデータを一時保存
 
 
-    // カラー傾向の反映（今回の対局でのカード使用統計を合算）
-    if (window.cardUsageStats && (window.cardUsageStats[1] || window.cardUsageStats['p1'])) {
-    const p1Usage = window.cardUsageStats[1] || window.cardUsageStats['p1'];
-    for (const cardName in p1Usage) {
-        const card = CARD_DATABASE.find(c => c.name === cardName);
-        if (card && card.colorId) {
-            userProfile.stats.colorUsage[card.colorId] = (userProfile.stats.colorUsage[card.colorId] || 0) + p1Usage[cardName];
+    /** 2026/03/10 修正：Color Style（カラー傾向）が集計されないバグを修正 **/
+    
+    // 1. 集計用データの準備
+    if (!userProfile.stats.colorUsage) userProfile.stats.colorUsage = {};
+    const p1Stats = window.cardUsageStats ? (window.cardUsageStats[1] || window.cardUsageStats['p1']) : null;
+
+    if (p1Stats) {
+        for (const cardName in p1Stats) {
+            const cardData = CARD_DATABASE.find(c => c.name === cardName);
+            if (cardData && cardData.colorId) {
+                // 使用回数を数値として加算
+                const useCount = Number(p1Stats[cardName]) || 0;
+                userProfile.stats.colorUsage[cardData.colorId] = (userProfile.stats.colorUsage[cardData.colorId] || 0) + useCount;
+            }
         }
+        console.log("Color Style Updated:", userProfile.stats.colorUsage);
     }
-}
+
+    // --- ここで称号判定やMVP特定を既に行っているはずなので、最後に一度だけ保存 ---
+    saveUserProfile();
+    console.log("All Profile Stats Saved.");
 
     // データの保存（game_state.jsで定義した関数を呼び出し）
     // --- 外科手術的修正：新しく獲得した称号を保存する ---
@@ -3194,41 +3288,44 @@ function updateProfileAfterGame(winnerId) {
     }
 
     // --- 通算MVPカードの特定・更新箇所 ---
+    /** 2026/03/10 修正：MVP回数が0になるバグを修正（構造の統一） **/
+    // 1. stats構造の初期化を確実に行う
+    if (!userProfile.stats) userProfile.stats = {};
+    // 表示側の showUserProfileModal が参照している名前に統一
     if (!userProfile.stats.cardUsageCount) userProfile.stats.cardUsageCount = {};
     
     if (window.cardUsageStats) {
+        // IDが 1 (数値) または 'p1' (文字列) のどちらでも取得
         const p1Usage = window.cardUsageStats[1] || window.cardUsageStats['p1'];
         if (p1Usage) {
             for (const cardName in p1Usage) {
-                userProfile.stats.cardUsageCount[cardName] = (userProfile.stats.cardUsageCount[cardName] || 0) + p1Usage[cardName];
+                // 通算使用回数を加算
+                const count = Number(p1Usage[cardName]) || 0;
+                userProfile.stats.cardUsageCount[cardName] = (userProfile.stats.cardUsageCount[cardName] || 0) + count;
             }
         }
     }
 
-    // 最多使用カードを検索
-    /** 2026/03/05 修正: エターナルカードを含む全てのカードから通算MVPを特定 **/
+    // 2. 最多使用カード（MVP）の特定と回数の確定
     let topCardName = null;
     let maxUsage = 0;
 
-    if (userProfile.stats.cardUsageCount) {
-        for (const [name, count] of Object.entries(userProfile.stats.cardUsageCount)) {
-            if (count > maxUsage) {
-                maxUsage = count;
-                topCardName = name;
-            }
+    for (const [name, count] of Object.entries(userProfile.stats.cardUsageCount)) {
+        if (count > maxUsage) {
+            maxUsage = count;
+            topCardName = name;
         }
     }
     
     if (topCardName) {
+        // mvpCardには「カード名」を入れ、回数は cardUsageCount 側で保持する
         userProfile.stats.mvpCard = topCardName;
-        // ログにMVPを記録
-        console.log(`MVP Card determined: ${topCardName} (Used ${maxUsage} times)`);
+        console.log(`MVP確定: ${topCardName} (通算 ${maxUsage} 回)`);
     }
 
+    // 3. データの保存を確実に実行
     saveUserProfile();
-
-    // データの保存
-    saveUserProfile();
+ 
     console.log("Profile updated and saved:", userProfile);
 }
 

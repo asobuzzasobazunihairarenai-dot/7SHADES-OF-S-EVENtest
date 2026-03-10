@@ -669,17 +669,25 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false) {
         }
     }
 
+    /** 2026/03/10 修正：コスト不足時は警告を出さず、1ターン1回制限の時のみ警告を出す **/
     if (!isPlayable) {
-        // 条件を満たさない場合は強制的に無効化
+        // 条件を満たさない場合は強制的に無効化（ボタンの見た目変更）
         okBtn.disabled = true;
         okBtn.classList.add('opacity-50', 'cursor-not-allowed', 'bg-gray-600', 'grayscale');
         okBtn.classList.remove('bg-blue-600', 'hover:bg-blue-500');
         okBtn.onclick = null;
         
         const msgEl = document.getElementById('detail-msg');
-        if (!msgEl.innerHTML.includes("使用できません")) {
-            msgEl.innerHTML += `<br><span class="text-red-500 text-[10px] font-bold">※このターンはもう使用できません</span>`;
+        // 修正ポイント：1ターンに1度制限（ID 11:ヴァーディアン等）ですでに使用済みの場合のみメッセージを表示
+        const isOncePerTurnCard = (card && card.id === 11);
+        const isAlreadyUsed = (p && p.viridianUsed); // 今後他のカードが増えたらここを拡張
+
+        if (isOncePerTurnCard && isAlreadyUsed) {
+            if (!msgEl.innerHTML.includes("使用できません")) {
+                msgEl.innerHTML += `<br><span class="text-red-500 text-[10px] font-bold">※このターンはもう使用できません</span>`;
+            }
         }
+        // コスト不足の場合は message を追加せず、ボタンがグレーアウトされるだけにする
     } else if (onOk) { 
         // 使用可能な場合
         okBtn.disabled = false; 
@@ -2864,30 +2872,43 @@ function performVictoryCameraWork(winnerId, onComplete) {
     }, 2500);
 }
 
+
+
+
+
 /**
  * プロフィール画面を表示する
  */
 function showUserProfileModal() {
     const p = userProfile;
     // --- 外科手術的修正：ランク名に和訳ルビを追加 ---
+    /** 2026/03/10 修正：ランクに合わせたイメージカラーと虹色演出を適用 **/
     const rankData = [
-        { en: "NONE", jp: "なし" },
-        { en: "Red Apprentice", jp: "赤の門下生" },
-        { en: "Orange Survivor", jp: "橙の生存者" },
-        { en: "Yellow Seeker", jp: "黄の探求者" },
-        { en: "Green Guardian", jp: "緑の守護者" },
-        { en: "Blue Tactician", jp: "青の策士" },
-        { en: "Pink Specialist", jp: "桃の専門家" },
-        { en: "Purple Master", jp: "紫の熟練者" },
-        { en: "SEVEN", jp: "虹の覇者" }
+        { en: "NONE", jp: "なし", hex: "#9ca3af" },
+        { en: "Red Apprentice", jp: "赤の門下生", hex: "#ef4444" },
+        { en: "Orange Survivor", jp: "橙の生存者", hex: "#f97316" },
+        { en: "Yellow Seeker", jp: "黄の探求者", hex: "#eab308" },
+        { en: "Green Guardian", jp: "緑の守護者", hex: "#22c55e" },
+        { en: "Blue Tactician", jp: "青の策士", hex: "#3b82f6" },
+        { en: "Pink Specialist", jp: "桃の専門家", hex: "#ec4899" },
+        { en: "Purple Master", jp: "紫の熟練者", hex: "#a855f7" },
+        { en: "SEVEN", jp: "虹の覇者", hex: "rainbow" }
     ];
     
-    const currentRank = rankData[p.rank] || { en: "Unknown", jp: "" };
-    // ルビ形式のHTMLを生成
+    const currentRank = rankData[p.rank] || { en: "Unknown", jp: "", hex: "#9ca3af" };
+    const isRainbow = currentRank.hex === "rainbow";
+
+    // ランク名の表示HTML（虹色の場合はアニメーションクラスを付与）
     const rankDisplayName = `
         <div class="flex flex-col items-end leading-tight">
-            <span class="text-xs font-black tracking-tighter text-yellow-500/80 uppercase">${currentRank.en}</span>
-            <span class="text-[10px] font-bold">${currentRank.jp}</span>
+            <span class="text-xs font-black tracking-tighter uppercase ${isRainbow ? 'animate-rainbow-text' : ''}" 
+                  style="${!isRainbow ? `color: ${currentRank.hex}` : ''}">
+                ${currentRank.en}
+            </span>
+            <span class="text-[10px] font-bold ${isRainbow ? 'animate-rainbow-text' : ''}" 
+                  style="${!isRainbow ? `color: ${currentRank.hex}; opacity: 0.8;` : ''}">
+                ${currentRank.jp}
+            </span>
         </div>
     `;
     
@@ -2976,9 +2997,9 @@ function showUserProfileModal() {
                             return `
                                 <div class="flex-1 h-3 rounded-sm border-2 transition-all duration-500 ${
                                     isReached 
-                                    ? 'bg-yellow-500 border-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.6)]' 
+                                    ? (isRainbow ? 'animate-rainbow-bg' : '') 
                                     : 'bg-transparent border-gray-300 dark:border-gray-700 opacity-40'
-                                }"></div>
+                                }" style="${isReached && !isRainbow ? `background-color: ${currentRank.hex}; border-color: ${currentRank.hex}cc; box-shadow: 0 0 10px ${currentRank.hex}66;` : ''}"></div>
                             `;
                         }).join('')}
                     </div>
@@ -3075,6 +3096,8 @@ const TITLE_DESCRIPTION_MAP = {
     "不動の精神": { desc: "一歩も無駄にせぬ支配。最小限の移動で勝利した証。", hint: "最も移動距離が短いプレイヤーに贈られる" },
     "一点突破": { desc: "特定のカードを極めし者に与えられる称号。", hint: "1種類のカードを集中して使用する" },
     "逆転の覇者": { desc: "絶望から這い上がった伝説の体現者。", hint: "劣勢から逆転勝利をおさめる" },
+    /** 2026/03/10 復活：多種多様なカードを使った証 **/
+    "カード愛好家": { desc: "特定の色に縛られず、多彩なカードを使いこなしたバランス派の証。", hint: "1ゲームに14種類以上のカードを使用して勝利する" },
     "赤の愛好家": { desc: "情熱的な赤のカードを使いこなした証。", hint: "赤のカードを多く使用して勝利する" },
     "橙の愛好家": { desc: "活気に満ちた橙のカードを使いこなした証。", hint: "橙のカードを多く使用して勝利する" },
     "黄の愛好家": { desc: "希望に満ちた黄のカードを使いこなした証。", hint: "黄のカードを多く使用して勝利する" },
@@ -3208,7 +3231,16 @@ function showTitleSelectionModal(onChanged) {
         if (onChanged) onChanged();
     };
 
+    /** 2026/03/10 修正：スマホのクリック貫通（ゴーストクリック）を防止 **/
+    // モーダル全体をクリック不可にしてから追加
+    modal.style.pointerEvents = 'none'; 
     document.body.appendChild(modal);
+
+    // 0.3秒（人間には気にならない一瞬）だけ待ってからクリックを有効化する
+    setTimeout(() => {
+        modal.style.pointerEvents = 'auto';
+    }, 300);
+
     modal.querySelector('#close-title-select').onclick = () => {
         unlocked.forEach(t => {
             if (!userProfile.seenTitles.includes(t)) userProfile.seenTitles.push(t);
@@ -3252,14 +3284,17 @@ function showLevelUpModal(type, newValue) {
 
     document.body.appendChild(modal);
 
-    // どこをクリックしても閉じるようにする
+    /** 2026/03/10 修正：レベルアップ演出終了後、ホーム画面へ遷移 **/
     const closeHandler = () => {
         modal.classList.add('animate-fade-out');
         setTimeout(() => {
             modal.remove();
-            // ★追加：レベルアップ演出が終わったら、タイトルではなくホームへ戻す
-            if (typeof backToTitle === 'function') {
-                backToTitle(); 
+            // 既存の backToTitle (タイトルへ戻る) ではなく、ホーム画面を表示する
+            const homeScreen = document.getElementById('home-screen');
+            if (homeScreen) {
+                homeScreen.classList.remove('hidden');
+                // タイトル画面などは確実に隠す
+                document.getElementById('title-overlay')?.classList.add('hidden');
             }
         }, 500);
         document.removeEventListener('click', closeHandler);
@@ -3347,11 +3382,12 @@ function showPostGameRankModal(isWin, oldPoint, newPoint, onFinish) {
         setTimeout(() => {
             modal.remove();
             
-            // ★ 2026/03/08 修正：存在しない変数 data を参照していたバグを修正
-            // レベルアップ演出の予約（pendingRankUpEffect）がない場合のみホームへ戻す
+            /** 2026/03/10 修正：ランクゲージ確認後、ホーム画面へ遷移 **/
             if (!window.pendingRankUpEffect) {
-                if (typeof backToTitle === 'function') {
-                    backToTitle();
+                const homeScreen = document.getElementById('home-screen');
+                if (homeScreen) {
+                    homeScreen.classList.remove('hidden');
+                    document.getElementById('title-overlay')?.classList.add('hidden');
                 }
             }
             
@@ -3417,10 +3453,19 @@ function showPostGameLevelModal(data, onFinish) {
         }
     }, 100); // 0.1秒待機してから開始
 
+    /** 2026/03/10 修正：レベルゲージ確認後、ホーム画面へ遷移 **/
     const close = () => {
         modal.classList.add('animate-fade-out');
         setTimeout(() => {
             modal.remove();
+            // レベルアップしなかった場合、ここでホーム画面を表示
+            if (!data.isLevelUp) {
+                const homeScreen = document.getElementById('home-screen');
+                if (homeScreen) {
+                    homeScreen.classList.remove('hidden');
+                    document.getElementById('title-overlay')?.classList.add('hidden');
+                }
+            }
             if (onFinish) onFinish();
         }, 500);
         document.removeEventListener('click', close);

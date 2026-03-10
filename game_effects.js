@@ -248,12 +248,19 @@ function canPlayHandEffect(card, p) {
  * 2026/03/06 修正
  * 効果発動ログをプレイヤーカラー＋アイコン「✨ EFFECT」に変更し、視認性を向上。
  */
-/** 2026/03/09 修正：効果発動ログの強調表示対応 **/
+/** 2026/03/10 修正：到達効果と手札効果のログを明確に判別 **/
 function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = false) {
-    // 【外科手術的修正】効果解決の開始をログに記録
+    // 【外科手術的修正】発動タイプに応じたタグと色の設定
     if (contextCard && contextCard.name) {
-        // 「 」を 『 』 に変更
-        addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-blue-400">✨ EFFECT</span> 『${contextCard.name}』`);
+        // 到達効果か手札効果かを判定（isNewRevealが渡される、または盤面から呼ばれるのが到達）
+        // 簡易判定：activeHandCard が存在し、かつ contextCard と一致すれば手札効果
+        const isHandTrigger = (typeof activeHandCard !== 'undefined' && activeHandCard === contextCard);
+        
+        const typeTag = isHandTrigger 
+            ? '<span class="text-orange-400">🎴 HAND EFFECT</span>' 
+            : '<span class="text-blue-400">✨ ARRIVAL EFFECT</span>';
+
+        addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> ${typeTag} 『${contextCard.name}』`);
     }
 
     if (!def) { 

@@ -1737,3 +1737,31 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     70% { box-shadow: 0 0 0 20px rgba(234, 179, 8, 0); }
     100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0); }
 }
+
+@keyframes rainbow-flow {
+    0% { color: #ff0000; }
+    14% { color: #ff7f00; }
+    28% { color: #ffff00; }
+    42% { color: #00ff00; }
+    56% { color: #0000ff; }
+    70% { color: #4b0082; }
+    84% { color: #8b00ff; }
+    100% { color: #ff0000; }
+}
+.animate-rainbow-text {
+    animation: rainbow-flow 3s linear infinite;
+}
+@keyframes rainbow-bg-flow {
+    0% { background-color: #ff0000; }
+    14% { background-color: #ff7f00; }
+    28% { background-color: #ffff00; }
+    42% { background-color: #00ff00; }
+    56% { background-color: #0000ff; }
+    70% { background-color: #4b0082; }
+    84% { background-color: #8b00ff; }
+    100% { background-color: #ff0000; }
+}
+.animate-rainbow-bg {
+    animation: rainbow-bg-flow 3s linear infinite;
+    border-color: rgba(255,255,255,0.5) !important;
+}

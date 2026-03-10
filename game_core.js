@@ -258,66 +258,6 @@ function toggleReactionSkip() {
     if (typeof updateGameState === 'function') updateGameState();
 }
 
-/** 2026/03/10 13:40 修正：割り込み者にタイマー権を移譲する **/
-function checkChottoMattaCounter(targetPlayer, cardToLock, onCanceled, onPassed) {
-    if (!players || players.length === 0) { onPassed(); return; }
-    const potentialCounters = players.filter(p => p.id !== targetPlayer.id && hands[p.id] && hands[p.id].some(c => c.id === 21)); 
-    
-    if (potentialCounters.length === 0) { 
-        activeTimerPlayerId = null; // 誰もいなければリセット
-        onPassed(); 
-        return; 
-    }
-
-    const processNextCounter = (idx) => {
-        if (idx >= potentialCounters.length) { 
-            activeTimerPlayerId = null; 
-            onPassed(); 
-            return; 
-        }
-        const cp = potentialCounters[idx]; 
-        
-        // ★重要：タイマーを割り込み検討者に移す
-        activeTimerPlayerId = cp.id;
-        pauseTimer(); // 演出上、一旦止める
-
-        const waitCard = hands[cp.id].find(c => c.id === 21);
-        // コスト判定を game_effects.js と同期
-        const costCards = hands[cp.id].filter(c => c !== waitCard && (c.colorId === 'purple' || c.colorId === 'rainbow' || Number(c.id) === 29));
-        if (costCards.length === 0) { processNextCounter(idx + 1); return; }
-        
-        showDetailModal("割り込み確認", `${cp.name}さん、「ちょっと待った！」で${targetPlayer.name}の勝利を阻止しますか？`, waitCard, "使用する", () => {
-            showSelectionModal("コスト支払い", "捨てるカードを選択してください", costCards, "card-back-pattern", 1, (sel) => {
-                // 【フロー④】コストを捨てる
-                sel.forEach(c => { 
-                    const curIdx = hands[cp.id].indexOf(c); 
-                    if(curIdx > -1) discardCard(hands[cp.id].splice(curIdx, 1)[0], cp); 
-                });
-
-                // 【フロー⑤】相手のロックしようとしたカードを捨てる
-                // cardToLockをオブジェクトとしてそのまま捨て場へ
-                discardCard(cardToLock, targetPlayer); 
-
-                // 【フロー⑥】「ちょっと待った！」自体を捨てる
-                const waitIdx = hands[cp.id].indexOf(waitCard); 
-                if(waitIdx > -1) discardCard(hands[cp.id].splice(waitIdx, 1)[0], cp);
-
-                targetPlayer.lockPrevented = true; 
-                renderHand(); 
-                renderDeckAndDiscard(); 
-                onCanceled(); // 上記の handleHandClick 内の成功時処理を呼び出す
-            }, false, null, null, null, cp);
-        }, false);
-
-        
-        const cnlBtn = document.getElementById('detail-cancel-btn'); 
-        if(cnlBtn) { 
-            cnlBtn.textContent = "パス"; 
-            cnlBtn.onclick = () => { closeDetailModal(); processNextCounter(idx + 1); }; 
-        }
-    };
-    processNextCounter(0);
-}
 
 async function startTurn() { 
     if (!players || players.length === 0) return;
@@ -471,6 +411,11 @@ function resetTimer() {
     timerInterval = setInterval(updateTimerTick, 1000);
 }
 
+/**
+ * 2026/03/11 修正
+ * 1. タイムアウト時の自動ロック処理を handleHandClick 経由に変更し、割り込み検問を有効化。
+ * 2. 構文エラー（カッコの不整合）を解消。
+ */
 function updateTimerTick() { 
     if(winner || isTimerPaused) return;
 
@@ -487,13 +432,11 @@ function updateTimerTick() {
         
     if (!p) return;
 
-    // --- 【外科手術的修正】P1タイマー無視設定の判定を復元 ---
     const ignoreP1 = document.getElementById('setting-p1-timer-ignore')?.checked;
     if (ignoreP1 && p.id === 1) { 
-        return; // P1かつ設定がONなら、これ以降の「減算」も「描画」も行わずに終了
+        return; 
     }
 
-    // --- 以降、数値を減らす処理 ---
     if (timeLeft > 0) {
         timeLeft--; 
     } else if (useGlobalTimer && p.totalTimeLeft > 0) {
@@ -502,13 +445,11 @@ function updateTimerTick() {
         if (isAutoProcessing) return;
 
         if (currentPhase === PHASE.LOCK) {
-    const autoLock = document.getElementById('setting-timeout-random-lock')?.checked;
-    const pHand = hands[p.id] || [];
-    if (autoLock && pHand.length > 0) {
-        
-        isAutoProcessing = true; // ★追加：自動処理開始を宣言
+            const autoLock = document.getElementById('setting-timeout-random-lock')?.checked;
+            const pHand = hands[p.id] || [];
+            if (autoLock && pHand.length > 0) {
+                isAutoProcessing = true; 
 
-                // まだロックしていない色を持つ手札を抽出（特殊色は除外）
                 let lockableCards = pHand.filter(card => {
                     const col = card.colorId;
                     if (col === 'white' || col === 'black' || col === 'rainbow') return false;
@@ -516,149 +457,84 @@ function updateTimerTick() {
                 });
 
                 let targetCard = null;
-
                 if (lockableCards.length > 0) {
                     if (autoMode === 'NORMAL') {
-                        // 【NORMALロジック】手札にある「ロック可能なカード」の中で、枚数が一番少ない色を選ぶ
-                        
-                        // 1. 手札にあるロック可能なカードの色ごとの枚数を集計
                         const colorCounts = {};
                         lockableCards.forEach(card => {
                             colorCounts[card.colorId] = (colorCounts[card.colorId] || 0) + 1;
                         });
-
-                        // 2. 最小枚数を特定
                         const minCount = Math.min(...Object.values(colorCounts));
-
-                        // 3. 最小枚数を持つ色（ID）のリストを作成
                         const rarestColorIds = Object.keys(colorCounts).filter(id => colorCounts[id] === minCount);
-
-                        // 4. その中からランダムに色を1つ選び、その色のカードを1枚抽出
                         const targetColorId = rarestColorIds[Math.floor(Math.random() * rarestColorIds.length)];
                         targetCard = lockableCards.find(card => card.colorId === targetColorId);
-                        
-                        addLog(`[戦略的ロック] 手札に ${minCount} 枚しかない ${targetCard.name} を優先しました。`);
                     } else {
-                        // EASYモード：完全ランダム
                         targetCard = lockableCards[Math.floor(Math.random() * lockableCards.length)];
                     }
                 }
 
                 if (targetCard) {
-                    // 手札から削除
-                    hands[p.id] = pHand.filter(c => c !== targetCard);
-                  
-                    // ロックエリアへ追加
-                    collections[p.id][targetCard.colorId].push(targetCard);
-                    addLog(`[自動] ${targetCard.name} をロックしました。`);
-                    
-                    // ステータスを描画（スロット要素を生成）
-                    if (typeof renderStatus === 'function') renderStatus();
-
-                    // ★演出を追加：描画されたスロットに対してロックエフェクトを実行
-                    if (typeof triggerLockEffect === 'function') {
-                        triggerLockEffect(p.id, targetCard.colorId);
-                    }
-
-                    // 他の描画更新
-                    if (typeof renderHand === 'function') renderHand();
-                    
-                    // 【修正】自動ロック完了後、演出時間を待ってから次へ進む
-                    setTimeout(() => {
-                        isAutoProcessing = false; 
-                        isAutoAction = false;
-                        
-                        // 追放判定と勝利判定を行い、その中で nextPhase() が呼ばれるようにする
-                        // ※ random-lock で選ばれた slot (collections[p.id][targetCard.colorId]) を渡す
-                        processExile(collections[p.id][targetCard.colorId]);
-                        
-                        // 念のため、追放が発生しなかった場合でも確実にフェイズを移行させる
-                        if (currentPhase === PHASE.LOCK && !winner) {
-                            nextPhase();
-                        }
-                    }, 1200);
-
-                    return; // handleTimeOut() の実行を防ぎ、タイマーの多重進行を止める
-        }
-        isAutoProcessing = false; // ★追加：対象がなかった場合も戻す
+                    // ★ 修正：直接ロックせず、検問所を通る handleHandClick へ
+                    const targetIdx = hands[p.id].indexOf(targetCard);
+                    addLog(`[System] ${p.name}のタイムアウト：自動ロックを試みます...`);
+                    isAutoAction = true;
+                    handleHandClick(targetIdx);
+                    return; // ここで一旦終了（handleHandClick 側で検問が始まる）
+                }
+                isAutoProcessing = false;
             }
         }
         
-        // --- タイムアウト時の自動手札使用 ---
-    if (currentPhase === PHASE.HAND) {
-        const autoHand = document.getElementById('setting-timeout-auto-hand')?.checked;
-        if (autoHand) {
-            if (isAutoProcessing || isHandEffectProcessing || isSelectionActive || activeModalId) {
-                handleTimeOut(); return;
-            }
-
-            // 【外科手術的修正】手札に加えて、ロックエリアのエターナル/ファーストも候補に含める
-            const lockCards = [];
-            LOCK_ORDER.forEach(color => {
-                const slot = collections[p.id][color.id];
-                if (slot && slot.length > 0) {
-                    const topC = slot[slot.length - 1];
-                    if (topC.type === "FIRST" || topC.type === "ETERNAL") {
-                        lockCards.push(topC);
-                    }
+        if (currentPhase === PHASE.HAND) {
+            const autoHand = document.getElementById('setting-timeout-auto-hand')?.checked;
+            if (autoHand) {
+                if (isAutoProcessing || isHandEffectProcessing || isSelectionActive || activeModalId) {
+                    handleTimeOut(); return;
                 }
-            });
 
-            // 手札(hands)とロック(lockCards)の両方をスキャン対象にする
-            const allCandidates = [...hands[p.id], ...lockCards];
-
-            const usable = allCandidates.filter(c => {
-                if (!canPlayHandEffect(c, p)) return false;
-
-                if (autoMode === 'NORMAL') {
-                    // ★ 2026/03/07 修正：ヴァーディアン特攻ロジック
-                        // ヴァーディアンで引いたカード（fromViridian）なら、
-                        // 以下の「温存ロジック」をすべてバイパスして「使用候補」に強制追加する。
-                        if (c.fromViridian) return true;
-                    // 1. 温存ロジック（未ロック色の保持）
-                    const col = c.colorId;
-                    const isBasicColor = ['red', 'orange', 'yellow', 'green', 'blue', 'pink', 'purple'].includes(col);
-                    if (isBasicColor) {
-                        const slot = collections[p.id][col];
-                        const isNotLocked = !slot || slot.length === 0 || (slot.length === 1 && slot[0].id === 34);
-                        if (isNotLocked) return false; 
-                    }
-                    
-
-                    // 2. 自爆回避ロジック（自分へのデバフ回避）
-                    const harmfulAgainstTop = [30, 32, 34]; // カラフルホール、いろ落ちガエル、にじいろの呪い
-                    if (harmfulAgainstTop.includes(c.id)) {
-                        // 各プレイヤーの現在のロック数を計算
-                        const lockCounts = players.map(pl => {
-                            return LOCK_ORDER.filter(colorBase => {
-                                const s = collections[pl.id][colorBase.id];
-                                return s && s.length > 0 && !s.some(card => card.id === 34);
-                            }).length;
-                        });
-                        const maxLocks = Math.max(...lockCounts);
-                        const myLocks = lockCounts[players.indexOf(p)];
-
-                        // 自分が最多ロック者（同率含む）なら、そのカードは使わない
-                        if (myLocks === maxLocks) {
-                            return false;
+                const lockCards = [];
+                LOCK_ORDER.forEach(color => {
+                    const slot = collections[p.id][color.id];
+                    if (slot && slot.length > 0) {
+                        const topC = slot[slot.length - 1];
+                        if (topC.type === "FIRST" || topC.type === "ETERNAL") {
+                            lockCards.push(topC);
                         }
                     }
-                // ...自爆回避ロジック(30, 32, 34)は、ヴァーディアンであっても適用したほうが安全なので維持...
+                });
+
+                const allCandidates = [...hands[p.id], ...lockCards];
+                const usable = allCandidates.filter(c => {
+                    if (!canPlayHandEffect(c, p)) return false;
+                    if (autoMode === 'NORMAL') {
+                        if (c.fromViridian) return true;
+                        const col = c.colorId;
+                        const isBasicColor = ['red', 'orange', 'yellow', 'green', 'blue', 'pink', 'purple'].includes(col);
+                        if (isBasicColor) {
+                            const slot = collections[p.id][col];
+                            const isNotLocked = !slot || slot.length === 0 || (slot.length === 1 && slot[0].id === 34);
+                            if (isNotLocked) return false; 
+                        }
+                        const harmfulAgainstTop = [30, 32, 34];
+                        if (harmfulAgainstTop.includes(c.id)) {
+                            const lockCounts = players.map(pl => {
+                                return LOCK_ORDER.filter(colorBase => {
+                                    const s = collections[pl.id][colorBase.id];
+                                    return s && s.length > 0 && !s.some(card => card.id === 34);
+                                }).length;
+                            });
+                            const maxLocks = Math.max(...lockCounts);
+                            const myLocks = lockCounts[players.indexOf(p)];
+                            if (myLocks === maxLocks) return false;
+                        }
                     }
                     return true;
                 });
 
-            // ★さらに賢く：usable の中で、ヴァーディアン由来のカードを最優先で使うようにソート
                 if (usable.length > 0) {
                     usable.sort((a, b) => (b.fromViridian ? 1 : 0) - (a.fromViridian ? 1 : 0));
-                    
                     const targetCard = usable[0];
-                    const originStr = targetCard.fromViridian ? " [緊急行使]" : "";
-                    addLog(`[自動] ${targetCard.name}${originStr} を実行します。`);
-                    
                     isAutoProcessing = true; 
                     isAutoAction = true; 
-
                     const handIdx = hands[p.id].indexOf(targetCard);
                     if (handIdx !== -1) handleHandClick(handIdx);
                     else handleHandClick(-1, targetCard);
@@ -667,12 +543,10 @@ function updateTimerTick() {
                 isAutoAction = false;
             }
         }
-    handleTimeOut(); 
-    return;
+        handleTimeOut(); 
+        return;
     }
 
-
-    // 数値を減らした直後に「1秒かけてその位置まで動け」という命令を出す
     if (typeof updateTimerVisual === 'function') updateTimerVisual(); 
 }
 
@@ -1024,78 +898,99 @@ const processExile = (tSlot) => {
     }
 };
 
+
 /**
- * 2026/03/10 16:20 修正
- * 1. 物理的配置(slot.push)を finalizeLock 関数に完全に分離し、割り込み確認中は実行されないよう徹底。
- * 2. checkChottoMattaCounter に「カードオブジェクトそのもの」を渡し、捨て札の画像消失を防止。
- * 3. 阻止成功時にカードを確実に手札から消去し、フェイズをハンドへ進めるよう修正。
+ * 2026/03/11 新規追加：ロック実行前の割り込み検問所
+ * 人間・AI・タイムアウトのすべてのロックはこの関数を通過します。
+ */
+/**
+ * 2026/03/11 修正：割り込み検問所
+ * 強欲なパレットと同様に、フェイズの制限を受けない直接実行ルートを構築。
+ */
+function requestLockCheck(card, cardIndex, lockedCard, p) {
+    window.lastAttemptedColorId = card.colorId;
+    const hasChottoMatta = hands[1] && hands[1].some(c => c.id === 21 && !c.sealed);
+
+    if (hasChottoMatta && p.id !== 1) {
+        addLog(`📢 ${p.name}のロックに対し、『ちょっと待った！』の権利を確認中...`);
+
+        activeTimerPlayerId = 1; 
+        isAutoAction = false;
+        isAutoProcessing = false;
+        if (typeof pauseTimer === 'function') pauseTimer();
+        
+        const chottoCard = hands[1].find(c => c.id === 21);
+
+        showDetailModal("ちょっと待った！", `${p.name}が「${card.name}」をロックしようとしています。割り込みますか？`, chottoCard, "使用する", () => {
+            closeDetailModal();
+            // ★ 強欲なパレット方式：handleHandClickを通さず、直接効果解決へ
+            activeHandCard = chottoCard;
+            isHandEffectProcessing = true; // 処理中フラグを立てる
+
+            executeCardEffect(chottoCard.handEffect, players.find(pl => pl.id === 1), (res) => {
+                // 効果解決後の処理
+                const curIdx = hands[1].indexOf(chottoCard);
+                if (curIdx > -1) discardPile.push(hands[1].splice(curIdx, 1)[0]);
+                
+                isHandEffectProcessing = false;
+                renderHand();
+                // ※ タイマーの復帰は game_effects.js 側の最後で行います
+            }, chottoCard);
+        });
+
+        const cnl = document.getElementById('detail-cancel-btn');
+        if (cnl) {
+            cnl.textContent = "パス";
+            cnl.onclick = () => {
+                closeDetailModal();
+                activeTimerPlayerId = null;
+                if (typeof resumeTimer === 'function') resumeTimer();
+                proceedLockLogic(card, cardIndex, lockedCard, p);
+            };
+        }
+    } else {
+        proceedLockLogic(card, cardIndex, lockedCard, p);
+    }
+}
+
+
+
+/**
+ * 2026/03/11 修正
+ * CPU/自動処理時であっても、自分が「ちょっと待った！」を持っている場合は割り込み確認を強制表示するよう修正。
  */
 function handleHandClick(cardIndex, lockedCard = null) {
     const isAI = isAutoAction || isAutoProcessing;
     if (isPeekingMode || !players || !players[turn]) return;
-    
-    const p = players[turn];
+    const displayTurn = isP1HandOnlyView ? 0 : turn;
+    if (!isAI && displayTurn !== turn) {
+        showToast("現在は P1 の手札を表示中ですが、操作権はありません。");
+        return;
+    }
+
+    // 2026/03/11 修正：割り込み中(activeTimerPlayerIdが設定されている)なら、手番プレイヤーではなくタイマー保持者を優先する
+    const actingP = activeTimerPlayerId ? players.find(pl => pl.id === activeTimerPlayerId) : players[turn];
+    const p = actingP; // 以降、p は操作している人を指す
     const card = lockedCard || (hands[p.id] ? hands[p.id][cardIndex] : null);
     if (!card) return;
 
-    /**
- * 2026/03/10 16:50 修正
- * ご提示のフローに完全準拠：ロック実行前に「割り込み」を最優先で確認し、
- * 阻止された場合は配置処理そのものを消滅させる。
- */
     if (currentPhase === PHASE.LOCK) {
         if (p.lockPrevented) return;
-        if (card.colorId === 'white' || card.colorId === 'black' || Number(card.id) === 29) return;
+        if (card.colorId === 'white' || card.colorId === 'black' || card.id === 29) return;
 
-        const startLockLogic = (targetColorId) => {
-            const slot = collections[p.id][targetColorId];
-            
-            // 7色目（勝利王手）判定
-            const currentLockCount = LOCK_ORDER.filter(col => 
-                collections[p.id][col.id].length > 0 && !collections[p.id][col.id].some(c => c.id === 34)
-            ).length;
-            const isLastLock = (currentLockCount === 6 && slot.length === 0);
-
-            if (isLastLock) {
-                // 【フロー②】ロックする前に割り込みモーダルを出す
-                // カードを先に手札から「仮確保」し、画像データが消えないように渡す
-                checkChottoMattaCounter(p, card, 
-                    // 【フロー③〜⑥】阻止成功時（あなたが「使用する」を押した）
-                    () => { 
-                        // 1. 相手の手札からそのカードを消す
-                        if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
-                        renderHand();
-                        // 2. ログ表示
-                        addLog(`<span class="text-red-400">⚠️ ${p.name}の勝利は阻止されました。</span>`);
-                        // 3. 【フロー⑦】自動処理の再開（フェイズ移行）
-                        setTimeout(() => {
-                            isAutoProcessing = false;
-                            isAutoAction = false;
-                            nextPhase(true); 
-                        }, 1000);
-                    }, 
-                    // 阻止なし（パス）時：ここで初めて物理的に置く
-                    () => { finalizeLock(p, card, targetColorId, slot, cardIndex, lockedCard); }
-                );
-            } else {
-                finalizeLock(p, card, targetColorId, slot, cardIndex, lockedCard);
-            }
-        };
-
-        if (card.colorId === 'rainbow') {
-            const lockableColors = BASE_COLORS.filter(c => collections[p.id][c.id].length === 0);
-            showSelectionModal("RAINBOW LOCK", "どの色としてロックしますか？", lockableColors, "card-back-pattern", 1, (sel) => {
-                startLockLogic(sel[0].id);
-            }, false, null, null, null, p);
+        if (isAI) {
+            // CPUやタイムアウト時は、確認なしで直接「検問所」へ
+            requestLockCheck(card, cardIndex, lockedCard, p);
         } else {
+            // 人間の場合は、「ロックする」を押した後に「検問所」へ
             showDetailModal("ロック確認", `「${card.name}」をロックしますか？`, card, "ロックする", () => {
-                startLockLogic(card.colorId);
+                requestLockCheck(card, cardIndex, lockedCard, p);
             });
         }
-        return; // ロックフェイズの処理をここで終える
 
-    } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime) {
-        // ハンドフェイズの処理（既存のまま）
+    // 2026/03/11 修正：割り込み中、または「ちょっと待った」などの即時効果ならフェイズを問わず実行
+    } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime || activeTimerPlayerId === 1) { 
+        // （ハンドフェイズの処理は変更なし）
         const executeLogic = () => {
             showCardModal(card, () => {
                 activeHandCard = card; 
@@ -1114,38 +1009,52 @@ function handleHandClick(cardIndex, lockedCard = null) {
                 }, card);
             }, "手札効果発動！", p.name, "手札から効果を発動しました");
         };
-        if (isAI) executeLogic();
-        else showDetailModal(card.handEffect?.anytime ? "割込使用確認" : "手札使用確認", "このカードを使用しますか？", card, "使用する", executeLogic);
+
+        if (isAI) {
+            executeLogic();
+        } else {
+            showDetailModal(card.handEffect?.anytime ? "割込使用確認" : "手札使用確認", "このカードを使用しますか？", card, "使用する", executeLogic);
+        }
     }
 }
 
 /**
- * 実際にカードをスロットに入れ、演出を開始する最終処理
+ * 2026/03/11 外科手術的追加：共通化したロック実行ロジック
  */
-/**
- * カードをスロットに物理的に追加し、演出と追放判定を行う最終地点
- */
-function finalizeLock(p, card, colorId, slot, cardIndex, lockedCard) {
-    // 1. 手札から削除
-    if(!lockedCard && hands[p.id]) {
-        hands[p.id].splice(cardIndex, 1);
+function proceedLockLogic(card, cardIndex, lockedCard, p) {
+    if (card.colorId === 'rainbow') {
+        const lockableColors = BASE_COLORS.filter(c => collections[p.id][c.id].length === 0);
+        showSelectionModal("RAINBOW LOCK", "どの色としてロックしますか？", lockableColors, "card-back-pattern", 1, (sel) => {
+            const targetColorId = sel[0].id;
+            if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
+            const tSlot = collections[p.id][targetColorId];
+            tSlot.push(card);
+            if (typeof triggerLockEffect === 'function') triggerLockEffect(p.id, targetColorId);
+            addLog(`${p.name}が「${card.name}」を${sel[0].name}としてロック！`);
+            setTimeout(() => {
+                isAutoProcessing = false;
+                processExile(tSlot);
+                if (currentPhase === PHASE.LOCK && !winner) nextPhase();
+            }, 1000);
+        }, false, null, null, null, p);
+        return;
     }
-    
-    // 2. ロックエリアに追加
+
+    const slot = collections[p.id][card.colorId];
+    if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
     slot.push(card);
-    
-    // 3. 描画とログ
-    if (typeof triggerLockEffect === 'function') triggerLockEffect(p.id, colorId);
+    if (typeof triggerLockEffect === 'function') triggerLockEffect(p.id, card.colorId);
     addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-yellow-500">🔒 LOCK</span> 「${card.name}」`);
-    
-    // 4. 余韻の後に追放・勝利判定
+
     setTimeout(() => {
         isAutoProcessing = false;
         isAutoAction = false;
-        // processExileの中で checkWin() が呼ばれ、勝利画面が出ます
-        processExile(slot); 
+        processExile(slot);
+        if (currentPhase === PHASE.LOCK && !winner) nextPhase();
     }, 1200);
 }
+
+
 
 // --- checkWin を呪い除外に修正 ---
 function checkWin(pid) { 
@@ -1158,31 +1067,8 @@ function checkWin(pid) {
                !slot.some(c => c.id === 34);
     });
     
-    /** 2026/03/10 13:10 修正：7色揃った瞬間に「ちょっと待った！」の割り込みをチェック **/
-    if (lockedColors.length >= 7) {
-        const p = players.find(pl => pl.id === pid);
-        const lastCard = p.lastLockedCard || { name: "最後のカード" };
-
-        // 割り込み確認を開始。誰も使わなければ onSuccess(proceed) が呼ばれる
-        checkChottoMattaCounter(p, lastCard, 
-            () => { 
-                // 割り込み成功（ロック阻止された）時：何もしない（勝利判定を抜ける）
-                addLog(`[System] ${p.name} の勝利が阻止されました！`);
-                renderStatus();
-                renderHand();
-            }, 
-            () => {
-                // 誰も割り込まなかった（パスされた）時：通常の勝利処理へ
-                executeVictory(pid);
-            }
-        );
-        return; // 一旦ここで止める
-    }
-}
-
-// 実際の勝利演出を関数として切り出し（重複防止）
-function executeVictory(pid) {
-    winner = players.find(p => p.id === pid); 
+    if (lockedColors.length >= 7) { 
+        winner = players.find(p => p.id === pid); 
 
         // 1. 経過時間などのデータ準備
         const playTimeSec = Math.floor((Date.now() - gameStartTime) / 1000);
@@ -1212,6 +1098,7 @@ function executeVictory(pid) {
             showVictoryUI(pid);
         }
     }
+}
 
 function showResultModal(pid, stats) {
     const resultOverlay = document.getElementById('result-overlay');

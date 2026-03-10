@@ -1370,6 +1370,7 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     else if (act.type === 'dimension_hand') { p.dimensionActive = true; addLog(`${p.name}の通常移動が次元跳躍（2マス移動）になりました。`); updateGameState(); onSuccess({}); return; }
     
     else if (act.type === 'chotto_matta_flow') { onSuccess({ preventGain: true, followUpAction: 'chotto_matta_flow' }); return; }
+    
     else if (act.type === 'discard_all_hand') { if (hands[p.id].length > 0) { hands[p.id].forEach(c => discardPile.push(c)); hands[p.id] = []; addLog(`${p.name}の手札がすべて破棄されました。`); } onSuccess({}); return; }
     else if (act.type === 'marmego_logic') {
         const drawn = []; let hasOrange = false;
@@ -1916,50 +1917,44 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         return;
     }
 
-    /* --- 2026/03/11 修正：ちょっと待った！手札効果（完全版） --- */
+    /* --- 2026/03/11 修正：ちょっと待った！手札効果（手札カット版） --- */
     else if (act.type === 'chotto_matta_hand') {
-        const victim = players[turn]; 
-        const targetColorId = window.lastAttemptedColorId;
+        const victim = players[turn]; // 現在の手番プレイヤー（相手）
         
-        // 1. ロックエリアからカードを物理的に抜き取る
-        const slot = collections[victim.id][targetColorId];
-        let targetCard = null;
+        // 1. ロックしようとしていたカードを特定
+        // window.activeLockingCard は game_core.js 側でセットするようにします
+        const targetCard = window.activeLockingCard;
 
-        if (slot && slot.length > 0) {
-            targetCard = slot.pop(); // 直近に置かれたカードを削除
-            addLog(`[System] 『ちょっと待った！』により ${victim.name} の ${targetCard.name} ロックを阻止！`);
+        if (targetCard) {
+            addLog(`[System] 『ちょっと待った！』により ${victim.name} の ${targetCard.name} を阻止！`);
+
+            // 2. 相手の手札からそのカードを物理的に除去して捨て場へ
+            const handIdx = hands[victim.id].indexOf(targetCard);
+            if (handIdx > -1) {
+                hands[victim.id].splice(handIdx, 1);
+                discardCard(targetCard, victim);
+            }
             
-            // 2. 抜き取ったカードを捨て場へ
-            discardCard(targetCard, victim);
-            
-            // 3. 相手はこのターンロック不可にする
+            // 3. 相手はこのターンこれ以上ロックできない
             victim.lockPrevented = true;
             
-            // 4. 画面表示を強制更新
-            if (typeof renderStatus === 'function') renderStatus();
-            if (typeof renderMyLockArea === 'function') renderMyLockArea();
+            renderStatus();
+            renderHand();
 
             showMessageOverlay("ロックを阻止しました！\n相手はこのターン、ロックできません。", 2000, () => {
-                // ★ ここからが重要：タイマーを戻してから「成功」を報告する
-                activeTimerPlayerId = null; // 操作権をCPUに戻す
+                activeTimerPlayerId = null; // 操作権を戻す
                 if (typeof resumeTimer === 'function') resumeTimer();
                 
-                // onSuccessを実行（これであなたの「ちょっと待った」が捨て場に行き、処理が完了する）
-                onSuccess({});
+                onSuccess({}); // 自分の「ちょっと待った」を捨てる
 
-                // 5. 【ダメ押し】強制的にフェイズを HAND へ移行させる
-                // setTimeoutを使うことで、あなたのカードが捨てられるのを待ってから動かします
+                // 4. 強制的にフェイズを HAND へ移行させて再開
                 setTimeout(() => {
-                    addLog(`[System] ${victim.name} のフェイズを強制移行します。`);
-                    if (typeof nextPhase === 'function') {
-                        // ロックフェイズは終わったものとして、強制的に次(HAND)へ
-                        nextPhase(true); 
-                    }
-                }, 600);
+                    addLog(`[System] ${victim.name} のロックをスキップしてHANDフェイズへ。`);
+                    if (typeof nextPhase === 'function') nextPhase(true); 
+                }, 500);
             });
         } else {
-            // 万が一カードがスロットに見つからない場合
-            addLog(`[Error] 阻止対象のカードが見つかりませんでした。`);
+            addLog(`[Error] 阻止対象のカード情報が取得できませんでした。`);
             activeTimerPlayerId = null;
             onSuccess({});
         }

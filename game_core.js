@@ -909,6 +909,8 @@ const processExile = (tSlot) => {
  */
 function requestLockCheck(card, cardIndex, lockedCard, p) {
     window.lastAttemptedColorId = card.colorId;
+    window.activeLockingCard = card; // ★この行を追加！どのカードか記憶させる
+    
     const hasChottoMatta = hands[1] && hands[1].some(c => c.id === 21 && !c.sealed);
 
     if (hasChottoMatta && p.id !== 1) {
@@ -1109,7 +1111,7 @@ function showResultModal(pid, stats) {
     const s = stats.time || 0;
     const timeStr = `${Math.floor(s / 60)}分${(s % 60).toString().padStart(2, '0')}秒`;
 
-    // 1. 基本項目のリスト生成
+    // 1. 基本項目のリスト生成（勝者、タイム、ターン、MVP）
     const resultsHtml = [
         { label: "👑 勝者", value: player ? player.name : "不明" },
         { label: "⏳ タイム", value: timeStr },
@@ -1122,7 +1124,7 @@ function showResultModal(pid, stats) {
         </div>
     `).join('');
 
-    // 2. 「逆転の兆し」グラフの生成
+    // 2. 「逆転の兆し」グラフの生成 (変更なし)
     const history = stats.lockHistory || [];
     const turnCount = history.length;
     const padding = 10;
@@ -1151,13 +1153,10 @@ function showResultModal(pid, stats) {
                     ${linesHtml}
                 </svg>
             </div>
-            <div class="flex justify-center gap-2 mt-2">
-                ${players.map(p => `<span class="text-[8px] flex items-center gap-1"><span class="w-2 h-0.5" style="background-color:${p.color.hex}"></span> ${p.name}</span>`).join("")}
-            </div>
         </div>
     `;
 
-    // 3. バーチャートの生成
+    // 3. カラー使用統計バーチャートの生成 (変更なし)
     const maxVal = Math.max(...(stats.colorStats?.map(s => s.count) || [1]), 1);
     const chartHtml = `
         <div class="mt-6 pt-4 border-t border-gray-700">
@@ -1166,9 +1165,9 @@ function showResultModal(pid, stats) {
                 ${(stats.colorStats || []).map(c => {
                     const heightPercent = (c.count / maxVal) * 100;
                     return `
-                        <div class="flex-1 h-full flex flex-col justify-end items-center group">
+                        <div class="flex-1 h-full flex flex-col justify-end items-center">
                             <div class="w-full bg-gray-800/50 rounded-t-sm flex flex-col justify-end h-full overflow-hidden">
-                                <div class="${c.bg} w-full rounded-t-sm animate-grow-up shadow-lg" 
+                                <div class="${c.bg} w-full rounded-t-sm animate-grow-up" 
                                      style="height: ${heightPercent}%; background-color: ${c.hex} !important;">
                                 </div>
                             </div>
@@ -1181,100 +1180,28 @@ function showResultModal(pid, stats) {
         </div>
     `;
 
-    /** 2026/03/10 修正：未取得の称号獲得時に「NEW」バッジを表示する **/
+    // 内部的な称号解放処理（UIには出さないが、データとして解放する必要があるため計算のみ実行）
     const currentAwards = calculateAwards(pid);
-    
-    const awardsHtml = currentAwards.map(award => {
-        const cleanTitleName = award.name.replace(/[^\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]/g, "").trim();
-        let isNew = false;
-
+    currentAwards.forEach(award => {
         if (award.pid === 1) {
+            const cleanTitleName = award.name.replace(/[^\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]/g, "").trim();
             if (!userProfile.unlockedTitles.includes(cleanTitleName)) {
                 userProfile.unlockedTitles.push(cleanTitleName);
-                isNew = true; // 今回初めて手に入れたフラグ
-                addLog(`🏆 新しい称号『${cleanTitleName}』をコレクションに加えました！`);
+                addLog(`🏆 新しい称号『${cleanTitleName}』を獲得しました！`);
             }
         }
-
-        return `
-            <div class="relative flex flex-col items-center bg-gray-800/50 p-3 rounded-lg border border-gray-700 shadow-sm min-w-[80px]">
-                ${isNew ? '<span class="absolute -top-2 -right-1 bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">NEW</span>' : ''}
-                <span class="text-lg mb-1">${award.name.split(' ')[0]}</span>
-                <span class="text-[9px] font-bold text-gray-300 text-center leading-tight">${award.name.split(' ')[1] || ""}</span>
-                <span class="text-[7px] text-gray-500 mt-1 uppercase">${award.desc}</span>
-            </div>
-        `;
-    }).join('');
-
-    /**
- * 2026/03/10 12:45 修正
- * 1. showResultModal 内で resultRankHtml が初期化前に参照されていたエラーを修正。
- * 2. 変数定義の順序を整理し、すべてのHTMLパーツが揃ってから描画するように変更。
- */
+    });
 
     // データの保存
     saveUserProfile();
 
-    // --- 修正：変数の定義順を入れ替え（使う前に作る） ---
-
-    // 4. 勲章セクションをHTMLにまとめる
-    const awardsSectionHtml = `
-        <div class="mt-6 pt-4 border-t border-gray-700">
-            <p class="text-[9px] text-gray-500 font-bold mb-3 text-center uppercase tracking-widest">Match Awards</p>
-            <div class="flex flex-wrap justify-center gap-3">
-                ${awardsHtml}
-            </div>
-        </div>
+    // 5. 統計情報のみをまとめて描画（ランクと称号のHTMLを削除）
+    container.innerHTML = `
+        <div class="space-y-2">${resultsHtml}</div>
+        ${lineChartHtml}
+        ${chartHtml}
     `;
 
-    /** 2026/03/10 修正：リザルト画面にも色鮮やかなランク表示を適用 **/
-    const p = userProfile;
-    const rankData = [
-        { en: "NONE", jp: "なし", hex: "#9ca3af" },
-        { en: "Red Apprentice", jp: "赤の門下生", hex: "#ef4444" },
-        { en: "Orange Survivor", jp: "橙の生存者", hex: "#f97316" },
-        { en: "Yellow Seeker", jp: "黄の探求者", hex: "#eab308" },
-        { en: "Green Guardian", jp: "緑の守護者", hex: "#22c55e" },
-        { en: "Blue Tactician", jp: "青の策士", hex: "#3b82f6" },
-        { en: "Pink Specialist", jp: "桃の専門家", hex: "#ec4899" },
-        { en: "Purple Master", jp: "紫の熟練者", hex: "#a855f7" },
-        { en: "SEVEN", jp: "虹の覇者", hex: "rainbow" }
-    ];
-    const currentRank = rankData[p.rank] || { en: "Unknown", jp: "", hex: "#9ca3af" };
-    const isRainbow = currentRank.hex === "rainbow";
-
-    const resultRankHtml = `
-        <div class="mt-6 p-3 bg-gray-800/40 rounded-xl border border-gray-700 shadow-inner">
-            <div class="flex justify-between items-end mb-2">
-                <span class="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Player Rank</span>
-                <div class="flex flex-col items-end leading-tight">
-                    <span class="text-[10px] font-black uppercase ${isRainbow ? 'animate-rainbow-text' : ''}" 
-                          style="${!isRainbow ? `color: ${currentRank.hex}` : ''}">
-                        ${currentRank.en}
-                    </span>
-                    <span class="text-[9px] font-bold ${isRainbow ? 'animate-rainbow-text' : ''}" 
-                          style="${!isRainbow ? `color: ${currentRank.hex}; opacity: 0.8;` : ''}">
-                        ${currentRank.jp}
-                    </span>
-                </div>
-            </div>
-            <div class="flex justify-between items-center gap-1">
-                ${Array.from({ length: 7 }).map((_, i) => {
-                    const isReached = i < p.rankPoint;
-                    return `
-                        <div class="flex-1 h-2 rounded-full border transition-all duration-1000 ${
-                            isReached ? (isRainbow ? 'animate-rainbow-bg' : '') : 'bg-gray-900 border-gray-800'
-                        }" style="${isReached && !isRainbow ? `background-color: ${currentRank.hex}; border-color: ${currentRank.hex}aa; box-shadow: 0 0 8px ${currentRank.hex}44;` : ''}">
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-            <p class="text-[8px] text-gray-500 text-right mt-1 font-mono italic">Next Rank: ${7 - p.rankPoint}pt</p>
-        </div>
-    `;
-
-    // 5. すべてをまとめて一度に描画
-    container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + resultRankHtml + awardsSectionHtml + lineChartHtml + chartHtml;
     resultOverlay.classList.remove('hidden');
 }
 
@@ -1733,7 +1660,7 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
                     moveToCell(player, res.targetX, res.targetY, false, callback); 
                 }
                 // --- 既存ロジック：chotto_matta_flow (非常に重要) ---
-                // --- 既存ロジック：chotto_matta_flow (非常に重要) ---
+
                 else if (res.followUpAction === 'chotto_matta_flow') { 
                     player.x = player.prevX; 
                     player.y = player.prevY; 

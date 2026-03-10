@@ -55,8 +55,12 @@ function canPlayHandEffect(card, p) {
         if (typeof checkStuck === 'function' && checkStuck(p)) return false;
     }
 
-    // ID 21: ちょっと待った! 
-    if (card.id === 21) return false; 
+    /** 2026/03/10 13:00 修正：ちょっと待った！の有効化とロジック追加 **/
+    // ID 21: ちょっと待った! (相手の勝利阻止時のみシステムから呼び出されるため、手札からは原則false)
+    if (card.id === 21) {
+        // システムによる割り込み確認中(isTimerPaused)であれば、例外的にtrueを返す
+        return typeof isTimerPaused !== 'undefined' && isTimerPaused;
+    } 
 
     // ID 22: 反撃
     if (card.id === 22) return false;
@@ -168,11 +172,15 @@ function canPlayHandEffect(card, p) {
     if (!act) return true;
 
     if (card.handEffect.cost) {
-        const cost = card.handEffect.cost;if (card.handEffect.cost) {
+        const cost = card.handEffect.cost;/** 2026/03/10 13:30 修正：コスト判定の厳密化（なないろの欠片等のID指定にも対応） **/
+    if (card.handEffect.cost) {
         const cost = card.handEffect.cost;
-        // 【外科手術的修正】card が手札(hands)にない（ロックエリアにある）場合でも、
-        // candidates（コストとして捨てられる手札）から自分自身を除外する判定を安全に行う
-        const candidates = (hands[p.id] || []).filter(c => (c.colorId === cost.color || c.colorId === 'rainbow') && c !== card);
+        // コストとして使用可能なカードを抽出（自分自身は除外）
+        const candidates = (hands[p.id] || []).filter(c => {
+            if (c === card) return false;
+            // 指定された色、または「なないろの欠片(ID:29)」は虹色として全色コストに使える
+            return c.colorId === cost.color || c.colorId === 'rainbow' || Number(c.id) === 29;
+        });
         if (candidates.length < cost.amount) return false;
     }
         const candidates = hands[p.id].filter(c => (c.colorId === cost.color || c.colorId === 'rainbow') && c !== card);
@@ -1366,6 +1374,16 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     else if (act.type === 'dimension_hand') { p.dimensionActive = true; addLog(`${p.name}の通常移動が次元跳躍（2マス移動）になりました。`); updateGameState(); onSuccess({}); return; }
     
     else if (act.type === 'chotto_matta_flow') { onSuccess({ preventGain: true, followUpAction: 'chotto_matta_flow' }); return; }
+    
+    /** 2026/03/10 13:00 追加：ちょっと待った！の手札効果アクション **/
+    else if (act.type === 'chotto_matta_hand') {
+        // このアクション自体は checkChottoMattaCounter 内で完結するため、
+        // ここでは成功通知のみを返します。
+        if (onSuccess) onSuccess({ followUpAction: 'chotto_matta_hand_success' });
+        return;
+    }
+    
+    
     else if (act.type === 'discard_all_hand') { if (hands[p.id].length > 0) { hands[p.id].forEach(c => discardPile.push(c)); hands[p.id] = []; addLog(`${p.name}の手札がすべて破棄されました。`); } onSuccess({}); return; }
     else if (act.type === 'marmego_logic') {
         const drawn = []; let hasOrange = false;

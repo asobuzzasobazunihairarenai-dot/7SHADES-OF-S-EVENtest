@@ -258,25 +258,58 @@ function toggleReactionSkip() {
     if (typeof updateGameState === 'function') updateGameState();
 }
 
+/** 2026/03/10 13:40 修正：割り込み者にタイマー権を移譲する **/
 function checkChottoMattaCounter(targetPlayer, cardToLock, onCanceled, onPassed) {
     if (!players || players.length === 0) { onPassed(); return; }
     const potentialCounters = players.filter(p => p.id !== targetPlayer.id && hands[p.id] && hands[p.id].some(c => c.id === 21)); 
-    if (potentialCounters.length === 0) { onPassed(); return; }
+    
+    if (potentialCounters.length === 0) { 
+        activeTimerPlayerId = null; // 誰もいなければリセット
+        onPassed(); 
+        return; 
+    }
+
     const processNextCounter = (idx) => {
-        if (idx >= potentialCounters.length) { onPassed(); return; }
+        if (idx >= potentialCounters.length) { 
+            activeTimerPlayerId = null; 
+            onPassed(); 
+            return; 
+        }
         const cp = potentialCounters[idx]; 
+        
+        // ★重要：タイマーを割り込み検討者に移す
+        activeTimerPlayerId = cp.id;
+        pauseTimer(); // 演出上、一旦止める
+
         const waitCard = hands[cp.id].find(c => c.id === 21);
-        const costCards = hands[cp.id].filter(c => c !== waitCard && (c.colorId === 'purple' || c.colorId === 'rainbow'));
+        // コスト判定を game_effects.js と同期
+        const costCards = hands[cp.id].filter(c => c !== waitCard && (c.colorId === 'purple' || c.colorId === 'rainbow' || Number(c.id) === 29));
         if (costCards.length === 0) { processNextCounter(idx + 1); return; }
         
         showDetailModal("割り込み確認", `${cp.name}さん、「ちょっと待った！」で${targetPlayer.name}の勝利を阻止しますか？`, waitCard, "使用する", () => {
             showSelectionModal("コスト支払い", "捨てるカードを選択してください", costCards, "card-back-pattern", 1, (sel) => {
-                sel.forEach(c => { const curIdx = hands[cp.id].indexOf(c); if(curIdx > -1) hands[cp.id].splice(curIdx, 1); discardPile.push(c); });
-                const waitIdx = hands[cp.id].indexOf(waitCard); if(waitIdx > -1) discardPile.push(hands[cp.id].splice(waitIdx, 1)[0]);
-                discardPile.push(cardToLock); targetPlayer.lockPrevented = true; 
-                addLog(`${cp.name}が「ちょっと待った！」で${targetPlayer.name}のロックを阻止！`); renderHand(); renderDeckAndDiscard(); onCanceled();
+                // 【フロー④】コストを捨てる
+                sel.forEach(c => { 
+                    const curIdx = hands[cp.id].indexOf(c); 
+                    if(curIdx > -1) discardCard(hands[cp.id].splice(curIdx, 1)[0], cp); 
+                });
+
+                // 【フロー⑤】相手のロックしようとしたカードを捨てる
+                // cardToLockをオブジェクトとしてそのまま捨て場へ
+                discardCard(cardToLock, targetPlayer); 
+
+                // 【フロー⑥】「ちょっと待った！」自体を捨てる
+                const waitIdx = hands[cp.id].indexOf(waitCard); 
+                if(waitIdx > -1) discardCard(hands[cp.id].splice(waitIdx, 1)[0], cp);
+
+                targetPlayer.lockPrevented = true; 
+                renderHand(); 
+                renderDeckAndDiscard(); 
+                onCanceled(); // 上記の handleHandClick 内の成功時処理を呼び出す
             }, false, null, null, null, cp);
         }, false);
+
+        
         const cnlBtn = document.getElementById('detail-cancel-btn'); 
         if(cnlBtn) { 
             cnlBtn.textContent = "パス"; 
@@ -991,75 +1024,78 @@ const processExile = (tSlot) => {
     }
 };
 
+/**
+ * 2026/03/10 16:20 修正
+ * 1. 物理的配置(slot.push)を finalizeLock 関数に完全に分離し、割り込み確認中は実行されないよう徹底。
+ * 2. checkChottoMattaCounter に「カードオブジェクトそのもの」を渡し、捨て札の画像消失を防止。
+ * 3. 阻止成功時にカードを確実に手札から消去し、フェイズをハンドへ進めるよう修正。
+ */
 function handleHandClick(cardIndex, lockedCard = null) {
-    // 【外科手術的修正】AI処理中は表示制限を無視
     const isAI = isAutoAction || isAutoProcessing;
     if (isPeekingMode || !players || !players[turn]) return;
-    const displayTurn = isP1HandOnlyView ? 0 : turn;
-    if (!isAI && displayTurn !== turn) {
-        showToast("現在は P1 の手札を表示中ですが、操作権はありません。");
-        return;
-    }
-
+    
     const p = players[turn];
     const card = lockedCard || (hands[p.id] ? hands[p.id][cardIndex] : null);
     if (!card) return;
 
+    /**
+ * 2026/03/10 16:50 修正
+ * ご提示のフローに完全準拠：ロック実行前に「割り込み」を最優先で確認し、
+ * 阻止された場合は配置処理そのものを消滅させる。
+ */
     if (currentPhase === PHASE.LOCK) {
         if (p.lockPrevented) return;
-        if (card.colorId === 'white' || card.colorId === 'black' || card.id === 29) return;
+        if (card.colorId === 'white' || card.colorId === 'black' || Number(card.id) === 29) return;
 
-        // 【修正】ロックフェイズでも確認モーダルを表示
-        showDetailModal("ロック確認", `「${card.name}」をロックしますか？`, card, "ロックする", () => {
-            if (card.colorId === 'rainbow') {
-                // 虹色のロック先選択
-                const lockableColors = BASE_COLORS.filter(c => collections[p.id][c.id].length === 0);
-                showSelectionModal("RAINBOW LOCK", "どの色としてロックしますか？", lockableColors, "card-back-pattern", 1, (sel) => {
-                    const targetColorId = sel[0].id;
-                    if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
-                    const tSlot = collections[p.id][targetColorId];
-                    tSlot.push(card);
-                    if (typeof triggerLockEffect === 'function') triggerLockEffect(p.id, targetColorId);
-                    addLog(`${p.name}が「${card.name}」を${sel[0].name}としてロック！`);
-                    setTimeout(() => {
-                        isAutoProcessing = false;
-                        processExile(tSlot);
-                        if (currentPhase === PHASE.LOCK && !winner) nextPhase();
-                    }, 1000);
-                }, false, null, null, null, p);
-                return;
+        const startLockLogic = (targetColorId) => {
+            const slot = collections[p.id][targetColorId];
+            
+            // 7色目（勝利王手）判定
+            const currentLockCount = LOCK_ORDER.filter(col => 
+                collections[p.id][col.id].length > 0 && !collections[p.id][col.id].some(c => c.id === 34)
+            ).length;
+            const isLastLock = (currentLockCount === 6 && slot.length === 0);
+
+            if (isLastLock) {
+                // 【フロー②】ロックする前に割り込みモーダルを出す
+                // カードを先に手札から「仮確保」し、画像データが消えないように渡す
+                checkChottoMattaCounter(p, card, 
+                    // 【フロー③〜⑥】阻止成功時（あなたが「使用する」を押した）
+                    () => { 
+                        // 1. 相手の手札からそのカードを消す
+                        if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
+                        renderHand();
+                        // 2. ログ表示
+                        addLog(`<span class="text-red-400">⚠️ ${p.name}の勝利は阻止されました。</span>`);
+                        // 3. 【フロー⑦】自動処理の再開（フェイズ移行）
+                        setTimeout(() => {
+                            isAutoProcessing = false;
+                            isAutoAction = false;
+                            nextPhase(true); 
+                        }, 1000);
+                    }, 
+                    // 阻止なし（パス）時：ここで初めて物理的に置く
+                    () => { finalizeLock(p, card, targetColorId, slot, cardIndex, lockedCard); }
+                );
+            } else {
+                finalizeLock(p, card, targetColorId, slot, cardIndex, lockedCard);
             }
+        };
 
-            const slot = collections[p.id][card.colorId];
-            const hasCurse = slot.some(c => c.id === 34);
-            const isSlotAvailable = slot.length === 0 || (hasCurse && slot.length < 3);
+        if (card.colorId === 'rainbow') {
+            const lockableColors = BASE_COLORS.filter(c => collections[p.id][c.id].length === 0);
+            showSelectionModal("RAINBOW LOCK", "どの色としてロックしますか？", lockableColors, "card-back-pattern", 1, (sel) => {
+                startLockLogic(sel[0].id);
+            }, false, null, null, null, p);
+        } else {
+            showDetailModal("ロック確認", `「${card.name}」をロックしますか？`, card, "ロックする", () => {
+                startLockLogic(card.colorId);
+            });
+        }
+        return; // ロックフェイズの処理をここで終える
 
-            if (!isSlotAvailable) {
-                addLog("そのスロットは既に埋まっています。");
-                return;
-            }
-
-            // 手札から削除
-            if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
-
-            // 【外科手術的修正】重複を削除し、一回だけ追加・ログ・演出を行うように整理
-            slot.push(card);
-            if (typeof triggerLockEffect === 'function') {
-                triggerLockEffect(p.id, card.colorId);
-            }
-            // 2026/03/06 修正：ログの視認性向上（プレイヤーカラー＋アイコン）
-            addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-yellow-500">🔒 LOCK</span> 「${card.name}」`);
-
-            setTimeout(() => {
-                isAutoProcessing = false;
-                isAutoAction = false;
-                processExile(slot);
-                if (currentPhase === PHASE.LOCK && !winner) nextPhase();
-            }, 1200);
-        });
-
-    } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime) { 
-        // --- 2026/03/07 外科手術的修正：自動処理時は確認モーダルをスキップ ---
+    } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime) {
+        // ハンドフェイズの処理（既存のまま）
         const executeLogic = () => {
             showCardModal(card, () => {
                 activeHandCard = card; 
@@ -1078,15 +1114,37 @@ function handleHandClick(cardIndex, lockedCard = null) {
                 }, card);
             }, "手札効果発動！", p.name, "手札から効果を発動しました");
         };
-
-        if (isAI) {
-            // AI/タイムアウト時は即実行（確認画面を出さない）
-            executeLogic();
-        } else {
-            // 人間操作時は確認画面を出す
-            showDetailModal(card.handEffect?.anytime ? "割込使用確認" : "手札使用確認", "このカードを使用しますか？", card, "使用する", executeLogic);
-        }
+        if (isAI) executeLogic();
+        else showDetailModal(card.handEffect?.anytime ? "割込使用確認" : "手札使用確認", "このカードを使用しますか？", card, "使用する", executeLogic);
     }
+}
+
+/**
+ * 実際にカードをスロットに入れ、演出を開始する最終処理
+ */
+/**
+ * カードをスロットに物理的に追加し、演出と追放判定を行う最終地点
+ */
+function finalizeLock(p, card, colorId, slot, cardIndex, lockedCard) {
+    // 1. 手札から削除
+    if(!lockedCard && hands[p.id]) {
+        hands[p.id].splice(cardIndex, 1);
+    }
+    
+    // 2. ロックエリアに追加
+    slot.push(card);
+    
+    // 3. 描画とログ
+    if (typeof triggerLockEffect === 'function') triggerLockEffect(p.id, colorId);
+    addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-yellow-500">🔒 LOCK</span> 「${card.name}」`);
+    
+    // 4. 余韻の後に追放・勝利判定
+    setTimeout(() => {
+        isAutoProcessing = false;
+        isAutoAction = false;
+        // processExileの中で checkWin() が呼ばれ、勝利画面が出ます
+        processExile(slot); 
+    }, 1200);
 }
 
 // --- checkWin を呪い除外に修正 ---
@@ -1100,8 +1158,31 @@ function checkWin(pid) {
                !slot.some(c => c.id === 34);
     });
     
-    if (lockedColors.length >= 7) { 
-        winner = players.find(p => p.id === pid); 
+    /** 2026/03/10 13:10 修正：7色揃った瞬間に「ちょっと待った！」の割り込みをチェック **/
+    if (lockedColors.length >= 7) {
+        const p = players.find(pl => pl.id === pid);
+        const lastCard = p.lastLockedCard || { name: "最後のカード" };
+
+        // 割り込み確認を開始。誰も使わなければ onSuccess(proceed) が呼ばれる
+        checkChottoMattaCounter(p, lastCard, 
+            () => { 
+                // 割り込み成功（ロック阻止された）時：何もしない（勝利判定を抜ける）
+                addLog(`[System] ${p.name} の勝利が阻止されました！`);
+                renderStatus();
+                renderHand();
+            }, 
+            () => {
+                // 誰も割り込まなかった（パスされた）時：通常の勝利処理へ
+                executeVictory(pid);
+            }
+        );
+        return; // 一旦ここで止める
+    }
+}
+
+// 実際の勝利演出を関数として切り出し（重複防止）
+function executeVictory(pid) {
+    winner = players.find(p => p.id === pid); 
 
         // 1. 経過時間などのデータ準備
         const playTimeSec = Math.floor((Date.now() - gameStartTime) / 1000);
@@ -1131,7 +1212,6 @@ function checkWin(pid) {
             showVictoryUI(pid);
         }
     }
-}
 
 function showResultModal(pid, stats) {
     const resultOverlay = document.getElementById('result-overlay');
@@ -1239,10 +1319,18 @@ function showResultModal(pid, stats) {
         `;
     }).join('');
 
+    /**
+ * 2026/03/10 12:45 修正
+ * 1. showResultModal 内で resultRankHtml が初期化前に参照されていたエラーを修正。
+ * 2. 変数定義の順序を整理し、すべてのHTMLパーツが揃ってから描画するように変更。
+ */
+
     // データの保存
     saveUserProfile();
 
-    // 勲章セクションをHTMLにまとめる
+    // --- 修正：変数の定義順を入れ替え（使う前に作る） ---
+
+    // 4. 勲章セクションをHTMLにまとめる
     const awardsSectionHtml = `
         <div class="mt-6 pt-4 border-t border-gray-700">
             <p class="text-[9px] text-gray-500 font-bold mb-3 text-center uppercase tracking-widest">Match Awards</p>
@@ -1251,9 +1339,6 @@ function showResultModal(pid, stats) {
             </div>
         </div>
     `;
-
-    // 5. すべてをまとめて一度に描画（awardsSectionHtml を追加）
-    container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + resultRankHtml + awardsSectionHtml + lineChartHtml + chartHtml;
 
     /** 2026/03/10 修正：リザルト画面にも色鮮やかなランク表示を適用 **/
     const p = userProfile;
@@ -1301,8 +1386,8 @@ function showResultModal(pid, stats) {
         </div>
     `;
 
-    // 5. すべてをまとめて一度に描画（resultRankHtml を追加）
-    container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + resultRankHtml + lineChartHtml + chartHtml;
+    // 5. すべてをまとめて一度に描画
+    container.innerHTML = `<div class="space-y-2">${resultsHtml}</div>` + resultRankHtml + awardsSectionHtml + lineChartHtml + chartHtml;
     resultOverlay.classList.remove('hidden');
 }
 

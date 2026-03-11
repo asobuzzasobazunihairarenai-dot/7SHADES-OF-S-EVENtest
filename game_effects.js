@@ -395,6 +395,14 @@ function executeCardEffect(def, p, onSuccess, contextCard = null, isNewReveal = 
 function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     if (!act) { if (onSuccess) onSuccess({}); return; }
 
+    // ★2026/03/12 外科手術：到達効果の真の主役（駒がそこにある人）を特定
+    // 基本は p ですが、駒の場所から正確な主役(actor)を割り出します
+    const actor = players.find(pl => pl.x === p.x && pl.y === p.y) || p;
+    
+    // 一時的に操作権（タイマー対象）をactorに移す
+    const originalTimerId = activeTimerPlayerId;
+    activeTimerPlayerId = actor.id;
+
     /** 安全なカウントアップ処理へ差し替え **/
     if (!matchStats.handEffectUsedCount) matchStats.handEffectUsedCount = {};
     matchStats.handEffectUsedCount[p.id] = (matchStats.handEffectUsedCount[p.id] || 0) + 1;
@@ -644,7 +652,9 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         }
         
         const forceNoCancel = !!act.noCancel;
-        startSelectionMode(act.type, act.count || 1, logicName, promptText, handleSuccess, act.range, forbidden, forceNoCancel, p, act.isEightDirection, null, "おまかせ", act.restrictedCells || null, p); 
+        // ★2026/03/12 外科手術：最後の引数(actingPlayer)を p から actor に変更
+        // これにより、CPUがダッシュを踏んだ際は CPU自身が選択を行うようになります。
+        startSelectionMode(act.type, act.count || 1, logicName, promptText, handleSuccess, act.range, forbidden, forceNoCancel, p, act.isEightDirection, null, "おまかせ", act.restrictedCells || null, actor); 
         return;
     }
 
@@ -2249,6 +2259,10 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     }
 
     else { if(act.msg) addLog(act.msg); if (onSuccess) onSuccess({}); } 
+    
+    // ★2026/03/12 外科手術：処理が終わったのでタイマー所有者を元に戻す
+    activeTimerPlayerId = originalTimerId;
+
     if (typeof renderBoard === 'function') renderBoard();
     if (typeof renderHand === 'function') renderHand();
     if (typeof renderStatus === 'function') renderStatus();

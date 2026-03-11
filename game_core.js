@@ -1472,8 +1472,16 @@ function startStealSequence(victim, callback) {
                 discardPile.push(counterCard); 
                 addLog(`${victim.name}が「反撃」を発動！`); 
 
-                const nextVictim = (victim.id === turnPlayer.id) ? (typeof activeTargetPlayerForCounter !== 'undefined' ? activeTargetPlayerForCounter : victim) : turnPlayer;
-                startStealSequence(nextVictim, callback); 
+                // 【外科手術的修正】反撃成功時、攻守を完全に入れ替える
+                // victim（反撃した人）が新しい「侵攻者（奪う側）」になり、
+                // 元々の侵攻者（turnPlayer）が新しい「被害者」になります。
+                const newInvader = victim; 
+                const newVictim = turnPlayer;
+
+                // startStealSequenceInternal を直接呼び出し、第三引数に「新しい奪う側」を明示的に渡す
+                if (typeof startStealSequenceInternal === 'function') {
+                    startStealSequenceInternal(newVictim, callback, newInvader);
+                }
             }, "手札効果発動", victim.name, "「反撃」で逆に奪い返します！");
         };
 
@@ -1697,19 +1705,32 @@ async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraC
     }
 }
 
+/**
+ * 2026/03/11 修正
+ * 到達効果の解決にあたり、操作権(activeTimerPlayerId)を「到達した駒の主」に一時委譲するように変更。
+ * これにより、フォース等で動かされたCPUが「ダッシュ」を踏んだ際、CPU自身が移動先を選ぶようになります。
+ */
 function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false) {
     const curC = cardObj || cell.color;
     if (!curC) { if (callback) callback(); return; }
 
-    // ★ 2026/03/08 修正：フォース等で動かされた本人が人間(P1)なら、自動処理を強制解除
-    // これにより、CPUのターン中であっても、あなたの到達効果モーダルはあなたの確認を待ちます。
+    // 【外科手術的追加】操作主を「駒の持ち主」へ一時的に切り替える
+    // 従来の turn プレイヤーではなく、この player がタイムバーを支配するようにします
+    activeTimerPlayerId = player.id; 
+
+    // 到達したのが人間(P1)なら、CPUのターン中であっても手動操作モードに切り替える
     if (player.id === 1) {
-        isAutoAction = false;       // 自動実行をオフにする
-        isAutoProcessing = false;   // 自動思考をストップさせる
-        if (typeof pauseTimer === 'function') pauseTimer(); // あなたが考える間、タイマーも止める
+        isAutoAction = false;       
+        isAutoProcessing = false;   
+        if (typeof pauseTimer === 'function') pauseTimer(); 
+    } else {
+        // 到達したのがCPUなら、自動処理モードをオンにする
+        isAutoAction = true;
+        isAutoProcessing = true;
+        if (typeof resumeTimer === 'function') resumeTimer();
     }
     
-    player.processedArrivalCard = curC; // 処理開始フラグ
+    player.processedArrivalCard = curC;
 
     /* --- 修正箇所：冒頭に発光演出と待機処理を追加 --- */
     // 1. まずド派手な発光をトリガー
@@ -1836,6 +1857,9 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
 
                 // --- 共通処理：コンボ判定またはコールバック実行 ---
                 const finalizeComboOrCallback = () => {
+                    // 【外科手術的追加】すべての到達処理が終わったため、操作権を返却する
+                    activeTimerPlayerId = null; 
+
                     const nextCell = board[player.y][player.x];
                     const hasNextCombo = !nextCell.empty && nextCell.revealed && player.processedArrivalCard !== nextCell.color;
 

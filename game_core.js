@@ -530,9 +530,31 @@ function updateTimerTick() {
                     return true;
                 });
 
+                // 2026/03/11 修正：なないろの欠片の温存をAIの優先順位に反映
                 if (usable.length > 0) {
-                    usable.sort((a, b) => (b.fromViridian ? 1 : 0) - (a.fromViridian ? 1 : 0));
+                    // 1. ヴァーディアン由来(fromViridian)を最優先
+                    // 2. なないろの欠片(ID:29)かつ温存条件に該当するものは最後順位にする
+                    usable.sort((a, b) => {
+                        if (b.fromViridian !== a.fromViridian) return (b.fromViridian ? 1 : -1);
+                        
+                        // ID:29 の温存ロジックをここにも適用
+                        const isAFragment = (a.id === 29);
+                        const isBFragment = (b.id === 29);
+                        if (isAFragment !== isBFragment) return (isAFragment ? 1 : -1); // 欠片を後ろに
+                        
+                        return 0;
+                    });
+                    
                     const targetCard = usable[0];
+
+                    // ★最終チェック：もし選ばれたのが「温存すべき欠片」なら、結局使わない
+                    if (targetCard.id === 29 && !canPlayHandEffect(targetCard, p)) {
+                        isAutoAction = false;
+                        isAutoProcessing = false;
+                        handleTimeOut(); // 次の処理（フェイズ移行等）へ
+                        return;
+                    }
+
                     isAutoProcessing = true; 
                     isAutoAction = true; 
                     const handIdx = hands[p.id].indexOf(targetCard);
@@ -700,7 +722,25 @@ function autoMove(p) {
 
                     if (nextDistToGate === 0 && currentDistToGate <= 1) score += (cfg.REACH_ENEMY_GATE || 100);
                     if (nextDistToGate < currentDistToGate) score += (cfg.MOVE_TOWARD_GATE || 30);
-                    if (epOn) score += (cfg.STEAL_ACTION || 50); 
+
+                    /* --- 2026/03/11 修正：隣接回避ロジック（反撃不保持時） --- */
+                    const p1 = players.find(pl => pl.id === 1);
+                    if (p1) {
+                        const distToP1 = Math.abs(nx - p1.x) + Math.abs(ny - p1.y);
+                        if (distToP1 === 1) {
+                            // 手札に「反撃(ID:22)」があるか確認
+                            const hasCounter = hands[p.id] && hands[p.id].some(c => c.id === 22);
+                            if (!hasCounter) {
+                                // 反撃がない場合、80%の確率でそのマスの評価を大幅に下げる（避ける）
+                                if (Math.random() < 0.8) {
+                                    score -= 200; 
+                                }
+                            }
+                        }
+                    }
+                    /* ----------------------------------------------------- */
+
+                    if (epOn) score += (cfg.STEAL_ACTION || 50);
 
                     if (!cell.empty && cell.revealed && cell.color) {
                         const colId = cell.color.colorId;
@@ -709,8 +749,26 @@ function autoMove(p) {
                         if (['rainbow', 'white', 'black'].includes(colId)) score += (cfg.RARE_COLOR || 20);
                     }
                     
+                    /* --- 2026/03/11 修正：未来の機動力評価（袋小路回避） --- */
                     const stackCount = (cell.stack ? cell.stack.length : 0) + (cell.empty ? 0 : 1);
                     score += Math.max(1, stackCount * (cfg.STACK_COUNT || cfg.CARD_COUNT || 10));
+
+                    // 移動候補地(nx, ny)に止まったと仮定して、そこからさらに動けるマスの数を調べる
+                    let futureMobility = 0;
+                    const nextDirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+                    for (let nd of nextDirs) {
+                        const fx = nx + nd[0], fy = ny + nd[1];
+                        if (fx >= 0 && fx < GRID_SIZE && fy >= 0 && fy < GRID_SIZE) {
+                            const fCell = board[fy][fx];
+                            const hasOpp = otherPlayers.some(op => op.x === fx && op.y === fy);
+                            // 「カードがある」または「敵がいる」なら将来動ける場所とカウント
+                            if (!fCell.empty || hasOpp) futureMobility++;
+                        }
+                    }
+                    // 将来の選択肢が少ない場所（0〜1箇所）は評価を大幅に下げて避ける
+                    if (futureMobility <= 1) score -= 150;
+                    else score += (futureMobility * 10); // 選択肢が多いほどプラス評価
+                    /* ----------------------------------------------------- */
 
                     if (isStaying) {
                         const isAtEnemyGate = enemyGatePos.some(eg => eg.x === p.x && eg.y === p.y);
@@ -907,36 +965,51 @@ const processExile = (tSlot) => {
  * 2026/03/11 修正：割り込み検問所
  * 強欲なパレットと同様に、フェイズの制限を受けない直接実行ルートを構築。
  */
+/**
+ * 2026/03/11 修正：割り込み検問所（コストチェック追加版）
+ */
+/**
+ * 2026/03/11 修正：割り込み検問所（最後のロック限定版）
+ */
 function requestLockCheck(card, cardIndex, lockedCard, p) {
     window.lastAttemptedColorId = card.colorId;
-    window.activeLockingCard = card; // ★この行を追加！どのカードか記憶させる
+    window.activeLockingCard = card; 
     
-    const hasChottoMatta = hands[1] && hands[1].some(c => c.id === 21 && !c.sealed);
+    const myHand = hands[1] || [];
+    const chottoCard = myHand.find(c => c.id === 21 && !c.sealed);
+    const hasCost = myHand.some(c => (c.colorId === 'purple' || c.colorId === 'rainbow') && c !== chottoCard);
 
-    if (hasChottoMatta && p.id !== 1) {
-        addLog(`📢 ${p.name}のロックに対し、『ちょっと待った！』の権利を確認中...`);
+    // --- 追加：最後のロック判定 ---
+    const currentLockedCount = LOCK_ORDER.filter(col => {
+        const slot = collections[p.id][col.id];
+        return slot && slot.length > 0 && 
+               slot.some(c => c.colorId !== 'white' && c.colorId !== 'black') && 
+               !slot.some(c => c.id === 34);
+    }).length;
+
+    const isNewColor = collections[p.id][card.colorId].length === 0;
+    // 既に6色持っていて、今から7色目を置こうとしているなら「最後のロック」
+    const isFinalLock = (currentLockedCount === 6 && isNewColor);
+
+    // 条件に isFinalLock を追加
+    if (chottoCard && hasCost && p.id !== 1 && isFinalLock) {
+        addLog(`[Check] ${p.name}の最終ロックを検知！『ちょっと待った！』の使用を確認します。`);
 
         activeTimerPlayerId = 1; 
         isAutoAction = false;
         isAutoProcessing = false;
         if (typeof pauseTimer === 'function') pauseTimer();
         
-        const chottoCard = hands[1].find(c => c.id === 21);
-
-        showDetailModal("ちょっと待った！", `${p.name}が「${card.name}」をロックしようとしています。割り込みますか？`, chottoCard, "使用する", () => {
+        showDetailModal("ちょっと待った！", `${p.name}が勝利確定のロック（7色目）をしようとしています。割り込みますか？`, chottoCard, "使用する", () => {
             closeDetailModal();
-            // ★ 強欲なパレット方式：handleHandClickを通さず、直接効果解決へ
             activeHandCard = chottoCard;
-            isHandEffectProcessing = true; // 処理中フラグを立てる
+            isHandEffectProcessing = true;
 
             executeCardEffect(chottoCard.handEffect, players.find(pl => pl.id === 1), (res) => {
-                // 効果解決後の処理
                 const curIdx = hands[1].indexOf(chottoCard);
                 if (curIdx > -1) discardPile.push(hands[1].splice(curIdx, 1)[0]);
-                
                 isHandEffectProcessing = false;
                 renderHand();
-                // ※ タイマーの復帰は game_effects.js 側の最後で行います
             }, chottoCard);
         });
 
@@ -951,6 +1024,7 @@ function requestLockCheck(card, cardIndex, lockedCard, p) {
             };
         }
     } else {
+        // 最後のロックでない場合、または条件を満たさない場合は通常進行
         proceedLockLogic(card, cardIndex, lockedCard, p);
     }
 }
@@ -1080,12 +1154,15 @@ function checkWin(pid) {
         updateProfileAfterGame(pid);
 
         // 2. BGM停止と勝利SE再生
+        /* --- 2026/03/11 修正：勝敗に応じた効果音の切り替え --- */
         if (window.gameBGM) {
             window.gameBGM.pause();
             window.gameBGM.currentTime = 0;
         }
         if (typeof playSE === 'function') {
-            playSE('win.mp3'); 
+            // 勝利プレイヤーがP1(自分)ならwin.mp3、それ以外ならlose.mp3を再生
+            const seFile = (Number(pid) === 1) ? 'win.mp3' : 'lose.mp3';
+            playSE(seFile); 
         }
 
         // --- ★ここから演出の接続 ---
@@ -1274,14 +1351,30 @@ function handleBoardClick(x, y) {
     const isTarget = (p.dimensionActive && !p.baseMoveUsed) ? (dist === 2) : (dist === 1); 
     if (!isTarget) return; 
     
-    const cell = board[y][x], epOn = players.find(ep => ep.id !== p.id && ep.x === x && ep.y === y); 
+    /* --- 2026/03/11 修正：追加移動（ダッシュ等）時の接触禁止を徹底 --- */
+    const cell = board[y][x];
+    // クリックした先に他のプレイヤーがいるかチェック
+    const epOn = players.find(ep => ep.id !== p.id && ep.x === x && ep.y === y); 
     
-    // 【修正箇所】追加移動（extraMoves消費）であるか判定
-    const isExtra = p.baseMoveUsed && p.extraMoves > 0;
+    // ★ 判定：これは「基本移動」ではなく「追加の移動」か？
+    // p.baseMoveUsed が true である ＝ すでに1回目の移動を終えている状態
+    const isExtraMoveMode = p.baseMoveUsed;
 
-    // 【修正箇所】追加移動時は「接触」を禁止する。他プレイヤーがいる場合はクリックを無効化。
-    if (isExtra && epOn) return;
+    // 1. 追加移動中は、相手がいるマス（epOn）をクリックしても無効にする
+    if (isExtraMoveMode && epOn) {
+        // addLog(`[System] 追加移動中に接触（強奪）はできません。`); // デバッグ用
+        return; 
+    }
 
+    // 2. ディメンション（距離2）の跳躍中も、相手がいるマスへの移動は禁止
+    if (dist === 2 && epOn) {
+        return; 
+    }
+
+    // 3. 追加移動（ダッシュ/到着効果）の判定フラグをセット
+    const isExtra = isExtraMoveMode && p.extraMoves > 0;
+
+    // 3. 移動先が空（カードなし）で、かつプレイヤーもいない場合は移動不可
     if (cell.empty && !epOn) return; 
     if (p.konohanaPenalty && epOn) return; 
     if (p.marmegoPenalty && !epOn) return;
@@ -1420,15 +1513,24 @@ function startStealSequence(victim, callback) {
     }
 }
 
+/**
+ * 2026/03/11 修正
+ * 強奪モーダルのキャンセル（閉じる）ボタンを非表示にし、必ずカードを選ばせるように変更。
+ */
 function startStealSequenceInternal(victim, callback, overrideInvader = null) {
     const invader = overrideInvader || players[turn];
     if (!hands[victim.id] || hands[victim.id].length === 0) { finishSteal(victim, null, callback, invader); return; } 
-    showSelectionModal("強奪チャンス", `${invader.name}さん、1枚奪え！`, hands[victim.id], "card-back-pattern", 1, (cards) => finishSteal(victim, cards[0], callback, invader), true, null, null, null, invader);
+    // 第7引数を true から false に変更
+    showSelectionModal("強奪チャンス", `${invader.name}さん、1枚奪え！`, hands[victim.id], "card-back-pattern", 1, (cards) => finishSteal(victim, cards[0], callback, invader), false, null, null, null, invader);
 }
 
 /** 2026/03/09 修正：接触強奪時のカード確認モーダルを追加 **/
+/**
+ * 2026/03/11 修正
+ * 接触演出（ガツン）が終わるのを1秒待ってから強奪モーダルを表示するように変更。
+ */
 function finishSteal(victim, card, callback, invader) { 
-    // 接触演出（衝撃波と画面揺れ）を実行
+    // 1. まず接触演出（衝撃波と画面揺れ）を即座に実行
     if (typeof playContactEffect === 'function') {
         playContactEffect(victim.x, victim.y);
     }
@@ -1439,7 +1541,11 @@ function finishSteal(victim, card, callback, invader) {
             if(callback) callback(); 
         } 
         else { 
-            moveToCell(victim, victim.startPos.x, victim.startPos.y, true, callback); 
+            activeTimerPlayerId = victim.id; 
+            moveToCell(victim, victim.startPos.x, victim.startPos.y, true, () => {
+                activeTimerPlayerId = null; 
+                if(callback) callback();
+            }); 
         }
     };
 
@@ -1448,23 +1554,25 @@ function finishSteal(victim, card, callback, invader) {
         hands[victim.id].splice(hands[victim.id].indexOf(card), 1); 
         hands[invader.id].push(card); 
         
-        // ログの出力（『 』で強調）
         addLog(`<span style="color:${invader.color.hex}">●</span> <b>${invader.name}</b> <span class="text-red-500">💥 強奪</span> ➔ <b>${victim.name}</b> の 『${card.name}』`);
 
-        // ★ 修正箇所：奪ったカードをモーダルで表示する
-        if (typeof showCardModal === 'function') {
-            showCardModal(card, () => {
+        // ★ 外科手術：演出をしっかり見せるために、1000ミリ秒（1秒）待機してから表示
+        setTimeout(() => {
+            if (typeof showCardModal === 'function') {
+                showCardModal(card, () => {
+                    renderHand();
+                    proceed();
+                }, "カード強奪", invader.name, `${victim.name} から奪いました！`);
+            } else {
                 renderHand();
                 proceed();
-            }, "カード強奪", invader.name, `${victim.name} から奪いました！`);
-        } else {
-            renderHand();
-            proceed();
-        }
+            }
+        }, 1000); // ここで1秒待つ
+
     } else {
-        // カードを奪えなかった場合（相手の手札が0など）
+        // カードを奪えなかった場合も、演出の余韻を待ってから帰還させる
         addLog(`${victim.name} は手札を持っていませんでした。`);
-        proceed();
+        setTimeout(proceed, 1000);
     }
 }
 
@@ -1835,33 +1943,77 @@ function checkGateInvasionForAll() {
 
 function processInvasionQueue() { if (!invasionQueue || invasionQueue.length === 0) { nextTurn(); return; } const { invader, victim } = invasionQueue.shift(); processHandSteal(invader, victim); }
 
-function processHandSteal(invader, victim) { const vHand = hands[victim.id] || []; const sCount = Math.floor(vHand.length / 2); if (sCount > 0) showSelectionModal("HAND STEAL", `${victim.name}の手札から${sCount}枚奪います`, vHand, "card-back-pattern", sCount, (cards) => { cards.forEach(c => { vHand.splice(vHand.indexOf(c), 1); hands[invader.id].push(c); }); processEternalAcquisition(invader, victim); }, true, null, null, null, invader); else processEternalAcquisition(invader, victim); }
+/**
+ * 2026/03/11 修正
+ * ゲート侵攻時の手札強奪を可視化。奪ったカードをモーダルで全員に通知します。
+ */
+function processHandSteal(invader, victim) { 
+    const vHand = hands[victim.id] || []; 
+    const sCount = Math.floor(vHand.length / 2); 
+
+    if (sCount > 0) {
+        showSelectionModal("HAND STEAL", `${victim.name}の手札から${sCount}枚選んで奪います`, vHand, "card-back-pattern", sCount, (cards) => { 
+            // 1. データの移動（被害者の手札から引っこ抜き、侵攻者の手札へ）
+            cards.forEach(c => { 
+                vHand.splice(vHand.indexOf(c), 1); 
+                hands[invader.id].push(c); 
+            }); 
+
+            // 2. 奪ったカードを全員に見せる演出（showCardModal）を追加
+            // これにより、当事者は表向き、関係ない人は裏向きで表示されます
+            if (typeof showCardModal === 'function') {
+                showCardModal(cards, () => {
+                    // モーダルを閉じたら、次のエターナル獲得処理へ
+                    renderHand();
+                    processEternalAcquisition(invader, victim);
+                }, "ゲート侵攻：カード強奪", invader.name, `${victim.name} からカードを奪いました！`);
+            } else {
+                renderHand();
+                processEternalAcquisition(invader, victim);
+            }
+        }, true, null, null, null, invader); 
+    } else { 
+        // 奪う手札がない場合は即座に次へ
+        processEternalAcquisition(invader, victim); 
+    } 
+}
 
 function processEternalAcquisition(invader, victim) { 
+    /* --- 2026/03/11 修正：ゲート侵攻時のエターナル獲得をカード画像で通知 --- */
     if (eternalDeck && eternalDeck.length > 0) { 
         showSelectionModal("ETERNAL SELECTION", "エターナルカードを1枚選び獲得します", eternalDeck, "eternal-back-pattern", 1, (cards) => { 
             const c = cards[0]; 
             eternalDeck.splice(eternalDeck.indexOf(c), 1); 
-            const slot = collections[invader.id][c.colorId]; 
 
-            // より厳密な処理（混在対応版）
-            const persistentCards = [];
-            while(slot.length > 0) {
-                const top = slot.pop();
-                if (top.type === 'FIRST' || top.type === 'BOOST') {
-                    persistentCards.push(top); // 保護対象は一時避難
-                } else {
-                    hands[invader.id].push(top); // 通常カードは手札へ
-                }
+            // ★ 修正：獲得したエターナルカードをモーダルで大きく表示する演出を追加
+            if (typeof showCardModal === 'function') {
+                showCardModal(c, () => {
+                    // モーダルを閉じた後に実際のロック処理を実行
+                    const slot = collections[invader.id][c.colorId]; 
+                    const persistentCards = [];
+                    while(slot.length > 0) {
+                        const top = slot.pop();
+                        if (top.type === 'FIRST' || top.type === 'BOOST') {
+                            persistentCards.push(top);
+                        } else {
+                            hands[invader.id].push(top);
+                        }
+                    }
+                    persistentCards.forEach(pc => slot.push(pc));
+                    slot.push(c);
+
+                    checkWin(invader.id); 
+                    processForcedReturn(invader); 
+                }, "エターナルカード獲得！", invader.name, `ゲート侵攻報酬：『${c.name}』をロックしました。`);
+            } else {
+                // フォールバック（関数がない場合）
+                const slot = collections[invader.id][c.colorId];
+                slot.push(c);
+                checkWin(invader.id); 
+                processForcedReturn(invader); 
             }
-            // 保護したカードを戻し、最後にエターナルを追加
-            persistentCards.forEach(pc => slot.push(pc));
-            slot.push(c);
-
-            checkWin(invader.id); 
-            processForcedReturn(invader); 
         }, true, null, null, null, invader); 
-    } else { 
+    } else {
         processForcedReturn(invader); 
     } 
 }
@@ -2909,9 +3061,23 @@ function showVictoryUI(pid) {
     const statsDisplay = document.getElementById('winner-stats-display');
     const lockDisplay = document.getElementById('winner-lock-display');
 
+    /* --- 2026/03/11 修正：勝敗に応じたタイトル表示の切り替え --- */
     if (nameEl) {
-        nameEl.textContent = `${winnerPl.name} Wins!`;
-        nameEl.className = "text-2xl font-bold mb-2 " + (winnerPl.color?.bg?.replace('bg-', 'text-') || 'text-yellow-600');
+        if (Number(pid) === 1) {
+            // 自分が勝った場合
+            nameEl.textContent = "VICTORY!";
+            nameEl.className = "text-3xl font-black mb-2 text-yellow-500 animate-bounce";
+        } else {
+            // CPUが勝った場合
+            nameEl.textContent = "DEFEAT...";
+            nameEl.className = "text-3xl font-black mb-2 text-blue-500";
+        }
+        
+        // その下に勝者の名前を小さく表示
+        const winnerSubText = document.createElement('div');
+        winnerSubText.className = "text-sm font-bold opacity-80 mb-2";
+        winnerSubText.textContent = `${winnerPl.name} has conquered the board.`;
+        nameEl.after(winnerSubText);
     }
 
     // --- アワード（勲章）の表示 ---

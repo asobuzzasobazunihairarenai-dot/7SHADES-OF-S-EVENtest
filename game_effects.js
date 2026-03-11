@@ -55,6 +55,26 @@ function canPlayHandEffect(card, p) {
         if (typeof checkStuck === 'function' && checkStuck(p)) return false;
     }
 
+    /* --- 2026/03/11 修正：スティール(ID:17)の有効判定（無駄撃ち防止） --- */
+    if (card.id === 17) {
+        // 1. 全プレイヤーの有効なロック数を計算
+        const lockCounts = players.map(pl => ({
+            id: pl.id,
+            count: LOCK_ORDER.reduce((sum, col) => sum + (collections[pl.id][col.id].some(c => c.colorId !== 'white' && c.colorId !== 'black') ? 1 : 0), 0)
+        }));
+        const maxL = Math.max(...lockCounts.map(l => l.count));
+        
+        // 2. 「最多ロック」かつ「手札が1枚以上ある」相手プレイヤーが1人でもいるか
+        const hasValidTarget = players.some(pl => {
+            if (pl.id === p.id) return false; // 自分は除外
+            const myLockCount = LOCK_ORDER.reduce((sum, col) => sum + (collections[pl.id][col.id].some(c => c.id !== 34 && c.colorId !== 'white' && c.colorId !== 'black') ? 1 : 0), 0);
+            const handCount = (hands[pl.id] || []).length;
+            return (myLockCount === maxL && handCount > 0);
+        });
+
+        if (!hasValidTarget) return false; // 対象がいなければ使用不可（グレーアウト）
+    }
+
     // 2026/03/11 修正：ちょっと待った！の手札効果を使用可能に変更
     if (card.id === 21) {
         // 相手がロックフェイズ中の時のみ使用可能
@@ -530,12 +550,23 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 }
                 
                 if (isPotentiallySelectable) {
-                    // ★ 外科手術的修正：CPU(NORMAL以上)の損切りロジック
-                    // 到達効果（isNewReveal=falseかつ駒がその場にある）において、
-                    // 自分の足元のカードを「獲得（add_all_to_hand）」対象から外す
+                    // 2026/03/11 修正：CPUの知能向上（進路妨害の回避）
                     if (isAutoAction && autoMode === 'NORMAL') {
+                        // 1. 自分の足元のカードは獲得しない（既存）
                         if (logicName === 'add_all_to_hand' && x === p.x && y === p.y) {
                             isPotentiallySelectable = false;
+                        }
+
+                        // 2. 「フォース」などの獲得時、ゴールへ近づくための進路にあるマスを避ける
+                        if (logicName === 'add_to_hand' || logicName === 'add_all_to_hand') {
+                            const enemyGatePos = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos);
+                            const currentDist = Math.min(...enemyGatePos.map(eg => getDistance({x: p.x, y: p.y}, eg)));
+                            const targetDist = Math.min(...enemyGatePos.map(eg => getDistance({x, y}, eg)));
+
+                            // もしそのマスが、現在地よりも「ゴールに近い」マスなら、進路とみなして獲得を避ける
+                            if (targetDist < currentDist) {
+                                isPotentiallySelectable = false;
+                            }
                         }
                     }
 
@@ -563,21 +594,53 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             }
         }
 
+        /* --- 2026/03/11 修正：CPUの配置知能（道作り優先ロジック） --- */
         const finalCount = Math.min(act.count || 1, validCount);
         if (finalCount <= 0) {
             const failMsg = (logicName === 'move_player') ? "追加移動できるマスがないため、効果を終了します。" : "対象がないため、効果を終了します。";
             addLog(`[System] ${failMsg}`);
-
-            // ★外科手術的修正：自動処理（AI）の場合はオーバーレイを表示せず即座に次へ進める
-            if (isAutoAction) {
-                if (onSuccess) onSuccess({});
-            } else {
-                // 人間の場合はメッセージを見せてから次へ
-                showMessageOverlay(failMsg, 1500, () => { 
-                    if (onSuccess) onSuccess({}); 
-                });
-            }
+            if (isAutoAction) { if (onSuccess) onSuccess({}); } 
+            else { showMessageOverlay(failMsg, 1500, () => { if (onSuccess) onSuccess({}); }); }
             return;
+        }
+
+        // CPU（自動処理）かつ配置系のロジックの場合、優先順位リストを作成
+        if (isAutoAction && ['place_deck_facedown_empty', 'place_deck_sequential_empty', 'place_self_facedown_empty'].includes(logicName)) {
+            const priorityCells = [];
+            const enemyGatePos = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos);
+
+            // 全マスを再評価して、優先度の高いものを抽出
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const cell = board[y][x];
+                    if (!cell.empty) continue; // 空きマス以外は無視
+
+                    const dx = Math.abs(p.x - x), dy = Math.abs(p.y - y);
+                    const distToMe = dx + dy;
+                    const isAtEnemyGate = enemyGatePos.some(eg => eg.x === x && eg.y === y);
+
+                    // 優先度1：目指している敵のゲートが空きマスなら最優先
+                    if (isAtEnemyGate) {
+                        priorityCells.push({ x, y, score: 100 });
+                    }
+                    // 優先度2：自分の隣（1マス先）なら高優先
+                    else if (distToMe === 1) {
+                        priorityCells.push({ x, y, score: 50 });
+                    }
+                    // その他：普通の空きマス
+                    else {
+                        priorityCells.push({ x, y, score: 1 });
+                    }
+                }
+            }
+
+            // スコアが高い順に並び替えて、必要な数(finalCount)だけ抽出
+            priorityCells.sort((a, b) => b.score - a.score);
+            const cpuSelection = priorityCells.slice(0, finalCount).map(c => ({ x: c.x, y: c.y }));
+            
+            // モーダルを介さず、直接実行
+            executeSelectionLogic(logicName, cpuSelection, onSuccess);
+            return; 
         }
         
         const forceNoCancel = !!act.noCancel;
@@ -1038,31 +1101,60 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         return;
     }
 
+    /* --- 2026/03/11 修正：欲しがりの吊り橋・選択結果の全体通知演出 --- */
     else if (act.type === 'greedy_choice') {
         const hasHand = (hands[p.id] || []).length > 0;
-        if (!hasHand) {
-            // 【修正箇所】showDetailModal を廃止し、showMessageOverlay を使用
-            showMessageOverlay("手札がないため獲得のみ行い、\n元の場所へ戻ります。", 2500, () => {
-                const targetCell = board[p.y][p.x];
-                targetCell.revealed = false; 
-                if(p.prevX !== -1 && (p.x !== p.prevX || p.y !== p.prevY)) {
-                    p.x = p.prevX;
-                    p.y = p.prevY;
-                }
+
+        // 【共通処理】元の場所へ戻る処理
+        const performReturn = () => {
+            const targetCell = board[p.y][p.x];
+            targetCell.revealed = false; // 踏んだカードを裏に戻す
+            if(p.prevX !== -1 && (p.x !== p.prevX || p.y !== p.prevY)) {
+                p.x = p.prevX; p.y = p.prevY;
+            }
+            // 全員へ「戻る」を選択したことを知らしめる
+            showMessageOverlay(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> は<br>【カードを惜しんで引き返しました】`, 2500, () => {
+                addLog(`${p.name}は手札を温存し、元の場所へ戻りました。`);
                 updateGameState();
                 onSuccess({});
             });
+        };
+
+        if (!hasHand) {
+            // 手札がない場合は強制的に「戻る」
+            showMessageOverlay("手札がないため獲得のみ行い、\n元の場所へ戻ります。", 2500, performReturn);
         } else {
-            const msg = "手札を1枚捨てて獲得しますか？\n（「捨てない」を選択すると元の場所へ戻り、カード獲得します）";
-            showDetailModal("欲しがりの吊り橋", msg, null, "１枚捨てる", () => {
-            showSelectionModal("手札を捨てる", "捨てるカードを選択してください", hands[p.id], "card-back-pattern", 1, (sel) => { 
-            sel.forEach(c => { 
-            const curIdx = hands[p.id].indexOf(c); if(curIdx > -1) hands[p.id].splice(curIdx, 1); 
-            discardPile.push(c); }); renderHand(); onSuccess({}); }, false, null, null, null, p); }); 
-            const cnl = document.getElementById('detail-cancel-btn'); cnl.textContent = "捨てない"; cnl.onclick = () => { 
-            const targetCell = board[p.y][p.x]; targetCell.revealed = false; 
-            if(p.prevX !== -1 && (p.x !== p.prevX || p.y !== p.prevY)) { p.x = p.prevX; p.y = p.prevY; } 
-            updateGameState(); onSuccess({}); closeDetailModal(); }; } return; } 
+            // 手札がある場合の選択肢
+            const msg = "手札を1枚捨てて獲得しますか？\n（「捨てない」を選択すると元の場所へ戻ります）";
+            showDetailModal("欲しがりの吊り橋", msg, null, "1枚捨てる", () => {
+                // 捨てることを選択
+                showSelectionModal("手札を捨てる", "捨てるカードを1枚選んでください", hands[p.id], "card-back-pattern", 1, (sel) => {
+                    const discarded = sel[0];
+                    const curIdx = hands[p.id].indexOf(discarded);
+                    if(curIdx > -1) hands[p.id].splice(curIdx, 1);
+                    discardPile.push(discarded);
+                    
+                    // 全員へ「捨てた」ことを知らしめる
+                    showMessageOverlay(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> は<br>【手札を1枚捨てて、その場に留まりました】`, 2500, () => {
+                        addLog(`${p.name}は「${discarded.name}」を捨てて、欲しがりの吊り橋を渡りきりました。`);
+                        renderHand();
+                        onSuccess({});
+                    });
+                }, false, null, null, null, p);
+            });
+
+            // 「捨てない（戻る）」ボタンの設定
+            const cnl = document.getElementById('detail-cancel-btn');
+            if (cnl) {
+                cnl.textContent = "戻る";
+                cnl.onclick = () => {
+                    closeDetailModal();
+                    performReturn();
+                };
+            }
+        }
+        return;
+    } 
     
     else if (act.type === 'info_disclosure') {
         const targets = [{x:3, y:3}, {x:0, y:0}, {x:GRID_SIZE-1, y:0}, {x:0, y:GRID_SIZE-1}, {x:GRID_SIZE-1, y:GRID_SIZE-1}]; 
@@ -1771,26 +1863,45 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             if (candidates.length === 1) {
                 awardFrog(candidates[0].id);
             } else {
-                const playerChoices = candidates.map(c => ({
-                    id: c.id,
-                    name: `${c.name} (${c.count}色)`,
-                    type: "PLAYER_SELECT"
-                }));
+                /* --- 2026/03/11 修正：CPUの自薦ロジック（自分が候補なら自分を選ぶ） --- */
+                // もし候補の中に自分(p)が含まれていたら、迷わず自分をターゲットにする
+                const selfCandidate = candidates.find(c => c.id === p.id);
+                
+                if (p.isCPU) {
+                    if (selfCandidate) {
+                        // CPUかつ自分が最少ロック者なら、自分に渡す
+                        awardFrog(p.id);
+                        return;
+                    }
+                    // 自分がいなければ、残りの候補からランダム
+                    const randomTarget = candidates[Math.floor(Math.random() * candidates.length)];
+                    awardFrog(randomTarget.id);
+                } else {
+                    // 人間の場合は選択モーダルを表示
+                    const playerChoices = candidates.map(c => ({
+                        id: c.id,
+                        name: (c.id === p.id) ? `自分 (${c.count}色)` : `${c.name} (${c.count}色)`,
+                        type: "PLAYER_SELECT"
+                    }));
 
-                // ★外科手術2：ここも発動者(p)が「誰に渡すか」を選ぶ際、CPUならスキップするようにする
-                showRequestSelectionModal(
-                    "最少ロックプレイヤー選択", 
-                    "いろ落ちガエルを渡すプレイヤーを選んでください", 
-                    playerChoices, 
-                    "card-back-pattern", 
-                    1, 
-                    (selPl) => { awardFrog(selPl[0].id); }, 
-                    false, 
-                    () => { awardFrog(playerChoices[Math.floor(Math.random() * playerChoices.length)].id); }, 
-                    null, 
-                    null, 
-                    p // この選択は「発動者」が行うので p を渡す
-                );
+                    showRequestSelectionModal(
+                        "最少ロックプレイヤー選択", 
+                        "いろ落ちガエルを渡すプレイヤーを選んでください", 
+                        playerChoices, 
+                        "card-back-pattern", 
+                        1, 
+                        (selPl) => { awardFrog(selPl[0].id); }, 
+                        false, 
+                        () => { 
+                            // タイムアウト時：自分が候補なら自分、そうでなければランダム
+                            const fallbackId = selfCandidate ? p.id : playerChoices[Math.floor(Math.random() * playerChoices.length)].id;
+                            awardFrog(fallbackId); 
+                        }, 
+                        null, 
+                        null, 
+                        p 
+                    );
+                }
             }
         };
 

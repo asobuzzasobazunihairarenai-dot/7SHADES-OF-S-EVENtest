@@ -2474,9 +2474,9 @@ function showStealActionModal(thief, victim, onComplete) {
     const overlapClass = victimHandCount > 5 ? '-ml-5' : victimHandCount > 1 ? '-ml-3' : '';
     
     for(let i = 0; i < victimHandCount; i++) {
-        // 最初の1枚以外にマイナスマージンを適用
         const margin = i > 0 ? overlapClass : '';
-        handHTML += `<div class="steal-hand-back ${margin}"></div>`;
+        // 2026/03/11 修正：w-8 h-8 を追加し、縦横比を1:1に固定
+        handHTML += `<div class="steal-hand-back ${margin} w-8 h-8" style="min-width: 32px; height: 32px;"></div>`;
     }
 
     modal.innerHTML = `
@@ -2489,7 +2489,7 @@ function showStealActionModal(thief, victim, onComplete) {
 
             <div class="flex flex-col items-center shrink-0 w-12">
                 <div class="text-2xl text-yellow-500">◀</div>
-                <div class="steal-card-blinking"></div>
+                <div class="steal-card-blinking w-8 h-8" style="min-width: 32px; height: 32px;"></div>
             </div>
 
             <div class="steal-player-unit">
@@ -3699,4 +3699,6 @@ function setCpuBoostMode(isBoost) {
         if (boostCheck) boostCheck.checked = false;
     }
 }
+
+
 

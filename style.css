@@ -1144,16 +1144,17 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 }
 
 /* 手札の裏面：欠け防止と重なり設定 */
+/* --- 修正 1: 手札の裏面（1:1の正方形に固定） --- */
 .steal-hand-back {
-    width: 25px;
-    height: 35px;
-    flex-shrink: 0; /* 圧縮による欠けを防止 */
-    border-radius: 3px;
+    width: 32px;  /* 25px から 32px へ */
+    height: 32px; /* 35px から 32px へ */
+    flex-shrink: 0;
+    border-radius: 4px; /* 少し角丸を調整 */
     background-image: url('images/normal_card_back.webp');
     background-size: cover;
     background-position: center;
     border: 1px solid #fff;
-    box-shadow: 2px 0 5px rgba(0,0,0,0.5);
+    box-shadow: 2px 0 5px rgba(0,0,0,0.3);
     transition: transform 0.3s ease;
 }
 
@@ -1174,8 +1175,8 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 
 /* 点滅カード：こちらもサイズ固定 */
 .steal-card-blinking {
-    width: 30px;
-    height: 40px;
+    width: 32px;  /* 30px から 32px へ */
+    height: 32px; /* 40px から 32px へ */
     flex-shrink: 0;
     background-image: url('images/normal_card_back.webp');
     background-size: cover;

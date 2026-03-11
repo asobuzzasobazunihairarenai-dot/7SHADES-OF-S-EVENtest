@@ -770,9 +770,15 @@ function autoMove(p) {
                     else score += (futureMobility * 10); // 選択肢が多いほどプラス評価
                     /* ----------------------------------------------------- */
 
+                    /* 2026/03/12 修正：移動ルール厳守（留まる選択肢の評価を基本-999に） */
                     if (isStaying) {
                         const isAtEnemyGate = enemyGatePos.some(eg => eg.x === p.x && eg.y === p.y);
-                        if (isAtEnemyGate) score += 500; 
+                        if (isAtEnemyGate) {
+                            score += 500; 
+                        } else {
+                            // 移動できるカードや相手が周囲にある場合、その場に留まるのは反則に近いため評価を最低にする
+                            score = -999; 
+                        }
                     }
 
                 } catch (e) {

@@ -1447,12 +1447,20 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         };
         processNextCelestia(0); return;
     }
+
+
     else if (act.type === 'serenade_hand') {
         const lockCount = LOCK_ORDER.filter(col => collections[p.id][col.id].some(c => c.colorId !== 'white' && c.colorId !== 'black')).length;
         const canSelect = hands[p.id].filter(c => c !== activeHandCard && c.colorId !== 'white' && c.colorId !== 'black');
         showSelectionModal("セレナーデ・ロック", "ロックする手札を1枚選んでください", canSelect, "card-back-pattern", 1, (sel) => {
+            /* 2026/03/12 修正：選択カードの存在チェックを追加し、undefinedエラーを防止 */
+            if (!sel || sel.length === 0) {
+                addLog(`[System] ロック対象が選択されなかったため、セレナーデの処理を中断します。`);
+                onSuccess(); 
+                return;
+            }
             const cardToLock = sel[0]; 
-            if (cardToLock.colorId === 'rainbow') {
+            if (cardToLock && cardToLock.colorId === 'rainbow') {
                 const emptyColors = [...BASE_COLORS].reverse().filter(c => collections[p.id][c.id].length === 0);
                 if (emptyColors.length === 0) { showToast("ロックできるスロットがありません"); return; }
                 if (lockCount === 6) { showToast("セレナーデで最後のロック(7色目)はできません"); return; }

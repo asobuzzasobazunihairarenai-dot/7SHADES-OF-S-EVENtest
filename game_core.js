@@ -1187,16 +1187,19 @@ function checkWin(pid) {
         // --- 外科手術的修正：プロフィールの更新と保存 ---
         updateProfileAfterGame(pid);
 
-        // 2. BGM停止と勝利SE再生
-        /* --- 2026/03/11 修正：勝敗に応じた効果音の切り替え --- */
+        /* 2026/03/12 修正：音響処理の確実化 */
         if (window.gameBGM) {
             window.gameBGM.pause();
-            window.gameBGM.currentTime = 0;
+            // 完全に初期化せず、一時停止のみで負荷を下げます
         }
+
         if (typeof playSE === 'function') {
-            // 勝利プレイヤーがP1(自分)ならwin.mp3、それ以外ならlose.mp3を再生
             const seFile = (Number(pid) === 1) ? 'win.mp3' : 'lose.mp3';
-            playSE(seFile); 
+            
+            // BGMが止まった一瞬後にSEを叩き込む（ブラウザの詰まり対策）
+            setTimeout(() => {
+                playSE(seFile);
+            }, 100);
         }
 
         // --- ★ここから演出の接続 ---
@@ -2086,6 +2089,11 @@ function processHandSteal(invader, victim) {
  * CPUのゲート侵攻時、エターナルカードをプレイヤーが選ばされる不具合を修正。
  * 第7引数（isBlind）を false にすることで、公開状態（CPU自動選択対象）に切り替え。
  */
+/**
+ * 2026/03/12 修正：エターナル報酬選択
+ * 1. 第7引数を true に戻し、本来のルール通り「裏向き」で選ばせる。
+ * 2. 第10引数（autoLabel）に文字列を渡すことで、CPUが自動選択できるように修正。
+ */
 function processEternalAcquisition(invader, victim) { 
     if (eternalDeck && eternalDeck.length > 0) { 
         showSelectionModal(
@@ -2115,7 +2123,7 @@ function processEternalAcquisition(invader, victim) {
 
                         checkWin(invader.id); 
                         processForcedReturn(invader); 
-                    }, "エターナルカード獲得！", invader.name, `ゲート侵攻報酬：『${c.name}』をロックしました。`);
+                    }, "エターナルカード獲得！", invader.name, `ゲート侵攻報酬：『${c.name}』をロックしました。`, invader); // 第6引数に invader 追加
                 } else {
                     const slot = collections[invader.id][c.colorId];
                     slot.push(c);
@@ -2123,11 +2131,11 @@ function processEternalAcquisition(invader, victim) {
                     processForcedReturn(invader); 
                 }
             }, 
-            false, // 第7引数：ここを false にすれば CPU が自分で選ぶようになります
-            null, 
-            null, 
-            null, 
-            invader
+            true,  // 7: isBlind を true に。これで裏向きになります
+            null,  // 8: cancelCallback
+            null,  // 9: cancelLabel
+            "自動取得", // 10: autoLabel。これがあることで裏向きでもCPUが選択可能になります
+            invader // 11: actingP
         ); 
     } else {
         processForcedReturn(invader); 

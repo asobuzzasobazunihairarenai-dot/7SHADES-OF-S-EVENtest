@@ -886,8 +886,18 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
     container.classList.remove('hidden'); 
     container.innerHTML = ''; 
     
+    /* 2026/03/12 修正：エターナル選択画面で7枚を横1列に並べるための調整 */
+    // エターナルカードの選択か、またはロック対象（7色）の選択かを判定
+    const isEternalSelect = (title === "ETERNAL SELECTION");
     const isLockTargetSelect = (source && source.length > 0 && source[0] && source[0].id && BASE_COLORS.some(bc => bc.id === source[0].id));
-    container.className = isLockTargetSelect ? "flex flex-nowrap justify-center gap-2 p-4 min-h-[100px] overflow-x-auto w-full" : "flex flex-wrap justify-center gap-3 p-4 min-h-[100px] max-h-[45vh] overflow-y-auto w-full";
+    
+    if (isEternalSelect || isLockTargetSelect) {
+        // 折り返し禁止(flex-nowrap)にし、はみ出る場合は横スクロール(overflow-x-auto)を許可
+        container.className = "flex flex-nowrap justify-center gap-1.5 p-4 min-h-[100px] overflow-x-auto w-full";
+    } else {
+        // 通常の選択画面（手札破棄など）は今まで通り折り返す
+        container.className = "flex flex-wrap justify-center gap-3 p-4 min-h-[100px] max-h-[45vh] overflow-y-auto w-full";
+    }
     document.getElementById('selection-result').classList.add('hidden'); 
     
     const cancelBtn = document.getElementById('selection-cancel-btn'); 
@@ -954,8 +964,10 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
             let cardCls = isBlind ? back : (item.type === "ETERNAL" ? "eternal-card-face" : (item.bg || 'bg-gray-700'));
             let txtCls = (!isBlind && item.colorId === 'white' ? 'text-gray-800' : (item.colorId === 'black' ? 'text-gray-200' : 'text-white'));
             
-            // After: カード要素にも確実に selection-option を付与
-            el.className = `selection-option card-shape w-12 h-12 ${cardCls} border-2 border-gray-400 rounded cursor-pointer hover-zoom transition-all flex items-center justify-center relative shrink-0 overflow-hidden`;
+            /* 2026/03/12 修正：横1列に並べる時はサイズを w-10 (約40px) に縮小 */
+            const sizeCls = (title === "ETERNAL SELECTION") ? "w-10 h-10" : "w-12 h-12";
+            
+            el.className = `selection-option card-shape ${sizeCls} ${cardCls} border-2 border-gray-400 rounded cursor-pointer hover-zoom transition-all flex items-center justify-center relative shrink-0 overflow-hidden`;
             
             if (!isBlind) {
                 const imgPath = item.image || (item.id ? `images/card_${item.id}.webp` : null);
@@ -1078,21 +1090,25 @@ function showSelectionResult(cards, onComplete, effectName, cancelCallback = nul
     area.classList.remove('hidden'); 
     document.getElementById('selection-container').classList.add('hidden');
     
-    /* 2026/03/12 修正：結果確認画面でも「戻る」ボタンを有効化 */
-    const cancelBtn = document.getElementById('selection-cancel-btn');
+    /* 2026/03/12 修正：ボタンの重複を解消し、確認ボタン隣の「戻る」を有効化 */
+    const backBtn = document.getElementById('selection-back-btn'); // 確認ボタンの左隣にあるボタン
+    const cancelBtn = document.getElementById('selection-cancel-btn'); // モーダル最下部のボタン
     const autoBtn = document.getElementById('selection-auto-btn');
     
-    if (cancelBtn) {
-        cancelBtn.classList.remove('hidden'); // 非表示を解除
-        cancelBtn.textContent = "戻る";
-        cancelBtn.onclick = () => {
-            // 結果画面を隠し、選択画面を再表示する
-            area.classList.add('hidden');
-            document.getElementById('selection-container').classList.remove('hidden');
-            // 下部のボタン群も初期状態（showSelectionModalで設定された状態）に戻るため
-            // ここでは特別な処理はせず、DOMの表示切り替えのみ行います。
+    // 1. 本来の場所にある「戻る」ボタン(backBtn)に機能を付与
+    if (backBtn) {
+        backBtn.classList.remove('hidden'); 
+        backBtn.onclick = () => {
+            area.classList.add('hidden'); // 結果エリアを隠す
+            document.getElementById('selection-container').classList.remove('hidden'); // 選択肢を出す
+            // 下部のキャンセルボタンなどを再表示させるために必要なら
+            if (cancelBtn) cancelBtn.classList.remove('hidden');
         };
     }
+
+    // 2. 最下部の「キャンセル」ボタンは、結果画面では隠す（混乱防止）
+    if (cancelBtn) cancelBtn.classList.add('hidden');
+    if (autoBtn) autoBtn.classList.add('hidden');
     if (autoBtn) autoBtn.classList.add('hidden');
 
     const resContainer = document.getElementById('selection-result-container'); 
@@ -1196,15 +1212,19 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
         // タイトルに自分の名前がある、またはカード自体が「元々自分のもの(fromP1)」フラグを持っている場合
         const isRelatedToP1 = titleText.includes(players[0].name) || card.fromP1 === true;
 
-        // 2. 秘匿判定の決定打
+        /* 2026/03/12 修正：P1(自分)からカードが奪われた場合は、秘匿せず表向きで表示する */
         let isSecretInfo = false;
         if (isP1HandOnlyView && playerName !== players[0].name) {
-            // 例外ルール：タイトルに「公開」が含まれている場合は、秘匿設定を無視して表示する
+            
+            // P1が被害者であるかどうかの判定（タイトルに「P1から奪」等が含まれる場合）
+            const isP1Victim = titleText.includes(`${players[0].name}から`) || titleText.includes(`${players[0].name}の手札`);
+
             if (titleText.includes("公開")) {
                 isSecretInfo = false;
-            } else if (isRelatedToP1) {
-                // 自分の持ち物なら見える
+            } else if (isRelatedToP1 || isP1Victim) {
+                // 自分の持ち物、または自分から奪われたものなら見えるようにする
                 isSecretInfo = false;
+            } else if (titleText.includes("ドロー") || titleText.includes("奪")|| titleText.includes("自ゲートのカード獲得") || titleText.includes("スティール")) {
             } else if (titleText.includes("ドロー") || titleText.includes("奪")|| titleText.includes("自ゲートのカード獲得") || titleText.includes("スティール")) {
                 // 通常のドローや強奪は隠す
                 isSecretInfo = true;
@@ -1586,11 +1606,15 @@ function isCellSelectable(x, y) {
         if (cell.empty) return false;
     }
 
+    /* 2026/03/12 修正：民の道などの移動先選択において、位置制限(範囲外)を無視するように修正 */
     const origin = selectionState.origin || p || {x: -1, y: -1};
     const dx = Math.abs(origin.x - x), dy = Math.abs(origin.y - y);
 
-    // --- 範囲チェック：null または undefined の場合は全域対象とする ---
-    if (selectionState.range !== null && selectionState.range !== undefined && L !== 'place_deck_facedown' && L !== 'exile_curse_logic') {
+    // L === 'civil_path_step2' (民の道の移動先選択) の時は、範囲制限の処理をスキップさせる
+    const isSpecialPlacement = ['place_deck_facedown', 'exile_curse_logic', 'civil_path_step2', 'civil_path_step2_dummy'].includes(L);
+
+    // --- 範囲チェック ---
+    if (!isSpecialPlacement && selectionState.range !== null && selectionState.range !== undefined) {
         let inRange = selectionState.isEightDirection ? (dx <= selectionState.range && dy <= selectionState.range) : (dx + dy <= selectionState.range);
         if (!inRange) return false;
     }

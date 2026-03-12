@@ -430,12 +430,27 @@ function playSE(fileName) {
     const volSlider = document.getElementById('setting-se-volume');
     const vol = volSlider ? (parseInt(volSlider.value) / 100) : 0.5;
 
+    /* 2026/03/12 修正：SE再生の安定化 */
     try {
-        const audio = new Audio(`audio/${fileName}`);
+        // キャッシュ対策として、毎回新しいAudioオブジェクトを作成（パスはそのまま）
+        const audio = new Audio(`audio/${fileName}?v=${Date.now()}`);
         audio.volume = vol;
+        
+        // 読み込みが完了したら即座に再生する設定
+        audio.preload = "auto";
 
-        // 【外科手術的修正】自動処理によるブロックを回避するための再生処理
         const playPromise = audio.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                console.warn("SE Playback blocked:", fileName, error);
+            });
+        }
+        
+        // メモリリーク防止のため、終わったらすぐ削除
+        audio.onended = () => {
+            audio.src = ""; // ソースをクリアして解放を促す
+            audio.remove();
+        };
 
         if (playPromise !== undefined) {
             playPromise.catch(error => {

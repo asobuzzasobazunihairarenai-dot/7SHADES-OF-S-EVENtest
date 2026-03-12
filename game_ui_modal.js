@@ -573,7 +573,8 @@ function closeDiscardPile() {
 /**
  * 詳細確認モーダルの表示
  */
-function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false) { 
+/* 2026/03/12 修正：第7引数 actingP を追加。CPUなら自動で「実行」するように拡張 */
+function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, actingP = null) { 
     
     // ★追加：自動処理(isAutoAction)がON かつ スキップ設定がONの場合、かつ実行アクション(onOk)がある場合
     if (isAutoAction && isSkipSelectionOnAuto && onOk) {
@@ -711,7 +712,9 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false) {
         okBtn.onclick = null; 
     }
 
-    if (isAutoAction && !okBtn.disabled) {
+    /* 2026/03/12 修正：actingPがCPUなら自動で次へ */
+    const isCpuActing = actingP && actingP.id !== 1;
+    if ((isAutoAction || isCpuActing) && !okBtn.disabled) {
         setTimeout(() => {
             if (okBtn) okBtn.click();
         }, 500);
@@ -1213,24 +1216,30 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
         const isRelatedToP1 = titleText.includes(players[0].name) || card.fromP1 === true;
 
         /* 2026/03/12 修正：P1(自分)からカードが奪われた場合は、秘匿せず表向きで表示する */
+        /* 2026/03/12 修正：CPUのドロー内容を確実に秘匿する */
         let isSecretInfo = false;
+
+        // P1以外（CPU）がカードを獲得する場合の秘匿ルール
         if (isP1HandOnlyView && playerName !== players[0].name) {
             
-            // P1が被害者であるかどうかの判定（タイトルに「P1から奪」等が含まれる場合）
+            // P1が被害者（奪われた側）かどうかの判定
             const isP1Victim = titleText.includes(`${players[0].name}から`) || titleText.includes(`${players[0].name}の手札`);
 
             if (titleText.includes("公開")) {
-                isSecretInfo = false;
+                isSecretInfo = false; // 「公開」と名のつく効果なら見せる
             } else if (isRelatedToP1 || isP1Victim) {
-                // 自分の持ち物、または自分から奪われたものなら見えるようにする
-                isSecretInfo = false;
-            } else if (titleText.includes("ドロー") || titleText.includes("奪")|| titleText.includes("自ゲートのカード獲得") || titleText.includes("スティール")) {
-            } else if (titleText.includes("ドロー") || titleText.includes("奪")|| titleText.includes("自ゲートのカード獲得") || titleText.includes("スティール")) {
-                // 通常のドローや強奪は隠す
-                isSecretInfo = true;
-            } else if (card.revealed === false) {
-                // 盤面の裏向きカードを拾ったなら隠す
-                isSecretInfo = true;
+                isSecretInfo = false; // P1に関わる（自分のもの、自分から奪われた）なら見せる
+            } else {
+                // 上記以外で、ドロー、強奪、ゲート報酬、スティールなどは【すべて隠す】
+                const isPrivateAction = titleText.includes("ドロー") || 
+                                        titleText.includes("獲得") || 
+                                        titleText.includes("奪") || 
+                                        titleText.includes("報酬") || 
+                                        titleText.includes("スティール");
+                
+                if (isPrivateAction) {
+                    isSecretInfo = true;
+                }
             }
         }
 
@@ -3207,8 +3216,11 @@ function showTitleSelectionModal(onChanged) {
                 <button 
                     class="w-full h-full p-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all relative overflow-hidden
                     ${isUnlocked ? (isSelected ? 'border-yellow-500 bg-gray-700 shadow-[0_0_10px_rgba(234,179,8,0.4)]' : 'border-gray-600 bg-gray-800 hover:border-gray-400') : 'border-gray-800 bg-gray-900/50 cursor-not-allowed opacity-60'}"
-                    onclick="${isUnlocked ? `window._confirmTitle('${t}')` : ''}"
-                    ${!isUnlocked ? 'disabled' : ''}>
+                    /* 2026/03/12 修正：スマホで未開放の称号をタップしても説明が出るように変更 */
+                    onclick="window._handleTitleTap(event, '${t}', ${isUnlocked})"
+                    class="w-full h-full p-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all relative overflow-hidden
+                    ${isUnlocked ? (isSelected ? 'border-yellow-500 bg-gray-700 shadow-[0_0_10px_rgba(234,179,8,0.4)]' : 'border-gray-600 bg-gray-800 hover:border-gray-400') : 'border-gray-800 bg-gray-900/50 opacity-60'}"
+                    >
                     
                     ${isNew ? '<span class="absolute top-1 right-1 bg-red-500 text-white text-[8px] font-black px-1 rounded-sm animate-pulse z-20">NEW</span>' : ''}
                     
@@ -3246,30 +3258,40 @@ function showTitleSelectionModal(onChanged) {
     `;
 
     /** 2026/03/10 修正：スマホで説明を一瞬で見失わないよう、2回タップで確定に変更 **/
-    let lastTappedTitle = null; 
+    /* 2026/03/12 修正：スマホ専用の称号タップハンドラ */
+    let lastTappedTitleId = null;
 
-    window._confirmTitle = (titleName) => {
-        // すでに選択中（装着中）のものを押した場合は、何もしない（説明だけ見せる）
-        if (userProfile.selectedTitle === titleName) return;
+    window._handleTitleTap = (event, titleName, isUnlocked) => {
+        event.preventDefault();
+        event.stopPropagation();
 
-        // まだ一度もタップされていない、または別の称号をタップした直後の場合
-        if (lastTappedTitle !== titleName) {
-            lastTappedTitle = titleName;
-            // 視覚的に「選択中」であることを伝えるためにログを出すか、ボタンの状態を変える処理
-            // スマホではこれで「説明（ツールチップ）」が表示された状態をキープできます
-            return; 
+        // 既にその称号の説明（ツールチップ）が出ている場合
+        if (lastTappedTitleId === titleName) {
+            if (isUnlocked) {
+                // 解放済みなら2回目のタップで確定
+                userProfile.selectedTitle = titleName;
+                if (!userProfile.seenTitles) userProfile.seenTitles = ["駆け出しの旅人"];
+                if (!userProfile.seenTitles.includes(titleName)) userProfile.seenTitles.push(titleName);
+                saveUserProfile();
+                modal.remove();
+                if (onChanged) onChanged();
+            }
+            return;
         }
 
-        // 同じ称号を2回連続でタップした、あるいは1回目で lastTappedTitle にセットされた後
-        // もう一度同じものをタップした瞬間に確定処理を行う
-        userProfile.selectedTitle = titleName;
-        if (!userProfile.seenTitles) userProfile.seenTitles = ["駆け出しの旅人"];
-        if (!userProfile.seenTitles.includes(titleName)) userProfile.seenTitles.push(titleName);
-        saveUserProfile();
+        // 1回目のタップ：説明を表示させる
+        lastTappedTitleId = titleName;
         
-        // ここで初めて画面を閉じる
-        modal.remove();
-        if (onChanged) onChanged();
+        // 全てのボタンから「強制表示クラス」を一度消す
+        document.querySelectorAll('.title-option-btn').forEach(btn => btn.classList.remove('show-tooltip-force'));
+        
+        // タップしたボタンのツールチップを強制表示
+        const currentBtn = event.currentTarget;
+        currentBtn.classList.add('show-tooltip-force');
+        
+        if (!isUnlocked) {
+            showToast("獲得条件を確認してください");
+        }
     };
 
     /** 2026/03/10 修正：スマホのクリック貫通（ゴーストクリック）を防止 **/

@@ -1652,6 +1652,11 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             // 2. 雷を落とす
             if (typeof triggerLightningEffect === 'function') {
                 triggerLightningEffect();
+                
+                /* 2026/03/12 修正：雷が落ちる瞬間にSEを再生 */
+                if (typeof playSE === 'function') {
+                    playSE('se_thunder_impact.mp3');
+                }
             }
             if (targetEl) targetEl.classList.remove('biribiri-active');
 

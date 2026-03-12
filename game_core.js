@@ -1882,16 +1882,16 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
                     }); 
 
                     if(validCells.length === 0) { 
-                        // 再移動先がない場合
+                        /* 2026/03/12 修正：再移動先がない場合の自動化対応 */
                         if (typeof showDetailModal === 'function') {
+                            // 第7引数(hideCancel)を true にし、さらに第8引数（新設予定の actingP）に player を渡す
                             showDetailModal("ちょっと待てなかった", "移動できる有効なマスが周囲にありませんでした。", curC, "獲得する", () => {
-                                // 修正：showCardModal の完了後にのみ後続処理を実行
+                                // showCardModal の第6引数に player を追加
                                 showCardModal(curC, () => { 
                                     if(hands[player.id]) hands[player.id].push(curC); 
                                     cleanupCell(); 
                                     renderHand(); 
                                     renderBoard(); 
-                                    // エラー回避のため、ここで安全にコールバックを消化
                                     if (player.pendingComboCallback) {
                                         const fCb = player.pendingComboCallback;
                                         player.pendingComboCallback = null;
@@ -1899,8 +1899,8 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
                                     } else if (callback) {
                                         callback();
                                     }
-                                }, "到達獲得", player.name, "獲得しました");
-                            }, true);
+                                }, "到達獲得", player.name, "獲得しました", player);
+                            }, true, player); // ここで player を渡す（showDetailModal側の修正が必要）
                         } else {
                             if(hands[player.id]) hands[player.id].push(curC); 
                             cleanupCell(); 
@@ -3484,46 +3484,49 @@ function updateProfileAfterGame(winnerId) {
         }
     }
 
-    // --- 通算MVPカードの特定・更新箇所 ---
-    /** 2026/03/10 修正：MVP回数が0になるバグを修正（構造の統一） **/
-    // 1. stats構造の初期化を確実に行う
+    /* 2026/03/12 修正：MVP通算回数が反映されない不具合を修正 */
+    // 1. 構造の初期化を徹底
     if (!userProfile.stats) userProfile.stats = {};
-    // 表示側の showUserProfileModal が参照している名前に統一
     if (!userProfile.stats.cardUsageCount) userProfile.stats.cardUsageCount = {};
-    
+    if (!userProfile.stats.colorUsage) userProfile.stats.colorUsage = {};
+
+    // 2. 今回の対局データを「通算」に加算
     if (window.cardUsageStats) {
-        // IDが 1 (数値) または 'p1' (文字列) のどちらでも取得
         const p1Usage = window.cardUsageStats[1] || window.cardUsageStats['p1'];
         if (p1Usage) {
             for (const cardName in p1Usage) {
-                // 通算使用回数を加算
-                const count = Number(p1Usage[cardName]) || 0;
-                userProfile.stats.cardUsageCount[cardName] = (userProfile.stats.cardUsageCount[cardName] || 0) + count;
+                // 通算カード使用数を加算
+                const currentMatchCount = Number(p1Usage[cardName]) || 0;
+                userProfile.stats.cardUsageCount[cardName] = (userProfile.stats.cardUsageCount[cardName] || 0) + currentMatchCount;
+
+                // 通算カラー傾向もあわせて加算
+                const cardData = CARD_DATABASE.find(c => c.name === cardName);
+                if (cardData && cardData.colorId) {
+                    userProfile.stats.colorUsage[cardData.colorId] = (userProfile.stats.colorUsage[cardData.colorId] || 0) + currentMatchCount;
+                }
             }
         }
     }
 
-    // 2. 最多使用カード（MVP）の特定と回数の確定
-    let topCardName = null;
-    let maxUsage = 0;
+    // 3. 全ての「通算」データの中から、改めてNo.1（MVP）を特定
+    let overallTopCard = null;
+    let overallMaxCount = -1;
 
-    for (const [name, count] of Object.entries(userProfile.stats.cardUsageCount)) {
-        if (count > maxUsage) {
-            maxUsage = count;
-            topCardName = name;
+    for (const [name, totalCount] of Object.entries(userProfile.stats.cardUsageCount)) {
+        if (totalCount > overallMaxCount) {
+            overallMaxCount = totalCount;
+            overallTopCard = name;
         }
     }
     
-    if (topCardName) {
-        // mvpCardには「カード名」を入れ、回数は cardUsageCount 側で保持する
-        userProfile.stats.mvpCard = topCardName;
-        console.log(`MVP確定: ${topCardName} (通算 ${maxUsage} 回)`);
+    // 4. 特定されたMVPをプロフィールに記録
+    if (overallTopCard) {
+        userProfile.stats.mvpCard = overallTopCard;
     }
 
-    // 3. データの保存を確実に実行
+    // 5. 最後に一度だけ、全てが更新された状態の userProfile を保存
     saveUserProfile();
- 
-    console.log("Profile updated and saved:", userProfile);
+    console.log(`[Stats Update] MVP: ${userProfile.stats.mvpCard}, Total: ${overallMaxCount}回`);
 }
 
 /**

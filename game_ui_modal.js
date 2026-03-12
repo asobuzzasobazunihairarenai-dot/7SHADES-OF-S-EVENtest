@@ -1411,14 +1411,16 @@ function startSelectionMode(type, count, logic, promptText, callback, range = nu
     const msg = promptText || "対象を選択してください";
     selectionState = { active: true, type, count, current: 0, selected: [], logic, callback, range, prompt: msg, forbiddenTile, noCancel, origin, isEightDirection, cancelCallback, autoBtnText, restrictedCells, actingPlayer };
     
-    // ★ 2026/03/08 修正：誰のターンであっても、操作者が人間(P1)なら手動UIを表示する
+    /* 2026/03/12 修正：CPUの操作介入を完全に自動化 */
     const p = actingPlayer || players[turn];
     const isHumanActing = (p.id === 1);
 
-    // CPUのターン(isAutoAction)かつ、操作者がCPUの場合のみ自動処理へ
-    if (isAutoAction && !isHumanActing) {
-        addLog(`[Auto] ${msg}`);
+    // 修正ポイント：isAutoAction の有無に関わらず、
+    // 「操作主が人間ではない（!isHumanActing）」なら強制的に自動選択へ送る
+    if (!isHumanActing) {
+        addLog(`[Auto] ${p.name} が ${msg}`);
         setTimeout(() => {
+            // 自動処理フラグが折れていても、CPUなら強制的に自動選択を起動
             if (typeof triggerAutoSelect === 'function') triggerAutoSelect();
         }, 300);
         return; 

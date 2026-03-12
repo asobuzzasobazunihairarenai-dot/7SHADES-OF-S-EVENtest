@@ -274,12 +274,22 @@ function toggleReactionSkip() {
 }
 
 
+/**
+ * 2026/03/12 修正：startTurn
+ * CPUがロックフェイズ開始時に停止する現象を回避するため、
+ * ターンの冒頭で全ての進行管理フラグを安全な状態にリセットします。
+ */
 async function startTurn() { 
     if (!players || players.length === 0) return;
+    
+    // 1. 前のターンや演出から残った「通行止めフラグ」を完全に掃除
     isEndingTurn = false; 
     isProcessingMove = false; 
+    isHandEffectProcessing = false; // ← 追加
+    isAutoProcessing = false;       // ← 追加
     
-    // 【外科手術的追加】タイマー対象を現在のターンプレイヤーに強制リセット
+    // 2. モーダルやタイマーの持ち主もリセット
+    activeModalId = null;            // ← 追加
     if (typeof activeTimerPlayerId !== 'undefined') {
         activeTimerPlayerId = null; 
     }

@@ -92,6 +92,13 @@ function canPlayHandEffect(card, p) {
         if (!hasAnyCard) return false; // 盤面が空ならグレーアウト対象
     }
 
+    /* --- 2026/03/12 修正：富裕層の気まぐれ(ID:25) の有効判定 --- */
+    if (card.id === 25) {
+        // 自分を含め、手札が3枚以上のプレイヤーが1人でもいるかチェック
+        const hasWealthyPlayer = players.some(pl => (hands[pl.id] || []).length >= 3);
+        if (!hasWealthyPlayer) return false; // 対象がいなければグレーアウト
+    }
+
     // ★ 2026/03/08 追加：なないろの欠片(ID:29) の温存ロジック
     if (card.id === 29) {
         if (typeof autoMode !== 'undefined' && autoMode === 'NORMAL' && isAutoAction) {
@@ -154,21 +161,11 @@ function canPlayHandEffect(card, p) {
         if (!hasValidTarget) return false;
     }
 
-    // ID 33: 強欲なパレット
+    /* --- 2026/03/12 修正：強欲なパレット(ID:33) の有効判定 --- */
     if (card.id === 33) {
-        const lockCounts = players.map(pl => {
-            let count = 0;
-            LOCK_ORDER.forEach(col => {
-                const slot = collections[pl.id][col.id];
-                if (slot && slot.length > 0) count += slot.length;
-            });
-            return count;
-        });
-        const maxL = Math.max(...lockCounts);
-        // 最多ロック者のうち、手札が1枚以上あるプレイヤーが1人でもいれば使用可能
-        const candidates = players.filter((pl, idx) => lockCounts[idx] === maxL);
-        const anyoneHasHand = candidates.some(pl => (hands[pl.id] || []).length > 0);
-        if (!anyoneHasHand) return false;
+        // 自分以外の相手プレイヤーの中に、手札を1枚以上持っている人がいるかチェック
+        const hasValidTarget = players.some(pl => pl.id !== p.id && (hands[pl.id] || []).length > 0);
+        if (!hasValidTarget) return false; // 相手全員が手札0枚ならグレーアウト
     }
 
     // ID 34: にじいろの呪い
@@ -1115,36 +1112,33 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     else if (act.type === 'greedy_choice') {
         const hasHand = (hands[p.id] || []).length > 0;
 
-        // 【共通処理】元の場所へ戻る処理
-        const performReturn = () => {
+        // 帰還ロジックの共通部分（メッセージ表示以外）を分離
+        const executeReturnLogic = () => {
             const targetCell = board[p.y][p.x];
-            targetCell.revealed = false; // 踏んだカードを裏に戻す
-            if(p.prevX !== -1 && (p.x !== p.prevX || p.y !== p.prevY)) {
+            if (targetCell) targetCell.revealed = false;
+            if (p.prevX !== -1 && (p.x !== p.prevX || p.y !== p.prevY)) {
                 p.x = p.prevX; p.y = p.prevY;
             }
-            // 全員へ「戻る」を選択したことを知らしめる
-            showMessageOverlay(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> は<br>【カードを惜しんで引き返しました】`, 2500, () => {
-                addLog(`${p.name}は手札を温存し、元の場所へ戻りました。`);
-                updateGameState();
-                onSuccess({});
-            });
         };
 
         if (!hasHand) {
-            // 手札がない場合は強制的に「戻る」
-            showMessageOverlay("手札がないため獲得のみ行い、\n元の場所へ戻ります。", 2500, performReturn);
+            // 1. 手札がない場合：専用メッセージを出して終了
+            showMessageOverlay("手札がないため獲得のみ行い、<br>元の場所へ戻ります。", 2500, () => {
+                executeReturnLogic();
+                addLog(`${p.name}は手札がないため、元の場所へ戻りました。`);
+                updateGameState();
+                onSuccess({});
+            });
         } else {
-            // 手札がある場合の選択肢
-            const msg = "手札を1枚捨てて獲得しますか？\n（「捨てない」を選択すると元の場所へ戻ります）";
+            // 2. 手札がある場合：選択肢を出す
+            const msg = "手札を1枚捨てて獲得しますか？<br>（「戻る」を選択すると元の場所へ戻ります）";
             showDetailModal("欲しがりの吊り橋", msg, null, "1枚捨てる", () => {
-                // 捨てることを選択
                 showSelectionModal("手札を捨てる", "捨てるカードを1枚選んでください", hands[p.id], "card-back-pattern", 1, (sel) => {
                     const discarded = sel[0];
                     const curIdx = hands[p.id].indexOf(discarded);
                     if(curIdx > -1) hands[p.id].splice(curIdx, 1);
                     discardPile.push(discarded);
                     
-                    // 全員へ「捨てた」ことを知らしめる
                     showMessageOverlay(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> は<br>【手札を1枚捨てて、その場に留まりました】`, 2500, () => {
                         addLog(`${p.name}は「${discarded.name}」を捨てて、欲しがりの吊り橋を渡りきりました。`);
                         renderHand();
@@ -1153,18 +1147,23 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 }, false, null, null, null, p);
             });
 
-            // 「捨てない（戻る）」ボタンの設定
             const cnl = document.getElementById('detail-cancel-btn');
             if (cnl) {
                 cnl.textContent = "戻る";
                 cnl.onclick = () => {
                     closeDetailModal();
-                    performReturn();
+                    // 自ら「戻る」を選んだ時だけこのメッセージを出す
+                    showMessageOverlay(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> は<br>【カードを惜しんで引き返しました】`, 2500, () => {
+                        executeReturnLogic();
+                        addLog(`${p.name}は手札を温存し、元の場所へ戻りました。`);
+                        updateGameState();
+                        onSuccess({});
+                    });
                 };
             }
         }
         return;
-    } 
+    }
     
     else if (act.type === 'info_disclosure') {
         const targets = [{x:3, y:3}, {x:0, y:0}, {x:GRID_SIZE-1, y:0}, {x:0, y:GRID_SIZE-1}, {x:GRID_SIZE-1, y:GRID_SIZE-1}]; 
@@ -1452,29 +1451,55 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     else if (act.type === 'serenade_hand') {
         const lockCount = LOCK_ORDER.filter(col => collections[p.id][col.id].some(c => c.colorId !== 'white' && c.colorId !== 'black')).length;
         const canSelect = hands[p.id].filter(c => c !== activeHandCard && c.colorId !== 'white' && c.colorId !== 'black');
-        showSelectionModal("セレナーデ・ロック", "ロックする手札を1枚選んでください", canSelect, "card-back-pattern", 1, (sel) => {
-            /* 2026/03/12 修正：選択カードの存在チェックを追加し、undefinedエラーを防止 */
-            if (!sel || sel.length === 0) {
-                addLog(`[System] ロック対象が選択されなかったため、セレナーデの処理を中断します。`);
-                onSuccess(); 
-                return;
-            }
-            const cardToLock = sel[0]; 
-            if (cardToLock && cardToLock.colorId === 'rainbow') {
-                const emptyColors = [...BASE_COLORS].reverse().filter(c => collections[p.id][c.id].length === 0);
-                if (emptyColors.length === 0) { showToast("ロックできるスロットがありません"); return; }
-                if (lockCount === 6) { showToast("セレナーデで最後のロック(7色目)はできません"); return; }
-                showSelectionModal("セレナーデ：虹ロック", "どの色としてロックしますか？", emptyColors, "card-back-pattern", 1, (selectedColors) => {
-                    const targetColor = selectedColors[0]; hands[p.id].splice(hands[p.id].indexOf(cardToLock), 1); collections[p.id][targetColor.id].push(cardToLock); p.serenadeUsed = true;
-                    addLog(`${p.name}がセレナーデの効果で「${cardToLock.name}」を${targetColor.name}としてロックしました。`); renderStatus(); renderHand(); renderMyLockArea(); onSuccess({ stayOnBoard: true });
-                }, false, null, null, null, p); return;
-            }
-            const slot = collections[p.id][cardToLock.colorId]; const isNewColor = slot.length === 0;
-            if (lockCount === 6 && isNewColor) { showToast("セレナーデで最後のロック(7色目)はできません"); return; }
-            if (!isNewColor) { showToast("既にその色のスロットは埋まっています"); return; }
-            hands[p.id].splice(hands[p.id].indexOf(cardToLock), 1); slot.push(cardToLock); p.serenadeUsed = true;
-            addLog(`${p.name}がセレナーデの効果で「${cardToLock.name}」をロックしました。`); renderStatus(); renderHand(); renderMyLockArea(); onSuccess({ stayOnBoard: true });
-        }, false, null, null, null, p); return;
+        
+        showSelectionModal(
+            "セレナーデ・ロック", 
+            "ロックする手札を1枚選んでください", 
+            canSelect, 
+            "card-back-pattern", 
+            1, 
+            (sel) => {
+                // 選択カードの存在チェック（エラー防止）
+                if (!sel || sel.length === 0) {
+                    addLog(`[System] ロック対象が選択されなかったため、セレナーデの処理を中断します。`);
+                    onSuccess(); 
+                    return;
+                }
+                const cardToLock = sel[0]; 
+                if (cardToLock && cardToLock.colorId === 'rainbow') {
+                    const emptyColors = [...BASE_COLORS].reverse().filter(c => collections[p.id][c.id].length === 0);
+                    if (emptyColors.length === 0) { showToast("ロックできるスロットがありません"); return; }
+                    if (lockCount === 6) { showToast("セレナーデで最後のロック(7色目)はできません"); return; }
+                    
+                    // 虹ロック選択時も「閉じる」ボタンを排除（第8引数をnullに）
+                    showSelectionModal("セレナーデ：虹ロック", "どの色としてロックしますか？", emptyColors, "card-back-pattern", 1, (selectedColors) => {
+                        const targetColor = selectedColors[0]; 
+                        hands[p.id].splice(hands[p.id].indexOf(cardToLock), 1); 
+                        collections[p.id][targetColor.id].push(cardToLock); 
+                        p.serenadeUsed = true;
+                        addLog(`${p.name}がセレナーデの効果で「${cardToLock.name}」を${targetColor.name}としてロックしました。`); 
+                        renderStatus(); renderHand(); renderMyLockArea(); onSuccess({ stayOnBoard: true });
+                    }, false, null, null, null, p); 
+                    return;
+                }
+                const slot = collections[p.id][cardToLock.colorId]; 
+                const isNewColor = slot.length === 0;
+                if (lockCount === 6 && isNewColor) { showToast("セレナーデで最後のロック(7色目)はできません"); return; }
+                if (!isNewColor) { showToast("既にその色のスロットは埋まっています"); return; }
+                
+                hands[p.id].splice(hands[p.id].indexOf(cardToLock), 1); 
+                slot.push(cardToLock); 
+                p.serenadeUsed = true;
+                addLog(`${p.name}がセレナーデの効果で「${cardToLock.name}」をロックしました。`); 
+                renderStatus(); renderHand(); renderMyLockArea(); onSuccess({ stayOnBoard: true });
+            }, 
+            false, 
+            null, // 第8引数：cancelCallback を null にして閉じるボタンを排除
+            null, 
+            null, 
+            p
+        ); 
+        return;
     }
     
     else if (act.type === 'dimension_hand') { p.dimensionActive = true; addLog(`${p.name}の通常移動が次元跳躍（2マス移動）になりました。`); updateGameState(); onSuccess({}); return; }
@@ -1531,37 +1556,40 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     // --- greedy_palette_hand 等がある else if ブロック内 ---
     else if (act.type === 'force_hand_flow') {
     const playerOptions = players.filter(pl => pl.id !== p.id).map(pl => ({ id: pl.id, name: pl.name, type: "PLAYER_SELECT" }));
-    showSelectionModal("移動させる相手", "対象のプレイヤーを選んでください", playerOptions, "card-back-pattern", 1, (selPl) => {
+    showSelectionModal(
+        "移動させる相手", 
+        "対象のプレイヤーを選んでください", 
+        playerOptions, 
+        "card-back-pattern", 
+        1, 
+        (selPl) => {
+
         const victim = players.find(v => v.id === selPl[0].id);
-        
-        const validCells = [];
-        for (let y = 0; y < GRID_SIZE; y++) {
-            for (let x = 0; x < GRID_SIZE; x++) {
-                const cell = board[y][x];
-                const isOccupied = players.some(pl => pl.x === x && pl.y === y);
-                if (!cell.empty && !isOccupied) {
-                    validCells.push({ x, y });
+            const validCells = [];
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const cell = board[y][x];
+                    const isOccupied = players.some(pl => pl.x === x && pl.y === y);
+                    if (!cell.empty && !isOccupied) {
+                        validCells.push({ x, y });
+                    }
                 }
             }
-        }
-
-        if (validCells.length > 0) {
-            startSelectionMode(
-                'select_cell', 1, 'force_move_logic', `${victim.name}の移動先を選択`, 
-                (res) => {
-                    // ここで onSuccess を呼ぶと、移動演出の前にカードが捨てられて終了してしまうため、
-                    // 実際の移動完了は executeSelectionLogic 側に任せます。
-                }, 
-                null, null, true, p, false, null, "おまかせ", validCells, p
-            );
-            // ★重要：selectionState に被害者を直接保存する（これで伝言ゲームを繋ぐ）
-            selectionState.targetVictim = victim;
-            selectionState.originalCallback = onSuccess; // 元の終了合図を保存しておく
-        } else {
-            addLog("移動できる有効な空きマスがないため移動できませんでした。");
-            onSuccess({});
-        }
-    }, false, null, null, null, p);
+            if (validCells.length > 0) {
+                startSelectionMode('select_cell', 1, 'force_move_logic', `${victim.name}の移動先を選択`, (res) => {}, null, null, true, p, false, null, "おまかせ", validCells, p);
+                selectionState.targetVictim = victim;
+                selectionState.originalCallback = onSuccess;
+            } else {
+                addLog("移動できる有効な空きマスがないため移動できませんでした。");
+                onSuccess({});
+            }
+        }, 
+        false, // 7: isBlind (公開)
+        null,  // 8: cancelCallback (ここを null にすると閉じるボタンが消えます)
+        null,  // 9: cancelLabel
+        null,  // 10: autoLabel
+        p      // 11: actingP
+    );
     return;
 }
 

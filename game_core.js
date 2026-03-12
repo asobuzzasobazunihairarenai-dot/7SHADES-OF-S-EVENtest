@@ -103,9 +103,24 @@ function updateGameState() {
     checkAutoSkip(); 
 }
 
+/**
+ * 2026/03/12 修正：割り込み確認
+ * 強欲なパレット(ID:33)を持っていても、相手全員が手札0枚なら割り込み確認を出さないように制限。
+ */
 function checkAnytimeReactions(onProceed) {
     if (!players || players.length === 0) { onProceed(); return; }
-    const candidates = players.filter(pl => !pl.reactionSkip && hands[pl.id] && hands[pl.id].some(c => c.id === 33 && !c.sealed)); 
+    
+    const candidates = players.filter(pl => {
+        if (pl.reactionSkip || !hands[pl.id]) return false;
+        // パレット(ID:33)を持っているか
+        const hasPalette = hands[pl.id].some(c => c.id === 33 && !c.sealed);
+        if (!hasPalette) return false;
+        
+        // パレットを持っていても、自分以外の相手全員が手札0なら割り込み対象にしない
+        const hasTarget = players.some(target => target.id !== pl.id && (hands[target.id] || []).length > 0);
+        return hasTarget;
+    });
+
     if (candidates.length === 0) { onProceed(); return; }
     
     let pIdx = 0;
@@ -677,8 +692,21 @@ function handleTimeOut() {
  * 2026/03/03 修正
  * autoMove内の評価ロジックを AI_SCORE_CONFIG 連動型にアップデート
  */
+/**
+ * 2026/03/12 修正：autoMove
+ * AIがタイムバー満タンで停止する現象を回避するため、
+ * 思考開始の直前で移動・効果処理フラグを強制的にクリーンアップします。
+ */
 function autoMove(p) { 
-    if (!p || !players || isProcessingMove || isHandEffectProcessing) return;
+    if (!p || !players) return;
+
+    // 演出の残存等でフラグがロックされている場合があるため、AI思考時はこれらを強制解除して進行させる
+    if (isProcessingMove || isHandEffectProcessing) {
+        console.log(`[AI Fix] ${p.name}の行動を妨げているフラグを強制リセットしました。`);
+        isProcessingMove = false;
+        isHandEffectProcessing = false;
+    }
+
     const enemyGatePos = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos); 
     const otherPlayers = players.filter(pl => pl.id !== p.id);
     
@@ -1531,11 +1559,37 @@ function startStealSequence(victim, callback) {
  * 2026/03/11 修正
  * 強奪モーダルのキャンセル（閉じる）ボタンを非表示にし、必ずカードを選ばせるように変更。
  */
+/**
+ * 2026/03/12 修正
+ * 強奪チャンスの際、カードが表向きに見えてしまう不具合を修正（引数の位置を正確に指定）
+ */
+/**
+ * 2026/03/12 修正
+ * 強奪チャンスの引数構造を game_ui_modal.js の定義（全11引数）に完全準拠させ、
+ * 第7引数に false を確実に渡すことでカードが表向きになる不具合を修正。
+ */
+/**
+ * 2026/03/12 修正
+ * 強奪チャンスにおいて、カードが表向きで見えてしまう不具合を修正。
+ * 第7引数 isBlind を true に設定することで、意図通り裏向き（？表示）で選ばせるように変更。
+ */
 function startStealSequenceInternal(victim, callback, overrideInvader = null) {
     const invader = overrideInvader || players[turn];
     if (!hands[victim.id] || hands[victim.id].length === 0) { finishSteal(victim, null, callback, invader); return; } 
-    // 第7引数を true から false に変更
-    showSelectionModal("強奪チャンス", `${invader.name}さん、1枚奪え！`, hands[victim.id], "card-back-pattern", 1, (cards) => finishSteal(victim, cards[0], callback, invader), false, null, null, null, invader);
+    
+    showSelectionModal(
+        "強奪チャンス", 
+        `${invader.name}さん、1枚奪え！`, 
+        hands[victim.id], 
+        "card-back-pattern", 
+        1, 
+        (cards) => finishSteal(victim, cards[0], callback, invader), 
+        true,  // 7: isBlind を true（裏向きにする）に変更
+        null, 
+        null, 
+        null, 
+        invader
+    );
 }
 
 /** 2026/03/09 修正：接触強奪時のカード確認モーダルを追加 **/
@@ -1841,22 +1895,39 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
                         }
                     } else { 
                         // (validCellsがある場合の処理は変更なし)
-                        startSelectionMode('select_cell', 1, 'chotto_re_move', '改めて1マス移動してください', (mRes) => { 
-                            if (!mRes || !mRes[0]) { finalizeComboOrCallback(); return; }
-                            moveToCell(player, mRes[0].x, mRes[0].y, 'dash_move', () => {
-                                showCardModal(curC, () => { 
-                                    if(hands[player.id]) hands[player.id].push(curC); 
-                                    cleanupCell(); 
-                                    renderHand(); renderBoard(); 
-                                    const nextCell = board[player.y][player.x];
-                                    if (!nextCell.empty) {
-                                        handleArrivalLogic(nextCell, player, callback, nextCell.color, true);
-                                    } else {
-                                        finalizeComboOrCallback();
-                                    }
-                                }, "到達獲得", player.name, "獲得しました"); 
-                            });
-                        }, 1, {x: cell.x, y: cell.y}, true, player, false, null, "おまかせ", null, player); 
+                        /* 2026/03/12 修正：ちょっと待った！の再移動引数を正確に配置 */
+                        startSelectionMode(
+                            'select_cell', 
+                            1, 
+                            'chotto_re_move', 
+                            '改めて1マス移動してください', 
+                            (mRes) => { 
+                                if (!mRes || !mRes[0]) { finalizeComboOrCallback(); return; }
+                                moveToCell(player, mRes[0].x, mRes[0].y, 'dash_move', () => {
+                                    // 第6引数に player を追加（後述の修正と連動）
+                                    showCardModal(curC, () => { 
+                                        if(hands[player.id]) hands[player.id].push(curC); 
+                                        cleanupCell(); 
+                                        renderHand(); renderBoard(); 
+                                        const nextCell = board[player.y][player.x];
+                                        if (!nextCell.empty) {
+                                            handleArrivalLogic(nextCell, player, callback, nextCell.color, true);
+                                        } else {
+                                            finalizeComboOrCallback();
+                                        }
+                                    }, "到達獲得", player.name, "獲得しました", player); 
+                                });
+                            }, 
+                            1,                   // 6: range
+                            {x: cell.x, y: cell.y}, // 7: forbiddenTile
+                            true,                // 8: noCancel
+                            player,              // 9: origin
+                            false,               // 10: isEightDirection
+                            null,                // 11: cancelCallback
+                            "おまかせ",          // 12: autoBtnText
+                            null,                // 13: restrictedCells
+                            player               // 14: actingPlayer (ここが重要！)
+                        );
                     } 
                     return; 
                 }
@@ -1900,6 +1971,7 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
                 }
             };
 
+            /* 2026/03/12 修正：ダッシュ(ID:15)到達時、第6引数に player を渡してCPUなら自動処理させる */
             if (isDash) {
                 cleanupCell();
                 renderBoard();
@@ -1912,7 +1984,7 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
                     } else if (callback) {
                         callback();
                     }
-                }, "到達獲得", player.name, "獲得しました");
+                }, "到達獲得", player.name, "獲得しました", player);
             } else {
                 const shouldGain = !res.preventGain;
                 if (shouldGain) {
@@ -1921,13 +1993,14 @@ function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false
                     if (hands[player.id]) hands[player.id].push(curC);
                     cleanupCell(); 
                     
+                    /* 2026/03/12 修正：通常の到達獲得時、第6引数に player を渡してCPUなら自動処理させる */
                     showCardModal(curC, () => { 
                         // すでに手札追加とクリーンアップは済んでいるので、描画と後続処理のみ行う
                         renderHand(); 
                         renderBoard(); 
                         renderDeckAndDiscard(); 
                         afterGain(); 
-                    }, "到達獲得", player.name, "獲得しました"); 
+                    }, "到達獲得", player.name, "獲得しました", player); 
                 }
                 else { 
                     // 「ちょっと待った！」の場合、cleanupCellはafterGain内の非同期処理で行うため、ここでは行わない
@@ -2008,41 +2081,54 @@ function processHandSteal(invader, victim) {
     } 
 }
 
+/**
+ * 2026/03/12 修正
+ * CPUのゲート侵攻時、エターナルカードをプレイヤーが選ばされる不具合を修正。
+ * 第7引数（isBlind）を false にすることで、公開状態（CPU自動選択対象）に切り替え。
+ */
 function processEternalAcquisition(invader, victim) { 
-    /* --- 2026/03/11 修正：ゲート侵攻時のエターナル獲得をカード画像で通知 --- */
     if (eternalDeck && eternalDeck.length > 0) { 
-        showSelectionModal("ETERNAL SELECTION", "エターナルカードを1枚選び獲得します", eternalDeck, "eternal-back-pattern", 1, (cards) => { 
-            const c = cards[0]; 
-            eternalDeck.splice(eternalDeck.indexOf(c), 1); 
+        showSelectionModal(
+            "ETERNAL SELECTION", 
+            "エターナルカードを1枚選び獲得します", 
+            eternalDeck, 
+            "eternal-back-pattern", 
+            1, 
+            (cards) => { 
+                const c = cards[0]; 
+                eternalDeck.splice(eternalDeck.indexOf(c), 1); 
 
-            // ★ 修正：獲得したエターナルカードをモーダルで大きく表示する演出を追加
-            if (typeof showCardModal === 'function') {
-                showCardModal(c, () => {
-                    // モーダルを閉じた後に実際のロック処理を実行
-                    const slot = collections[invader.id][c.colorId]; 
-                    const persistentCards = [];
-                    while(slot.length > 0) {
-                        const top = slot.pop();
-                        if (top.type === 'FIRST' || top.type === 'BOOST') {
-                            persistentCards.push(top);
-                        } else {
-                            hands[invader.id].push(top);
+                if (typeof showCardModal === 'function') {
+                    showCardModal(c, () => {
+                        const slot = collections[invader.id][c.colorId]; 
+                        const persistentCards = [];
+                        while(slot.length > 0) {
+                            const top = slot.pop();
+                            if (top.type === 'FIRST' || top.type === 'BOOST') {
+                                persistentCards.push(top);
+                            } else {
+                                hands[invader.id].push(top);
+                            }
                         }
-                    }
-                    persistentCards.forEach(pc => slot.push(pc));
-                    slot.push(c);
+                        persistentCards.forEach(pc => slot.push(pc));
+                        slot.push(c);
 
+                        checkWin(invader.id); 
+                        processForcedReturn(invader); 
+                    }, "エターナルカード獲得！", invader.name, `ゲート侵攻報酬：『${c.name}』をロックしました。`);
+                } else {
+                    const slot = collections[invader.id][c.colorId];
+                    slot.push(c);
                     checkWin(invader.id); 
                     processForcedReturn(invader); 
-                }, "エターナルカード獲得！", invader.name, `ゲート侵攻報酬：『${c.name}』をロックしました。`);
-            } else {
-                // フォールバック（関数がない場合）
-                const slot = collections[invader.id][c.colorId];
-                slot.push(c);
-                checkWin(invader.id); 
-                processForcedReturn(invader); 
-            }
-        }, true, null, null, null, invader); 
+                }
+            }, 
+            false, // 第7引数：ここを false にすれば CPU が自分で選ぶようになります
+            null, 
+            null, 
+            null, 
+            invader
+        ); 
     } else {
         processForcedReturn(invader); 
     } 
@@ -3213,39 +3299,37 @@ function showVictoryUI(pid) {
                         mvp: mvpName
                     });
 
+                    /* 2026/03/12 修正：試合終了後にトップに戻らずホーム画面へ遷移させる */
                     const resultCloseBtn = document.getElementById('close-result-btn');
                     if (resultCloseBtn) {
                         resultCloseBtn.onclick = () => {
-                            // リザルト画面を隠す
                             document.getElementById('result-overlay').classList.add('hidden');
                             
-                            // 予約されていたランクデータがあれば、それを表示して、閉じられたらリロード
-                            if (window.pendingRankUpdate) {
-                                const { isWin, oldPoint, newPoint } = window.pendingRankUpdate;
-                                // 第4引数（onFinish）にリロード処理を渡す
-                                /** 2026/03/05 14:45 修正：ランク完了後にレベル表示を挟むチェーン構造 **/
+                            // 共通の「ホームへ戻る」処理
+                            const returnToHome = () => {
+                                cleanupGame(); // ゲーム変数をリセット
+                                const home = document.getElementById('home-screen');
+                                if (home) {
+                                    home.classList.remove('hidden');
+                                    document.getElementById('title-overlay')?.classList.add('hidden');
+                                } else {
+                                    location.reload(); // ホーム画面がない場合のみフォールバック
+                                }
+                            };
+
                             if (window.pendingRankUpdate) {
                                 const { isWin, oldPoint, newPoint } = window.pendingRankUpdate;
                                 showPostGameRankModal(isWin, oldPoint, newPoint, () => {
-                                    
-                                    // ランクが終わったら次にレベルを表示
                                     if (window.pendingLevelUpdate) {
-                                        showPostGameLevelModal(window.pendingLevelUpdate, () => {
-                                            location.reload(); // すべて終わったらタイトルへ
-                                        });
+                                        showPostGameLevelModal(window.pendingLevelUpdate, returnToHome);
                                         window.pendingLevelUpdate = null;
                                     } else {
-                                        location.reload();
+                                        returnToHome();
                                     }
                                 });
                                 window.pendingRankUpdate = null;
                             } else {
-                                location.reload();
-                            }
-                                window.pendingRankUpdate = null;
-                            } else {
-                                // ランク表示がない（テストモード以外など）場合は即リロード
-                                location.reload();
+                                returnToHome();
                             }
                         };
                     }

@@ -1078,9 +1078,21 @@ function showSelectionResult(cards, onComplete, effectName, cancelCallback = nul
     area.classList.remove('hidden'); 
     document.getElementById('selection-container').classList.add('hidden');
     
+    /* 2026/03/12 修正：結果確認画面でも「戻る」ボタンを有効化 */
     const cancelBtn = document.getElementById('selection-cancel-btn');
     const autoBtn = document.getElementById('selection-auto-btn');
-    if (cancelBtn) cancelBtn.classList.add('hidden');
+    
+    if (cancelBtn) {
+        cancelBtn.classList.remove('hidden'); // 非表示を解除
+        cancelBtn.textContent = "戻る";
+        cancelBtn.onclick = () => {
+            // 結果画面を隠し、選択画面を再表示する
+            area.classList.add('hidden');
+            document.getElementById('selection-container').classList.remove('hidden');
+            // 下部のボタン群も初期状態（showSelectionModalで設定された状態）に戻るため
+            // ここでは特別な処理はせず、DOMの表示切り替えのみ行います。
+        };
+    }
     if (autoBtn) autoBtn.classList.add('hidden');
 
     const resContainer = document.getElementById('selection-result-container'); 
@@ -1142,7 +1154,8 @@ function showSelectionResult(cards, onComplete, effectName, cancelCallback = nul
 /**
  * カード獲得・到達モーダル
  */
-function showCardModal(cards, onComplete, titleText = "カード獲得", playerName = "", actionVerbiage = "到達しました") {
+/* 2026/03/12 修正：第6引数 actingP を追加し、CPUなら自動で閉じるよう拡張 */
+function showCardModal(cards, onComplete, titleText = "カード獲得", playerName = "", actionVerbiage = "到達しました", actingP = null) {
 
 // SE再生。文字列が含まれているかを柔軟に判定
     if (titleText && (titleText.includes("到達効果") || titleText.includes("到達時"))) {
@@ -1307,8 +1320,10 @@ if (actualCards.length > 0) {
         finalize();
     };
 
-    if (isAutoAction) {
-        const drawWaitTime = 4000;
+    /* 2026/03/12 修正：操作主がCPU(ID:1以外)なら、isAutoActionの状態に関わらず自動処理 */
+    const isCpuActing = actingP && actingP.id !== 1;
+    if (isAutoAction || isCpuActing) {
+        const drawWaitTime = 2000; // CPUの時は2秒で次へ（少し短縮）
         if (typeof pauseTimer === 'function') pauseTimer();
         
         // タイマーをグローバル変数に格納
@@ -3288,13 +3303,15 @@ function showLevelUpModal(type, newValue) {
     const closeHandler = () => {
         modal.classList.add('animate-fade-out');
         setTimeout(() => {
+            /* 2026/03/12 修正：演出後にトップ画面を完全に排除しホームを優先 */
             modal.remove();
-            // 既存の backToTitle (タイトルへ戻る) ではなく、ホーム画面を表示する
+            if (typeof cleanupGame === 'function') cleanupGame(); // 念のため盤面データを掃除
+            
             const homeScreen = document.getElementById('home-screen');
+            const titleOverlay = document.getElementById('title-overlay');
             if (homeScreen) {
                 homeScreen.classList.remove('hidden');
-                // タイトル画面などは確実に隠す
-                document.getElementById('title-overlay')?.classList.add('hidden');
+                if (titleOverlay) titleOverlay.classList.add('hidden');
             }
         }, 500);
         document.removeEventListener('click', closeHandler);

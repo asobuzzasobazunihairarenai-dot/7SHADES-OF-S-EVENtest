@@ -1678,13 +1678,31 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
  * 2. カード画像表示演出と、その後の色宣言フローを正確に結合。
  */
 
+    /* 2026/03/12 修正：強欲なパレット(ID:33) 割り込み時の操作権委譲 */
     else if (act.type === 'greedy_palette_hand') {
         isHandEffectProcessing = true;
 
-        // ★ 2026/03/08 修正：強欲なパレット発動時にカード画像モーダルを表示
+        // 1. 一時的にタイムバー（操作権）を発動プレイヤー(p)に渡す
+        const originalTimerId = activeTimerPlayerId; // 元のターンプレイヤーを記憶
+        activeTimerPlayerId = p.id;
+
+        // 2. 発動者がCPUなら、確実に自動処理モードをオンにする
+        const isCpuInvolved = p.id !== 1;
+        if (isCpuInvolved) {
+            isAutoAction = true;
+            isAutoProcessing = true;
+        }
+
         showCardModal(contextCard || card, () => {
-            // 1. 発動者が色を宣言（発動者がAIならスキップ）
-            showRequestSelectionModal("色宣言", "相手が対処すべき色を選択してください", BASE_COLORS, "card-back-pattern", 1, (selCols) => {
+            // 色宣言モーダルを表示
+            showRequestSelectionModal(
+                "色宣言", 
+                "相手が対処すべき色を選択してください", 
+                BASE_COLORS, 
+                "card-back-pattern", 
+                1, 
+                (selCols) => {
+                    
                 const declaredColor = selCols[0];
                 addLog(`${p.name}が「${declaredColor.name}」を宣言！`);
 
@@ -1696,7 +1714,9 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
 
                     const processOpponentPalette = (idx) => {
                         if (idx >= opponents.length) { 
+                            // 全ての処理が終わったタイミングで、タイムバーとフラグを元に戻す
                             isHandEffectProcessing = false;
+                            activeTimerPlayerId = originalTimerId; // 操作権を元のプレイヤーに返却
                             onSuccess({}); 
                             return; 
                         }
@@ -1724,14 +1744,25 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                                 setTimeout(() => processOpponentPalette(idx + 1), 1000);
                             }
                         };
-                        // --- 対処の選択（渡す or 捨てる） ---
+                        /* 2026/03/12 修正：パレットの対処選択を、発動者ではなく「選択者」の属性に従わせる */
                         if (matchCards.length > 0) {
                             const canChooseDiscard = handCount >= 3;
                             
-                            if (isAutoAction && opp.id !== 1) {
+                            // 修正：opp が CPU なら自動で handleGiveCard を実行
+                            if (opp.id !== 1) {
                                 handleGiveCard(); 
                             } else {
-                                showDetailModal(`${opp.name}の選択`, `強欲なパレット：【${declaredColor.name}】\nカードを1枚渡すか、3枚捨ててください。`, null, "カードを渡す", handleGiveCard);
+                                // P1(自分)が選ぶ時だけモーダルを出す（第7引数に opp を明示）
+                                showDetailModal(
+                                    `${opp.name}の選択`, 
+                                    `強欲なパレット：【${declaredColor.name}】\nカードを1枚渡すか、3枚捨ててください。`, 
+                                    null, 
+                                    "カードを渡す", 
+                                    handleGiveCard, 
+                                    false, 
+                                    opp // ← ここが重要！操作主は「相手(opp)」
+                                );
+                                
                                 const cnl = document.getElementById('detail-cancel-btn');
                                 if (canChooseDiscard) {
                                     cnl.textContent = "3枚捨てる";
@@ -1762,7 +1793,13 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     };
                     processOpponentPalette(0);
                 });
-            }, false, null, null, null, p);
+            }, 
+                false, 
+                null, 
+                null, 
+                "おまかせ", // 第10引数に autoLabel を追加
+                p           // 第11引数に発動者 p を確実に指定
+            );
         }, "手札効果発動", p.name, "強欲なパレットを使用しました"); // ← この閉じカッコが不足していました
         return;
     }

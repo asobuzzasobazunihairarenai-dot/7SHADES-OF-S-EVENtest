@@ -512,6 +512,14 @@ function updateTimerTick() {
         if (currentPhase === PHASE.HAND) {
             const autoHand = document.getElementById('setting-timeout-auto-hand')?.checked;
             if (autoHand) {
+                /* 2026/03/12 修正：他人のハンドフェイズ中にAIが勝手にカードを使わないようガード */
+                const currentPlayer = players[turn];
+                if (p.id !== currentPlayer.id) {
+                    // 自分（p）が手番プレイヤーではない場合、
+                    // パレットのような特殊割り込み以外で勝手にAI思考を走らせない
+                    return; 
+                }
+
                 if (isAutoProcessing || isHandEffectProcessing || isSelectionActive || activeModalId) {
                     handleTimeOut(); return;
                 }

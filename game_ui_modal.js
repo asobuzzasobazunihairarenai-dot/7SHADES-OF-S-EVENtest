@@ -1216,21 +1216,23 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
         const isRelatedToP1 = titleText.includes(players[0].name) || card.fromP1 === true;
 
         /* 2026/03/12 修正：P1(自分)からカードが奪われた場合は、秘匿せず表向きで表示する */
-        /* 2026/03/12 修正：CPUのドロー内容を確実に秘匿する */
+        /* 2026/03/12 修正：CPUの獲得モーダルにおける秘匿ルールの適正化 */
         let isSecretInfo = false;
 
-        // P1以外（CPU）がカードを獲得する場合の秘匿ルール
+        // P1以外（CPU）がカードを獲得する場合の判定
         if (isP1HandOnlyView && playerName !== players[0].name) {
             
-            // P1が被害者（奪われた側）かどうかの判定
             const isP1Victim = titleText.includes(`${players[0].name}から`) || titleText.includes(`${players[0].name}の手札`);
+            
+            // ★追加：既に表向き(revealed)であるか、または「到達獲得」中なら隠さない
+            const isPublicKnowledge = (card && card.revealed) || titleText.includes("到達獲得");
 
-            if (titleText.includes("公開")) {
-                isSecretInfo = false; // 「公開」と名のつく効果なら見せる
+            if (titleText.includes("公開") || isPublicKnowledge) {
+                isSecretInfo = false; // 既にみんなが見た情報は隠さない
             } else if (isRelatedToP1 || isP1Victim) {
-                isSecretInfo = false; // P1に関わる（自分のもの、自分から奪われた）なら見せる
+                isSecretInfo = false; // 自分の物なら見える
             } else {
-                // 上記以外で、ドロー、強奪、ゲート報酬、スティールなどは【すべて隠す】
+                // 山札からのドローなどは引き続き隠す
                 const isPrivateAction = titleText.includes("ドロー") || 
                                         titleText.includes("獲得") || 
                                         titleText.includes("奪") || 

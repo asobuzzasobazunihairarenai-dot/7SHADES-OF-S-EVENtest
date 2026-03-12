@@ -903,13 +903,21 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
     }
     document.getElementById('selection-result').classList.add('hidden'); 
     
+    /* 2026/03/13 修正：効果処理中の「閉じる」ボタンを徹底排除 */
     const cancelBtn = document.getElementById('selection-cancel-btn'); 
     if (cancelBtn) {
-        // ★ 2026/03/08 外科手術的修正：特定のタイトル時は強制的にボタンを隠す
-        // 「手札破棄」と「コスト支払い」の時は、キャンセルもおまかせもさせない
-        if (title === "手札破棄" || title === "コスト支払い") {
+        // 1. 強制的に隠すべき条件を定義
+        // ・手札効果の処理中 (isHandEffectProcessing)
+        // ・AIによる自動進行中 (isAutoProcessing)
+        // ・特定の「やり直し不可」なタイトル
+        const isForcedAction = isHandEffectProcessing || isAutoProcessing || 
+                               title === "手札破棄" || title === "コスト支払い" || 
+                               title === "ETERNAL SELECTION";
+
+        if (isForcedAction) {
             cancelBtn.classList.add('hidden');
         } else {
+            // 2. それ以外（通常のロックフェイズ中など）は「おまかせ」または「閉じる」を表示
             cancelBtn.classList.remove('hidden');
             cancelBtn.textContent = cancelCallback ? "おまかせ" : "閉じる";
             cancelBtn.onclick = () => {

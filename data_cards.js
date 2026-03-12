@@ -48,7 +48,7 @@ const CARD_DATABASE = [
     { id: 10, name: "黄のキューブ サフラン", colorId: "yellow", type: "FIRST", arrival: "-", hand: "【追色1】2マス以内のマスのカードを4枚までオープンしてもよい。ロック中も可。", handEffect: { cost: { color: 'yellow', amount: 1 }, action: { type: 'select_cell', count: 4, range: 2, logic: 'open_facedown', prompt: '2マス以内のカードを選択してオープン' } } },
     { id: 11, name: "緑のキューブ ヴァーディアン", colorId: "green", type: "FIRST", arrival: "-", hand: "【追色1】2枚ドローし公開。ターン終了時それらを捨てる。1ターンに1度のみ。ロック中も可。", handEffect: { cost: { color: 'green', amount: 1 }, action: { type: 'viridian_hand' } } },
     { id: 12, name: "青のキューブ セレスティア", colorId: "blue", type: "FIRST", arrival: "-", hand: "【追色1】手札が3枚以上ある相手全員の手札から無作為に1枚ずつ選んで捨てる。ロック中も可。", handEffect: { cost: { color: 'blue', amount: 1 }, action: { type: 'celestia_hand' } } },
-    { id: 13, name: "桃のキューブ セレナーデ", colorId: "pink", type: "FIRST", arrival: "-", hand: "【追色1】手札を1枚ロックする。ただし最後のロックはできない。1ターンに1度のみ。ロック中も可。", handEffect: { cost: { color: 'pink', amount: 1 }, action: { type: 'serenade_hand' } } },
+    { id: 13, name: "桃のキューブ セレナーデ", colorId: "pink", type: "FIRST", arrival: "-", hand: "【追色1】手札を1枚ロックする。ただし最後のロックはできない。", handEffect: { cost: { color: 'pink', amount: 1 }, action: { type: 'serenade_hand' } } },
     { id: 14, name: "紫のキューブ ディメンション", colorId: "purple", type: "FIRST", arrival: "-", hand: "【追色1】このターンの通常の移動は2マス先に一気に移動する。ロック中も可。", handEffect: { cost: { color: 'purple', amount: 1 }, action: { type: 'dimension_hand' } } },
 
     { id: 15, name: "ダッシュ", colorId: "red", type: "NORMAL", arrival: "隣接する1マスへ追加移動する。", arrivalEffect: { action: { type: 'select_cell', count: 1, logic: 'move_player', range: 1, prompt: '追加移動先を選択(隣接マス)', noCancel: true } }, hand: "通常移動に加え、もう1回移動できる。", handEffect: { action: { type: 'dash_effect', msg: '追加移動が可能になりました' } } },

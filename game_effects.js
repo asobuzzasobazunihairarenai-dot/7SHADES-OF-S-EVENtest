@@ -49,6 +49,39 @@ function canPlayHandEffect(card, p) {
         if (usedOnceEffectsThisTurn.includes(card.id)) return false;
     }
 
+
+
+    /* --- 2026/03/13 修正：セレナーデ(ID:13) の有効判定（無駄撃ち防止） --- */
+    if (card.id === 13) {
+        // 1. コストチェック：自分以外の「桃」または「虹」が手札にあるか
+        const costCandidates = (hands[p.id] || []).filter(c => (c.colorId === 'pink' || c.colorId === 'rainbow') && c !== card);
+        if (costCandidates.length < 1) return false;
+
+        // 2. 現在のロック状況を確認
+        const lockCount = LOCK_ORDER.filter(col => collections[p.id][col.id].some(c => c.colorId !== 'white' && c.colorId !== 'black')).length;
+        
+        // 3. ロック可能な対象が手札にあるか
+        const pHand = hands[p.id] || [];
+        const hasValidTarget = pHand.some(c => {
+            if (c === card || c.colorId === 'white' || c.colorId === 'black') return false;
+            
+            // 虹色のカードは、空きスロットがあれば常に候補（ただし7色目は不可）
+            if (c.colorId === 'rainbow') {
+                return lockCount < 6 && BASE_COLORS.some(bc => collections[p.id][bc.id].length === 0);
+            }
+            
+            // 通常色のカードは、そのスロットが空、かつ「7色目の新規ロック」でなければOK
+            const slot = collections[p.id][c.colorId];
+            const isNewColor = (!slot || slot.length === 0);
+            if (isNewColor) {
+                return lockCount < 6; // 7色目の新規ロックはセレナーデでは禁止
+            }
+            return false; // 既に埋まっているスロットの色はロック不可
+        });
+
+        if (!hasValidTarget) return false; // 条件を満たさないならグレーアウト
+    }
+
     // ID 15: ダッシュ - 移動できるマスがない場合はグレーアウト
     if (card.id === 15) {
         // checkStuck(p) が true = どこにも動けない状態

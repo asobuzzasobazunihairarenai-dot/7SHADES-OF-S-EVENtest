@@ -402,19 +402,32 @@ function setBGMVolume(vol) {
  * 設定画面のスライダー(0-100)からBGM音量を変更する
  * @param {string} valStr スライダーの値（文字列）
  */
+/**
+ * 2026/03/13 修正：BGM音量スライダー（iPhone対応）
+ * iOS/Safariでは volume 操作が効きにくい場合があるため、
+ * 明示的に属性を更新し、プロパティを再設定します。
+ */
 function updateBGMVolumeFromSlider(valStr) {
-    const vol = parseInt(valStr) / 100;
+    const vol = parseFloat(valStr) / 100;
     
-    // 1. 設定を保存（次回起動用）
+    // 1. ローカルストレージに保存
     localStorage.setItem('shades_bgm_volume', valStr);
     
-    // 2. 現在再生中のBGMに即座に反映
+    // 2. 音量反映
     if (window.gameBGM) {
+        // iPhone対応：mutedがtrueだと音量変更が無視されることがあるため一時的にチェック
+        if (window.gameBGM.muted) window.gameBGM.muted = false;
+
+        // 直接 volume を書き換える
         window.gameBGM.volume = vol;
-        // デバッグ用（動かない場合に確認可能）
-        console.log(`BGM Volume updated: ${vol}`);
-    } else {
-        console.warn("BGM Object (window.gameBGM) not found.");
+        
+        // 【外科手術的補強】一部のブラウザ向けに直接属性をセット
+        const bgmEl = document.getElementById('bgm-audio-element'); // もしHTML要素なら
+        if (bgmEl) {
+            bgmEl.volume = vol;
+        }
+
+        console.log(`[iOS Fix] BGM Volume: ${vol}`);
     }
 }
 
@@ -424,48 +437,40 @@ window.updateBGMVolumeFromSlider = updateBGMVolumeFromSlider;
 /**
  * 効果音（SE）を再生する共通関数
  */
+/* 2026/03/13 修正：再生中のSEを管理する配列 */
+let activeSEPool = [];
+
 function playSE(fileName) {
     if (!fileName) return;
+
+    // ブラウザが非表示なら再生しない（スマホのバックグラウンド対策）
+    if (document.visibilityState === 'hidden') return;
 
     const volSlider = document.getElementById('setting-se-volume');
     const vol = volSlider ? (parseInt(volSlider.value) / 100) : 0.5;
 
-    /* 2026/03/12 修正：SE再生の安定化 */
     try {
-        // キャッシュ対策として、毎回新しいAudioオブジェクトを作成（パスはそのまま）
         const audio = new Audio(`audio/${fileName}?v=${Date.now()}`);
         audio.volume = vol;
-        
-        // 読み込みが完了したら即座に再生する設定
         audio.preload = "auto";
 
         const playPromise = audio.play();
+        
+        // 再生中のリストに追加
+        activeSEPool.push(audio);
+
         if (playPromise !== undefined) {
             playPromise.catch(error => {
                 console.warn("SE Playback blocked:", fileName, error);
+                // 再生できなかった場合はリストから除去
+                activeSEPool = activeSEPool.filter(a => a !== audio);
             });
         }
         
-        // メモリリーク防止のため、終わったらすぐ削除
+        // 終わったらリストから除去して解放
         audio.onended = () => {
-            audio.src = ""; // ソースをクリアして解放を促す
-            audio.remove();
-        };
-
-        if (playPromise !== undefined) {
-            playPromise.catch(error => {
-                // 自動再生ポリシーでブロックされた場合、ログには出すがフリーズはさせない
-                console.warn("SE Playback blocked or failed:", fileName, error);
-                
-                // 対策：もし「ユーザー操作が必要」というエラー（NotAllowedError）なら
-                // 次に画面のどこかをクリックした瞬間に音が鳴るよう、1回だけ予備動作を仕込むなどの
-                // 拡張も可能ですが、まずは「連続再生」による詰まりを解消するため、
-                // 再生完了後にオブジェクトを解放するよう設定します。
-            });
-        }
-
-        // 使い終わったオーディオオブジェクトをメモリから解放する
-        audio.onended = () => {
+            activeSEPool = activeSEPool.filter(a => a !== audio);
+            audio.src = "";
             audio.remove();
         };
 
@@ -503,22 +508,27 @@ function triggerHeartbeatHaptic() {
     triggerHaptic([60, 100, 150]);
 }
 
+/* 2026/03/13 修正：ブラウザ表示切り替え時にBGMだけでなくSEも一斉停止 */
 document.addEventListener('visibilitychange', () => {
-    // ★ 外科手術的修正：変数名を game_utils.js 内の他の箇所（window.gameBGM）と統一
     const audio = window.gameBGM; 
     
-    if (audio) {
-        if (document.visibilityState === 'hidden') {
-            // 画面が閉じられた、またはバックグラウンドに回った時
-            audio.pause();
-        } else if (document.visibilityState === 'visible') {
-            // 再び画面が表示された時
-            // 設定でBGMが有効（'false'ではない）かつ、タイトル画面以外などで再生すべき状態なら再開
-            const isBgmEnabled = localStorage.getItem('shades_bgm_enabled') !== 'false';
-            if (isBgmEnabled) {
-                // iOSの制約回避のため、play()を呼び出す
-                audio.play().catch(e => console.log("BGM auto-resume blocked:", e));
-            }
+    if (document.visibilityState === 'hidden') {
+        // 1. BGMを一時停止
+        if (audio) audio.pause();
+
+        // 2. 再生中のSEをすべて停止・クリア
+        activeSEPool.forEach(se => {
+            se.pause();
+            se.src = "";
+            se.remove();
+        });
+        activeSEPool = []; // リストを空にする
+        
+    } else if (document.visibilityState === 'visible') {
+        // 再表示されたときはBGMのみ再開（SEは突発的な音なので再開不要）
+        const isBgmEnabled = localStorage.getItem('shades_bgm_enabled') !== 'false';
+        if (audio && isBgmEnabled) {
+            audio.play().catch(e => console.log("BGM auto-resume blocked:", e));
         }
     }
 });

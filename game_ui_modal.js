@@ -1359,17 +1359,36 @@ if (actualCards.length > 0) {
         finalize();
     };
 
-    /* 2026/03/12 修正：操作主がCPU(ID:1以外)なら、isAutoActionの状態に関わらず自動処理 */
+    /* 2026/03/13 修正：CPUスキップ設定による自動閉鎖の分岐処理 */
     const isCpuActing = actingP && actingP.id !== 1;
     if (isAutoAction || isCpuActing) {
-        const drawWaitTime = 2000; // CPUの時は2秒で次へ（少し短縮）
-        if (typeof pauseTimer === 'function') pauseTimer();
         
-        // タイマーをグローバル変数に格納
-        autoProcessTimeout = setTimeout(() => {
-            autoProcessTimeout = null;
-            finalize();
-        }, drawWaitTime);
+        // 設定画面のスイッチを確認
+        const isSkipEnabled = document.getElementById('setting-cpu-skip')?.checked !== false;
+
+        // スキップ対象の判定（指定された3つのモーダル）
+        const isTargetModal = titleText.includes("到達効果") || 
+                             titleText.includes("手札効果") || 
+                             titleText.includes("到達獲得");
+
+        // 「スキップがON」または「対象外のモーダル（ドロー等）」なら自動で閉じる
+        if (isSkipEnabled || !isTargetModal) {
+            const drawWaitTime = 2000;
+            if (typeof pauseTimer === 'function') pauseTimer();
+            
+            autoProcessTimeout = setTimeout(() => {
+                autoProcessTimeout = null;
+                finalize();
+            }, drawWaitTime);
+        } else {
+            // スキップOFF かつ 対象モーダルの場合、タイマーを起動せず停止
+            console.log(`[CPU Pause] ${titleText} のため確認ボタン待機中...`);
+            if (typeof pauseTimer === 'function') pauseTimer();
+            
+            // ヒント：ここでボタンを強調（アニメーション）させるとより親切です
+            btnEl.classList.add('animate-bounce');
+            setTimeout(() => btnEl.classList.remove('animate-bounce'), 3000);
+        }
     }
 }
 

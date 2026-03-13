@@ -8,6 +8,7 @@
 -->
  
 <!DOCTYPE html>
+
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -152,9 +153,15 @@
         
              <p class="text-[10px] text-gray-400 font-mono mb-12">Ver 2026.0313.1.1</p>
         
-             <button onclick="openProfileSetup()" class="w-full py-4 bg-yellow-600 hover:bg-yellow-500 text-white font-black rounded-xl transition-all shadow-lg active:scale-95">
-               START GAME
-            </button>
+             <button id="login-start-btn" onclick="loginWithGoogle()" class="w-3/4 py-3 bg-gray-100/90 hover:bg-white text-gray-900 font-bold rounded-lg transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 text-sm">
+                   <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-4 h-4">
+                   Googleアカウントでログイン
+                 </button>
+
+                 <button id="guest-start-btn" onclick="openProfileSetup()" class="text-gray-500 hover:text-gray-300 text-[10px] font-bold tracking-widest uppercase transition-all underline underline-offset-4">
+                   ログインせずに開始 (GUEST)
+                </button>
+
              </div>
              <button onclick="showPlayerSelection()" class="absolute bottom-4 left-4 text-[9px] text-gray-600 hover:text-gray-400 underline transition-colors">Dev Mode / Debug Menu</button>
         </div>
@@ -298,7 +305,18 @@
             <span class="text-xs text-gray-300">ライトモード (Beta)</span>
             <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" id="light-mode-toggle" class="sr-only peer" onchange="toggleLightMode(this.checked)">
-                <div class="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                <div class="w-9 h-5 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+        </div>
+
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-700">
+            <div class="flex flex-col">
+                <span class="text-xs text-gray-300">CPUスキップ</span>
+                <span class="text-[8px] text-gray-500">OFFでCPUの挙動を確認できます</span>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="setting-cpu-skip" class="sr-only peer" checked>
+                <div class="w-9 h-5 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-600"></div>
             </label>
         </div>
 
@@ -441,6 +459,13 @@
     </div>
 
     <input type="checkbox" id="light-mode-toggle" class="sr-only peer" onchange="toggleLightMode(this.checked)" checked>
+
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <script src="firebase_init.js"></script>
 
 <!-- アップロードするときは個々の日付を更新 -->
 

@@ -951,32 +951,37 @@ function updateTimerVisual() {
 /**
  * UI上のプロフィールボタンの画像を現在の設定に更新する
  */
+/**
+ * 2026/03/13 修正：プロフィール表示の更新（Google連携対応）
+ * UI上のプロフィールボタンや名前を現在の userProfile の内容に同期します。
+ */
 function updateProfileButtonVisual() {
-    // ページ内のすべてのアイコン画像要素を取得
     const iconImgs = document.querySelectorAll('.profile-button-icon-img');
+    const homeName = document.getElementById('home-user-name');
     
-    // 1. データの救済
-    // userProfile.icon が空、もしくは駒画像(piece_)になっている場合のガード
+    // 1. 画像パスの決定
     let targetSrc = userProfile.icon;
-    if (!targetSrc || targetSrc.includes('piece_')) {
-        // もし駒画像なら、対応する番号のプロフィール画像(character_)へ変換を試みる
-        if (targetSrc && targetSrc.includes('piece_00')) {
+
+    // Google等の外部URL(http...)でなければ、従来の駒画像→キャラ画像変換を行う
+    if (targetSrc && !targetSrc.startsWith('http')) {
+        if (targetSrc.includes('piece_00')) {
             targetSrc = targetSrc.replace('piece_00', 'character_00').replace('.png', '.webp');
-        } else {
-            // それ以外はデフォルト画像
-            targetSrc = "images/character_001.webp";
         }
     }
+    
+    // 画像が空ならデフォルトをセット
+    if (!targetSrc) targetSrc = "images/character_001.webp";
 
-    // 2. 反映（HTMLの直書き設定を上書き）
+    // 2. アイコン画像の一斉反映
     iconImgs.forEach(img => {
-        // console.log("Updating icon:", img, "to", targetSrc); // デバッグ用
         img.src = targetSrc;
     });
 
-    // 3. ホーム画面の名前表示も念のため同期
-    const homeName = document.getElementById('home-user-name');
+    // 3. ホーム画面の名前表示
     if (homeName && userProfile.name) {
         homeName.textContent = userProfile.name;
     }
+
+    // 4. ログへの反映（任意：必要なら）
+    console.log(`[UI Sync] Name: ${userProfile.name}, Icon: ${targetSrc}`);
 }

@@ -2053,15 +2053,23 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 return; 
             }
 
+            /* 2026/03/13 修正：いろ落ちガエルの破棄対象リストから保護カードを完全除外 */
             const victim = victims[vIdx]; 
             const lockedCards = [];
             LOCK_ORDER.forEach(bc => { 
                 const slot = collections[victim.id][bc.id]; 
                 if (slot && slot.length > 0) { 
                     const topC = slot[slot.length - 1]; 
-                    if (topC.colorId === 'white' || topC.colorId === 'black' || topC.type === 'FIRST' || topC.type === 'ETERNAL' || topC.type === 'BOOST') { 
-                        lockedCards.push({ ...topC, disabled: true }); 
-                    } else { 
+                    
+                    // 破棄対象外（白、黒、FIRST、ETERNAL、BOOST）かどうか判定
+                    const isProtected = topC.colorId === 'white' || 
+                                        topC.colorId === 'black' || 
+                                        topC.type === 'FIRST' || 
+                                        topC.type === 'ETERNAL' || 
+                                        topC.type === 'BOOST';
+
+                    // 保護されていないカード（NormalやDashなど）だけをリストに追加
+                    if (!isProtected) { 
                         lockedCards.push(topC); 
                     } 
                 } 

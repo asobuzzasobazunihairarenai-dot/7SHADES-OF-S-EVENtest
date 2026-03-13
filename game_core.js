@@ -3766,30 +3766,33 @@ function listenRoomUpdate(roomID) {
             }
 
             // 2. ホストが盤面を書き込んだ(status === "playing")のを検知
+            /* 2026/03/14 修正：ゲスト側のUI生成とデータ復元を確実に実行 */
             if (data.gameState && data.gameState.status === "playing") {
-                // まだ盤面がこちらで初期化されていなければ、画面を切り替えて復元
                 if (!board || board.length === 0) {
-                    addLog(`[Online] 盤面を受信。ゲーム画面に切り替えます。`);
-                    
-                    // ホーム画面などのオーバーレイを隠す（通常の initGameInternal と同じ処理）
-                    const setupOverlay = document.getElementById('setup-overlay');
-                    if(setupOverlay) setupOverlay.classList.add('hidden');
-                    const homeScreen = document.getElementById('home-screen');
-                    if(homeScreen) homeScreen.classList.add('hidden');
-                    const titleOverlay = document.getElementById('title-overlay');
-                    if(titleOverlay) titleOverlay.classList.add('hidden');
+                    addLog(`[Online] 盤面を受信しました。復元を開始します...`);
 
-                    // データを復元（deserializeBoard は前ステップで作ったもの）
+                    // 1. UIを生成（これを行わないと盤面の描画先が存在しません）
+                    if (typeof generateUI === 'function') {
+                        generateUI(); 
+                    }
+
+                    // 2. 各種オーバーレイを隠す
+                    ['setup-overlay', 'home-screen', 'title-overlay'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.classList.add('hidden');
+                    });
+
+                    // 3. データを復元（カードオブジェクトの生成と配置）
                     if (typeof deserializeBoard === 'function') {
                         deserializeBoard(data.gameState.board);
-                        
-                        // ゲスト側でのプレイヤー情報などの初期化
-                        // 本来は initGameInternal で行いますが、ゲストは受信データから構築
-                        // ※簡易化のため、今回は盤面表示を優先
-                        players.forEach(p => {
-                            if (!playerStats[p.id]) playerStats[p.id] = { moveCount: 0 };
-                        });
                     }
+
+                    // 4. プレイヤー情報の初期化（簡易版）
+                    if (data.gameState.playersInfo) {
+                        // TODO: プレイヤー名の同期。一旦は既存のplayers配列を使用
+                    }
+                    
+                    addLog(`[Online] ゲーム画面への切り替えが完了しました。`);
                 }
             }
             

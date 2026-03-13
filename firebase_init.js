@@ -48,55 +48,103 @@ auth.onAuthStateChanged(user => {
 /* Googleログイン処理 */
 async function loginWithGoogle() {
     const provider = new firebase.auth.GoogleAuthProvider();
-    let loginSuccess = false; // ★追加：成功チェック用フラグ
+    let loginSuccess = false; 
 
     try {
         const result = await auth.signInWithPopup(provider);
         const user = result.user;
 
+        // 1. Googleの基本情報を反映
         userProfile.name = user.displayName || userProfile.name;
         if (user.photoURL) {
             userProfile.icon = user.photoURL;
         }
-        
         userProfile.isLoggedIn = true;
         userProfile.uid = user.uid;
 
+        // 2. ★追加：クラウド（Firestore）から過去の戦績をロード
+        addLog(`データを同期中...`);
+        if (typeof loadProfileFromCloud === 'function') {
+            await loadProfileFromCloud(); // ここで過去の勝利数やランクが userProfile に上書きされます
+        }
+
+        // 3. ローカル保存とUI更新
         saveUserProfile();
-        
         if (typeof updateProfileButtonVisual === 'function') {
             updateProfileButtonVisual(); 
         }
         
-        loginSuccess = true; // ★ここで成功を確定させる
+        // 4. 全ての同期が完了してから「成功」とする
+        loginSuccess = true; 
         
-        addLog(`${userProfile.name} としてログイン。データを同期します。`);
-        /* 2026/03/13 修正：ログイン後の遷移をホーム画面に強制固定 */
+        // 5. 画面遷移
         const titleOverlay = document.getElementById('title-overlay');
         const setupOverlay = document.getElementById('setup-overlay');
         const homeScreen = document.getElementById('home-screen');
 
         if (titleOverlay) titleOverlay.classList.add('hidden');
-        if (setupOverlay) setupOverlay.classList.add('hidden'); // ★ここが重要：人数設定を隠す
+        if (setupOverlay) setupOverlay.classList.add('hidden'); 
         
         if (homeScreen) {
             homeScreen.classList.remove('hidden');
-            // ホーム画面の名前をGoogle名に更新
             const nameDisplay = document.getElementById('home-user-name');
             if (nameDisplay) nameDisplay.textContent = userProfile.name;
         }
 
-        addLog(`${userProfile.name} としてログイン。ホーム画面へ移動します。`); 
+        addLog(`${userProfile.name} としてログイン。おかえりなさい！`); 
         
     } catch (error) {
         console.error("Login Error Details:", error);
 
-        // ★修正：ログインに成功している(loginSuccessがtrue)なら、後の細かいエラーは無視
         if (loginSuccess) return;
 
-        // ユーザーが自ら閉じた場合以外で、かつ本当に失敗している時だけアラートを出す
         if (error.code !== 'auth/popup-closed-by-user' && error.code !== 'auth/cancelled-popup-request') {
             alert("ログイン処理中に通知がありました。反映状況を確認してください。");
         }
+    }
+}
+
+/**
+ * 2026/03/13 追加：クラウド（Firestore）にユーザーデータを保存
+ */
+async function syncProfileToCloud() {
+    if (!userProfile.isLoggedIn || !userProfile.uid) return;
+
+    try {
+        // users コレクション内の、自分のUIDという名前のドキュメントに保存
+        await db.collection("users").doc(userProfile.uid).set({
+            name: userProfile.name,
+            icon: userProfile.icon,
+            stats: userProfile.stats, // 勝利数や勝率など
+            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true }); // merge: true にすると、既存のデータを消さずに上書き・追加できる
+
+        console.log("Cloud Sync: Success!");
+    } catch (error) {
+        console.error("Cloud Sync Error:", error);
+    }
+}
+
+/**
+ * 2026/03/13 追加：クラウドからデータを読み込む
+ */
+async function loadProfileFromCloud() {
+    if (!userProfile.isLoggedIn || !userProfile.uid) return;
+
+    try {
+        const doc = await db.collection("users").doc(userProfile.uid).get();
+        if (doc.exists) {
+            const cloudData = doc.data();
+            // クラウドのデータで上書き（必要に応じてどちらを優先するか調整可能）
+            userProfile.stats = cloudData.stats || userProfile.stats;
+            userProfile.name = cloudData.name || userProfile.name;
+            userProfile.icon = cloudData.icon || userProfile.icon;
+            
+            saveUserProfile(); // ローカル（localStorage）にも反映
+            updateProfileButtonVisual();
+            console.log("Cloud Data Loaded:", cloudData);
+        }
+    } catch (error) {
+        console.error("Load Cloud Data Error:", error);
     }
 }

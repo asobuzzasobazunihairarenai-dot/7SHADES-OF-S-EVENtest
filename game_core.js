@@ -3551,9 +3551,15 @@ function updateProfileAfterGame(winnerId) {
         userProfile.stats.mvpCard = overallTopCard;
     }
 
-    // 5. 最後に一度だけ、全てが更新された状態の userProfile を保存
+    /* 2026/03/13 修正：対局終了時にクラウド同期を実行（二刀流の完成） */
+    // 5. ローカルに保存
     saveUserProfile();
     console.log(`[Stats Update] MVP: ${userProfile.stats.mvpCard}, Total: ${overallMaxCount}回`);
+
+    // 6. クラウドに同期（ログイン済みの場合のみ内部で実行されます）
+    if (typeof syncProfileToCloud === 'function') {
+        syncProfileToCloud();
+    }
 }
 
 /**

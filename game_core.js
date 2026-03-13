@@ -2545,28 +2545,23 @@ function showOpeningLogo(callback) {
  * 修正概要: プロフィールが一度設定されていれば、START GAME後に設定モーダルをスキップするように修正
  */
 function openProfileSetup() {
-    /** 2026/03/05 修正: 
-     * window.isProfileSet が false であっても、localStorage にデータがあれば
-     * 設定済みとみなしてホーム画面またはセットアップ画面へ直接遷移させます。
-     */
     const hasSavedProfile = localStorage.getItem('shades_seven_profile');
-    
-    if (window.isProfileSet || hasSavedProfile) {
-        window.isProfileSet = true; // メモリ上のフラグも立てる
+    const isLoggedIn = userProfile && userProfile.isLoggedIn; // ログイン状態をチェック
+
+    if (window.isProfileSet || hasSavedProfile || isLoggedIn) {
+        window.isProfileSet = true;
         
         const titleEl = document.getElementById('title-overlay');
         const setupEl = document.getElementById('setup-overlay');
         const homeScreen = document.getElementById('home-screen');
         
         if (titleEl) titleEl.classList.add('hidden');
-        
-        // ホーム画面がある場合はホームへ、なければ人数選択(setup)へ
+        if (setupEl) setupEl.classList.add('hidden'); // 人数設定は隠す
+
         if (homeScreen) {
             homeScreen.classList.remove('hidden');
             const nameDisplay = document.getElementById('home-user-name');
-            if (nameDisplay && userProfile) nameDisplay.textContent = userProfile.name;
-        } else if (setupEl) {
-            setupEl.classList.remove('hidden');
+            if (nameDisplay) nameDisplay.textContent = userProfile.name;
         }
         return;
     }
@@ -2732,27 +2727,51 @@ function setupProfileUI() {
     const startBtn = document.getElementById('start-with-profile-btn');
     if (!p1Container || !startBtn) return;
 
-    let selectedIcon = "images/character_001.webp"; 
+    // 現在のアイコンを初期選択状態にする
+    let selectedIcon = userProfile.icon || "images/character_001.webp"; 
 
     const renderIcons = () => {
         p1Container.innerHTML = '';
-        // 横一列に並べるための親コンテナのクラス指定
-        p1Container.className = "flex flex-row justify-between w-full gap-1 px-1";
+        // 8枚並ぶ可能性があるので、少し隙間を調整 (gap-1)
+        p1Container.className = "flex flex-row justify-start w-full gap-1 px-1 overflow-x-auto pb-2 custom-scrollbar";
         
+        // 1. 基本の7枚のパスを配列で作る
+        let iconList = [];
         for (let i = 1; i <= 7; i++) {
-            const iconPath = `images/character_00${i}.webp`;
+            iconList.push(`images/character_00${i}.webp`);
+        }
+
+        // 2. ★追加：Googleログイン中なら、リストの最初（または最後）にGoogleアイコンを挿入
+        if (userProfile.isLoggedIn && userProfile.icon && userProfile.icon.startsWith('http')) {
+            // リストの先頭に追加（自分の顔が一番最初に来るように）
+            if (!iconList.includes(userProfile.icon)) {
+                iconList.unshift(userProfile.icon);
+            }
+        }
+
+        // 3. 配列に基づいて描画
+        iconList.forEach(iconPath => {
             const img = document.createElement('img');
             img.src = iconPath;
-            // アイコンサイズを w-9 に少しだけ小さくして、7枚が1列に収まりやすくしました
+            
+            // Googleアイコン(http...)の場合は少し特別な枠線にするなどの演出も可能
+            const isGoogleIcon = iconPath.startsWith('http');
+            
             img.className = `w-9 h-9 rounded-full border-2 cursor-pointer transition-all shrink-0 ${selectedIcon === iconPath ? 'border-yellow-500 scale-110 z-10' : 'border-transparent opacity-50'}`;
+            
+            if (isGoogleIcon) {
+                img.classList.add('ring-1', 'ring-blue-400'); // Googleアイコンだと分かりやすく
+            }
+
             img.onclick = () => {
                 selectedIcon = iconPath;
                 renderIcons();
             };
             p1Container.appendChild(img);
-        }
+        });
     };
     renderIcons();
+
 
     startBtn.onclick = () => {
         const nameInput = document.getElementById('p1-name-input');

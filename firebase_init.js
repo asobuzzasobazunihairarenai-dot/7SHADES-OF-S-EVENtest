@@ -48,11 +48,12 @@ auth.onAuthStateChanged(user => {
 /* Googleログイン処理 */
 async function loginWithGoogle() {
     const provider = new firebase.auth.GoogleAuthProvider();
+    let loginSuccess = false; // ★追加：成功チェック用フラグ
+
     try {
         const result = await auth.signInWithPopup(provider);
         const user = result.user;
 
-        // Google情報を反映
         userProfile.name = user.displayName || userProfile.name;
         if (user.photoURL) {
             userProfile.icon = user.photoURL;
@@ -67,14 +68,35 @@ async function loginWithGoogle() {
             updateProfileButtonVisual(); 
         }
         
+        loginSuccess = true; // ★ここで成功を確定させる
+        
         addLog(`${userProfile.name} としてログイン。データを同期します。`);
-        document.getElementById('title-overlay').classList.add('hidden');
-        showHomeScreen(); 
+        /* 2026/03/13 修正：ログイン後の遷移をホーム画面に強制固定 */
+        const titleOverlay = document.getElementById('title-overlay');
+        const setupOverlay = document.getElementById('setup-overlay');
+        const homeScreen = document.getElementById('home-screen');
+
+        if (titleOverlay) titleOverlay.classList.add('hidden');
+        if (setupOverlay) setupOverlay.classList.add('hidden'); // ★ここが重要：人数設定を隠す
+        
+        if (homeScreen) {
+            homeScreen.classList.remove('hidden');
+            // ホーム画面の名前をGoogle名に更新
+            const nameDisplay = document.getElementById('home-user-name');
+            if (nameDisplay) nameDisplay.textContent = userProfile.name;
+        }
+
+        addLog(`${userProfile.name} としてログイン。ホーム画面へ移動します。`); 
         
     } catch (error) {
-        console.error("Login Error:", error);
-        if (error.code !== 'auth/popup-closed-by-user') {
-            alert("ログインに失敗しました。Firebaseの承認ドメイン設定を確認してください。");
+        console.error("Login Error Details:", error);
+
+        // ★修正：ログインに成功している(loginSuccessがtrue)なら、後の細かいエラーは無視
+        if (loginSuccess) return;
+
+        // ユーザーが自ら閉じた場合以外で、かつ本当に失敗している時だけアラートを出す
+        if (error.code !== 'auth/popup-closed-by-user' && error.code !== 'auth/cancelled-popup-request') {
+            alert("ログイン処理中に通知がありました。反映状況を確認してください。");
         }
     }
 }

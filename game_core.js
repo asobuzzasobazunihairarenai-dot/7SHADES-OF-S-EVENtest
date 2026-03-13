@@ -12,6 +12,9 @@
  * 3. 効果解決前の不適切なセルクリーンアップとカード破棄を抑制し、Script Error :0:0 を解消。
  */
 
+
+
+
 function createCardInstance(data) { 
     if (!data) return null;
     const baseColor = BASE_COLORS.find(c => c.id === data.colorId) || (data.colorId === 'rainbow' ? RAINBOW_COLOR : (data.colorId === 'white' ? WHITE_COLOR : BLACK_COLOR)); 
@@ -367,18 +370,29 @@ function nextPhase(isForced = false) {
     }
 
     checkAnytimeReactions(() => {
-    if (currentPhase === PHASE.LOCK) { 
-    currentPhase = PHASE.HAND; 
-    addLog(`<span class="text-indigo-400 font-bold italic">⏳ [PHASE] HAND</span>`); 
-    }
-    else if (currentPhase === PHASE.HAND) { 
-    currentPhase = PHASE.MOVE; 
-    addLog(`<span class="text-indigo-400 font-bold italic">⏳ [PHASE] MOVE</span>`); 
-    } 
-    else if (currentPhase === PHASE.MOVE && isForced) { 
-            isPhaseTransitioning = false; // 終了時は戻す
+        const p = players[turn];
+        const now = new Date();
+        const timeStr = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+        
+        let phaseName = "";
+        if (currentPhase === PHASE.LOCK) { 
+            currentPhase = PHASE.HAND; 
+            phaseName = "HAND";
+        }
+        else if (currentPhase === PHASE.HAND) { 
+            currentPhase = PHASE.MOVE; 
+            phaseName = "MOVE";
+        } 
+        else if (currentPhase === PHASE.MOVE && isForced) { 
+            isPhaseTransitioning = false; 
             endTurn(); return; 
         } 
+
+        // 通常のログ
+        addLog(`<span class="text-indigo-400 font-bold italic">⏳ [PHASE] ${phaseName}</span>`); 
+        
+        // 1.【追加：提案1】詳細なデバッグログ（観戦・テストモードのみ画面に表示）
+        addLog(`[DEBUG] ${timeStr} | Player: ${p.name} | Phase: ${phaseName} 開始`, true);
         
         /** 2026/03/04 22:15 修正：フェイズ移行時に最新の補充時間設定を反映 **/
         isHandEffectProcessing = false; 
@@ -467,7 +481,13 @@ function updateTimerTick() {
     } else if (useGlobalTimer && p.totalTimeLeft > 0) {
         p.totalTimeLeft--; 
     } else {
-        if (isAutoProcessing) return;
+        if (isAutoProcessing) {
+            // 自動処理中なのにタイマーが0になった場合の警告（スタックの兆候）
+            addLog(`[DEBUG] タイムアウト警告: 自動処理フラグが残ったままです`, true);
+            return;
+        }
+        
+        addLog(`[DEBUG] タイムアウト発生: ${p.name} の自動実行を要請`, true);
 
         if (currentPhase === PHASE.LOCK) {
             const autoLock = document.getElementById('setting-timeout-random-lock')?.checked;
@@ -682,15 +702,20 @@ function handleTimeOut() {
     // 4. 到達獲得・ドロー確認・詳細確認を閉じる
     if (arrivalModal && !arrivalModal.classList.contains('hidden')) { 
         const btn = document.getElementById('arrival-ok-btn');
-        if (btn) { btn.click(); return; } 
+        if (btn) { 
+            addLog(`[DEBUG] 到達確認: ${actingP.name}のボタンを代行クリック`, true); // true を渡すとデバッグ扱い
+            btn.click(); 
+            return; 
+        } 
     }
+
     if (detailModal && !detailModal.classList.contains('hidden')) { 
         const btn = document.getElementById('detail-ok-btn');
-        if (btn) { btn.click(); return; } 
-    }
-    if (detailModal && !detailModal.classList.contains('hidden')) { 
-        const btn = document.getElementById('detail-ok-btn'); // 「横一列」を優先選択
-        if (btn) { btn.click(); return; } 
+        if (btn && !btn.disabled) {
+            addLog(`[DEBUG] 確認実行: ${actingP.name}のボタンを代行クリック`, true);
+            btn.click(); 
+            return; 
+        } 
     }
     
     // 5. フェイズ進行の自動化
@@ -848,6 +873,8 @@ function autoMove(p) {
     const move = bestMoves.length > 0 ? bestMoves[Math.floor(Math.random() * bestMoves.length)] : null;
 
     if (move && typeof executeMove === 'function') {
+        // --- 外科手術：AI思考ログの追加 ---
+        addLog(`[DEBUG] AI ${p.name}: 点数 ${maxScore}pt でマス(${move.x}, ${move.y})を選択`, true);
         executeMove(move.x, move.y, move.cell, move.epOn); 
     } else {
         // ★外科手術2：移動できない場合は、ムーブを終了せず配置モード(autoPlace)へ繋ぐ
@@ -873,9 +900,15 @@ function autoPlace(p) {
     const otherPlayers = players.filter(pl => pl.id !== p.id);
     const directions = [[0,1], [0,-1], [1,0], [-1,0]]; 
     
-    const cfg = window.AI_SCORE_CONFIG || {
-        APPROACH_ENEMY_GATE: 20, REACH_ENEMY_GATE: 100, SELF_GATE_DEFENSE: 20
+    /* 2026/03/13 修正：AIスコア設定の完全なデフォルト保証 */
+    const cfg = {
+        CARD_COUNT: 10, UNLOCKED_COLOR: 50, ADJACENT_ENEMY: 5,
+        SELF_GATE_DEFENSE: 20, APPROACH_ENEMY_GATE: 20, REACH_ENEMY_GATE: 100,
+        MOVE_TOWARD_GATE: 30, RARE_COLOR: 20, POWER_CARD_NEAR: 20, 
+        STEAL_ACTION: 50, STACK_COUNT: 10, 
+        ...(window.AI_SCORE_CONFIG || {}) // 既存の設定があれば上書き、なければ上記を使用
     };
+    window.AI_SCORE_CONFIG = cfg; // グローバルに書き戻して NaN を防ぐ
 
     let bestPlaces = [];
     let maxScore = -Infinity;
@@ -933,6 +966,8 @@ function autoPlace(p) {
     const bestPlace = bestPlaces.length > 0 ? bestPlaces[Math.floor(Math.random() * bestPlaces.length)] : null;
 
     if (bestPlace && typeof executePlaceCard === 'function') {
+        /* 2026/03/13 追加：AI配置スコアログ */
+        addLog(`[DEBUG] AI ${p.name}: 配置点数 ${maxScore}pt でマス(${bestPlace.x}, ${bestPlace.y})を選択`, true);
         executePlaceCard(bestPlace.x, bestPlace.y); 
     } else {
         endTurn(); 
@@ -1439,11 +1474,16 @@ function handleBoardClick(x, y) {
 
 function executeMove(x, y, cell, epOn) { 
     if (!players[turn]) return;
+    const p = players[turn];
+
+    /* 2026/03/13 追加：移動開始のデバッグログ */
+    addLog(`[DEBUG] executeMove 開始: ${p.name} -> (${x}, ${y})`, true);
+    console.time(`Move-${p.name}`); // 処理時間を計測開始
+
     if (!isAutoAction) {
         if (typeof gainTime === 'function') gainTime(Math.min(5, currentPhaseMaxTime));
     }
     isProcessingMove = true;
-    const p = players[turn];
     
     // 【追加】移動開始時に次元跳躍状態ならフラグを消費（リセット）
     if (p.dimensionActive && !p.baseMoveUsed) {
@@ -1454,7 +1494,11 @@ function executeMove(x, y, cell, epOn) {
     // ----------------
 
     const moveFinish = () => { 
-    if (!p.baseMoveUsed) p.baseMoveUsed = true; 
+        /* 2026/03/13 追加：移動完了のデバッグログ */
+        addLog(`[DEBUG] moveFinish 完了: ${p.name}`, true);
+        console.timeEnd(`Move-${p.name}`); // 計測終了
+
+        if (!p.baseMoveUsed) p.baseMoveUsed = true; 
     else if (p.extraMoves > 0) p.extraMoves--; 
 
     // ここで「自分のムーブフェイズか」を確認
@@ -1793,7 +1837,14 @@ async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraC
  */
 function handleArrivalLogic(cell, player, callback, cardObj, isNewReveal = false) {
     const curC = cardObj || cell.color;
-    if (!curC) { if (callback) callback(); return; }
+    
+    /* 2026/03/13 追加：到達検知のエラーキャッチ */
+    if (!curC) { 
+        addLog(`[ERROR] handleArrivalLogic: カードデータが消失しています (${player.name})`, true);
+        if (callback) callback(); 
+        return; 
+    }
+    addLog(`[DEBUG] 到達効果チェック: ${player.name} が 『${curC.name}』 に接触`, true);
 
     // 【外科手術的追加】操作主を「駒の持ち主」へ一時的に切り替える
     // 従来の turn プレイヤーではなく、この player がタイムバーを支配するようにします
@@ -2076,26 +2127,37 @@ function processHandSteal(invader, victim) {
     const sCount = Math.floor(vHand.length / 2); 
 
     if (sCount > 0) {
-        showSelectionModal("HAND STEAL", `${victim.name}の手札から${sCount}枚選んで奪います`, vHand, "card-back-pattern", sCount, (cards) => { 
-            // 1. データの移動（被害者の手札から引っこ抜き、侵攻者の手札へ）
-            cards.forEach(c => { 
-                vHand.splice(vHand.indexOf(c), 1); 
-                hands[invader.id].push(c); 
-            }); 
+        /* 2026/03/13 修正：引数の順番を showSelectionModal の定義に完全一致させる */
+        showSelectionModal(
+            "HAND STEAL", 
+            `${victim.name}の手札から${sCount}枚選んで奪います`, 
+            vHand, 
+            "card-back-pattern", 
+            sCount, 
+            (cards) => { 
+                // 1. データの移動
+                cards.forEach(c => { 
+                    vHand.splice(vHand.indexOf(c), 1); 
+                    hands[invader.id].push(c); 
+                }); 
 
-            // 2. 奪ったカードを全員に見せる演出（showCardModal）を追加
-            // これにより、当事者は表向き、関係ない人は裏向きで表示されます
-            if (typeof showCardModal === 'function') {
-                showCardModal(cards, () => {
-                    // モーダルを閉じたら、次のエターナル獲得処理へ
+                // 2. 奪ったカードを見せる
+                if (typeof showCardModal === 'function') {
+                    showCardModal(cards, () => {
+                        renderHand();
+                        processEternalAcquisition(invader, victim);
+                    }, "ゲート侵攻：カード強奪", invader.name, `${victim.name} からカードを奪いました！`, invader);
+                } else {
                     renderHand();
                     processEternalAcquisition(invader, victim);
-                }, "ゲート侵攻：カード強奪", invader.name, `${victim.name} からカードを奪いました！`);
-            } else {
-                renderHand();
-                processEternalAcquisition(invader, victim);
-            }
-        }, true, null, null, null, invader); 
+                }
+            }, 
+            true,         // 7: isBlind
+            null,         // 8: cancelCallback
+            "自動取得",    // 9: autoBtnText (これを入れることでCPUが自動選択可能になる)
+            null,         // 10: restrictedCells
+            invader       // 11: actingPlayer (ここが最重要！)
+        ); 
     } else { 
         // 奪う手札がない場合は即座に次へ
         processEternalAcquisition(invader, victim); 
@@ -2363,21 +2425,25 @@ async function initGameInternal(num, isTest = false) {
 
     const shfCols = [...BASE_COLORS].sort(() => Math.random() - 0.5); 
     
+    /* 2026/03/13 修正：観戦モード(P5作戦)の導入 */
+    const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
+
     players = seats.map((pos, i) => { 
         const pColor = (isTest && testFirstCards[i]) ? BASE_COLORS.find(bc => bc.id === testFirstCards[i].colorId) : shfCols[i]; 
         
-        // 事前設定されたプロフィールがあるか確認
+        // 観戦モードならIDを 2,3,4,5 に設定。通常なら 1,2,3,4
+        const assignedId = isForcedCpu ? (i + 2) : (i + 1);
+
+        // プロフィール情報の取得
         const profile = (window.pendingProfiles && window.pendingProfiles[i]) ? window.pendingProfiles[i] : null;
 
         const player = { 
-            id: i+1, 
+            id: assignedId, // ★ここが重要：1番を避ける
             x: pos.x, 
             y: pos.y, 
             startPos: {...pos}, 
-            name: profile ? profile.name : `P${i+1}`, 
-            // プロフィール画像（ステータス表示用）
-            icon: profile ? profile.icon : `images/character_00${i+1}.webp`,
-            // 駒の画像（元の piece_00X.png に固定）
+            name: profile ? profile.name : `P${assignedId}`, 
+            icon: profile ? profile.icon : `images/character_00${assignedId}.webp`,
             pieceImage: pColor.pieceImage, 
             color: pColor, 
             css: `${pColor.bg} border-2 border-white`, 
@@ -2397,13 +2463,12 @@ async function initGameInternal(num, isTest = false) {
         player.prevX = player.x; 
         player.prevY = player.y; 
 
-        // 【追加】P2(index 1)以降の場合、割り当てられた色に合わせてアイコンを上書き
-        if (i > 0 && window.pendingProfiles && window.pendingProfiles[i]) {
+        // CPU戦用のアイコン調整ロジック（assignedId を使用）
+        if (assignedId > 1 && window.pendingProfiles && window.pendingProfiles[i]) {
             const colorMap = { 'red': 1, 'orange': 2, 'yellow': 3, 'green': 4, 'blue': 5, 'pink': 6, 'purple': 7 };
             const colorIdx = colorMap[player.color.id];
             if (colorIdx) {
-                window.pendingProfiles[i].icon = `images/character_00${colorIdx}.webp`;
-                player.icon = window.pendingProfiles[i].icon; // playerオブジェクト側のアイコンも更新
+                player.icon = `images/character_00${colorIdx}.webp`;
             }
         }
 
@@ -3513,44 +3578,49 @@ function updateProfileAfterGame(winnerId) {
 
     /* 2026/03/12 修正：MVP通算回数が反映されない不具合を修正 */
     // 1. 構造の初期化を徹底
+    /* 2026/03/13 修正：通算MVPカードと使用回数の同期を確実に実行 */
+    // 1. 構造の初期化を徹底（データ消失防止）
     if (!userProfile.stats) userProfile.stats = {};
     if (!userProfile.stats.cardUsageCount) userProfile.stats.cardUsageCount = {};
     if (!userProfile.stats.colorUsage) userProfile.stats.colorUsage = {};
 
-    // 2. 今回の対局データを「通算」に加算
-    if (window.cardUsageStats) {
-        const p1Usage = window.cardUsageStats[1] || window.cardUsageStats['p1'];
-        if (p1Usage) {
-            for (const cardName in p1Usage) {
-                // 通算カード使用数を加算
-                const currentMatchCount = Number(p1Usage[cardName]) || 0;
-                userProfile.stats.cardUsageCount[cardName] = (userProfile.stats.cardUsageCount[cardName] || 0) + currentMatchCount;
+    // 2. 今回の対局データ(p1Usage)を「通算」に確実に加算
+    const p1MatchStats = window.cardUsageStats ? (window.cardUsageStats[1] || window.cardUsageStats['p1']) : null;
+    
+    if (p1MatchStats) {
+        for (const cardName in p1MatchStats) {
+            const matchCount = Number(p1MatchStats[cardName]) || 0;
+            // 加算（既存がなければ 0 からスタート）
+            userProfile.stats.cardUsageCount[cardName] = (Number(userProfile.stats.cardUsageCount[cardName]) || 0) + matchCount;
 
-                // 通算カラー傾向もあわせて加算
-                const cardData = CARD_DATABASE.find(c => c.name === cardName);
-                if (cardData && cardData.colorId) {
-                    userProfile.stats.colorUsage[cardData.colorId] = (userProfile.stats.colorUsage[cardData.colorId] || 0) + currentMatchCount;
-                }
+            // 通算カラー傾向もあわせて加算
+            const cardData = CARD_DATABASE.find(c => c.name === cardName);
+            if (cardData && cardData.colorId) {
+                userProfile.stats.colorUsage[cardData.colorId] = (Number(userProfile.stats.colorUsage[cardData.colorId]) || 0) + matchCount;
             }
         }
     }
 
-    // 3. 全ての「通算」データの中から、改めてNo.1（MVP）を特定
-    let overallTopCard = null;
-    let overallMaxCount = -1;
+    // 3. 「加算済み」の通算データから、改めてトップ（MVP）を特定
+    let topCardName = userProfile.stats.mvpCard || null;
+    let maxUsageVal = -1;
 
-    for (const [name, totalCount] of Object.entries(userProfile.stats.cardUsageCount)) {
-        if (totalCount > overallMaxCount) {
-            overallMaxCount = totalCount;
-            overallTopCard = name;
+    // 通算カード使用履歴をループ
+    const totalHistory = userProfile.stats.cardUsageCount;
+    for (const name in totalHistory) {
+        const usage = Number(totalHistory[name]);
+        if (usage > maxUsageVal) {
+            maxUsageVal = usage;
+            topCardName = name;
         }
     }
     
-    // 4. 特定されたMVPをプロフィールに記録
-    if (overallTopCard) {
-        userProfile.stats.mvpCard = overallTopCard;
+    // 4. 特定されたMVPと回数を確定反映
+    if (topCardName) {
+        userProfile.stats.mvpCard = topCardName;
+        // console.log(`[MVP Sync] ${topCardName} (Total: ${maxUsageVal}回)`);
     }
-
+    
     /* 2026/03/13 修正：対局終了時にクラウド同期を実行（二刀流の完成） */
     // 5. ローカルに保存
     saveUserProfile();
@@ -3597,4 +3667,25 @@ function forceResumeAI() {
         // フェイズが不明な場合は次へ進める
         if (typeof nextPhase === 'function') nextPhase(true);
     }
+}
+
+async function initCpuOnlyGame(num) {
+    window.FORCED_CPU_MODE = true; 
+    
+    // 全プレイヤーCPU戦用のプロフィールを準備（1番を抜いた構成）
+    const cpuIcons = ["images/character_002.webp", "images/character_003.webp", "images/character_004.webp", "images/character_005.webp"];
+    const cpuNames = ["CPU Alpha", "CPU Beta", "CPU Gamma", "CPU Delta"];
+    
+    window.pendingProfiles = [];
+    for (let i = 0; i < num; i++) {
+        window.pendingProfiles.push({ name: cpuNames[i], icon: cpuIcons[i] });
+    }
+    window.isProfileSet = true;
+
+    // ゲーム開始
+    await initGameInternal(num);
+    
+    // 全員を自動行動に
+    isAutoAction = true;
+    addLog("<span class='text-yellow-500 font-bold'>📺 P1を排除し、ALL CPU(P2-P5)で観戦を開始します</span>");
 }

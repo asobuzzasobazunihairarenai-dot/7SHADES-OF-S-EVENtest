@@ -125,11 +125,19 @@ function canPlayHandEffect(card, p) {
         if (!hasAnyCard) return false; // 盤面が空ならグレーアウト対象
     }
 
-    /* --- 2026/03/12 修正：富裕層の気まぐれ(ID:25) の有効判定 --- */
+    /* 2026/03/13 修正：富裕層の気まぐれ(ID:25) 無駄撃ち防止の厳格化 */
     if (card.id === 25) {
-        // 自分を含め、手札が3枚以上のプレイヤーが1人でもいるかチェック
-        const hasWealthyPlayer = players.some(pl => (hands[pl.id] || []).length >= 3);
-        if (!hasWealthyPlayer) return false; // 対象がいなければグレーアウト
+        const hasWealthyPlayer = players.some(pl => {
+            const h = hands[pl.id] || [];
+            // pl が 自分(p) の場合：自分自身（気まぐれ）を除いて 3枚以上（つまり計4枚）持っているか
+            if (pl.id === p.id) {
+                return h.length > 3; // 気まぐれを使って3枚残る状態
+            }
+            // 他人の場合：そのまま3枚以上持っているか
+            return h.length >= 3;
+        });
+        
+        if (!hasWealthyPlayer) return false; // 自分も他人も条件を満たさないならグレーアウト
     }
 
     // ★ 2026/03/08 追加：なないろの欠片(ID:29) の温存ロジック
@@ -175,7 +183,19 @@ function canPlayHandEffect(card, p) {
                 return false;
             });
         });
+        /* 2026/03/13 修正：CPUのカラフルホール有効判定の厳格化 */
         if (!hasValidTarget) return false;
+
+        // ★ CPUの場合、最多ロック者が自分「のみ」であれば使用不可（グレーアウト）にする
+        if (p.id !== 1 && isEffectivelyAuto) {
+            const onlyMeIsMax = players.every(pl => {
+                if (pl.id === p.id) return true;
+                const plLockCount = LOCK_ORDER.reduce((sum, col) => sum + collections[pl.id][col.id].length, 0);
+                const myLockCount = LOCK_ORDER.reduce((sum, col) => sum + collections[p.id][col.id].length, 0);
+                return plLockCount < myLockCount;
+            });
+            if (onlyMeIsMax) return false;
+        }
     }
 
     // ID 32: いろ落ちガエル の有効化条件
@@ -233,22 +253,62 @@ function canPlayHandEffect(card, p) {
         if (candidates.length < cost.amount) return false;
     }
 
+    /* 2026/03/13 修正：民の道の建設 移動先の制限を解除 */
     if (act.type === 'civil_path_hand') {
-        const emptyCount = board.flat().filter(c => c.empty).length;
+        // ステップ1：移動元（相手の周囲以外の裏向きカード）の候補を取得
         const faceDownCards = [];
         for(let y=0; y<GRID_SIZE; y++) {
             for(let x=0; x<GRID_SIZE; x++) {
                 const cell = board[y][x];
                 if(cell.empty || cell.revealed) continue;
+                
                 let isAroundOpponent = false;
                 players.forEach(pl => {
                     if(pl.id === p.id) return;
                     if(Math.abs(pl.x - x) <= 1 && Math.abs(pl.y - y) <= 1) isAroundOpponent = true;
                 });
+                // 移動元として選べるのは「相手の周囲以外」
                 if(!isAroundOpponent) faceDownCards.push({x, y});
             }
         }
-        if (emptyCount < 2 || faceDownCards.length < 2) return false;
+
+        const emptyCells = board.flat().filter(c => c.empty);
+        if (emptyCells.length < 2 || faceDownCards.length < 2) return false;
+
+        // ステップ2：まず「移動させるカード」を2枚選ぶ
+        startSelectionMode('select_cell', 2, 'civil_path_select_cards', '移動させる裏向きカードを2枚選んでください', (selCards) => {
+            
+            // ステップ3：「移動先」を2つ選ぶ
+            // ここで logic を 'civil_path_select_dest' などに渡し、そこでは「相手の周囲以外」という判定を「行わない」ようにします
+            startSelectionMode('select_cell', 2, 'civil_path_select_dest', '移動先の空マスを2つ選んでください', (selDests) => {
+                
+                // 実際の移動処理（ここは既存のロジックがあればそれを維持）
+                selCards.forEach((cPos, idx) => {
+                    const dest = selDests[idx];
+                    const targetCell = board[cPos.y][cPos.x];
+                    const destCell = board[dest.y][dest.x];
+                    
+                    destCell.color = targetCell.color;
+                    destCell.empty = false;
+                    destCell.revealed = false;
+                    destCell.stack = targetCell.stack || [];
+
+                    targetCell.color = null;
+                    targetCell.empty = true;
+                    targetCell.revealed = false;
+                    targetCell.stack = [];
+                });
+
+                addLog(`${p.name} が民の道を建設し、カードを再配置しました。`);
+                renderBoard();
+                onSuccess();
+
+            }, 0, null, true, p, false, null, "おまかせ", null, p); 
+            // ↑ ここの判定用ID 'civil_path_select_dest' を game_ui_modal.js 側で「全空マスOK」にする必要があります
+
+        }, 0, null, true, p, false, null, "おまかせ", faceDownCards, p); // 移動元は faceDownCards（制限あり）に限定
+
+        return true;
     }
     
     else if (act.type === 'apocalypse_arrival') {
@@ -1351,16 +1411,21 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 
                 if (typeof renderBoard === 'function') renderBoard();
 
-                if (isNewReveal) {
+                /* 2026/03/13 修正：既に表向き（手札効果で設置）の場合はドローさせない */
+                // isNewReveal が true 且つ、元々裏向きだった場合のみドロー
+                if (isNewReveal === true) {
                     const c = drawCard();
                     if (c) {
                         hands[p.id].push(c);
-                        showCardModal(c, () => onSuccess({ preventGain: true, stayOnBoard: true }), "ドロー", p.name, "花がオープンされたため1枚ドローしました");
+                        showCardModal(c, () => {
+                            onSuccess({ preventGain: true, stayOnBoard: true });
+                        }, "ドロー", p.name, "花がオープンされたため、見つけたボーナスとして1枚ドローしました");
                     } else {
                         onSuccess({ preventGain: true, stayOnBoard: true });
                     }
                 } else {
-                    addLog("既に表向きであったため、ドロー効果は発動しません。");
+                    // 表向き（既知）の花を踏んだ場合は、カードを渡すだけで終了
+                    addLog(`[Check] ${p.name}: 既に表向きであったため、ドロー効果は発動しません。`);
                     onSuccess({ preventGain: true, stayOnBoard: true });
                 }
             });
@@ -1860,48 +1925,94 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             return;
         }
 
+        /* 2026/03/13 修正：CPUのカラフルホール自爆防止 */
         const maxLocks = Math.max(...validPlayers.map(l => l.total));
-        const candidates = validPlayers.filter(l => l.total === maxLocks).map(l => ({ id: l.id, name: `${l.name} (${l.total}枚)`, type: "PLAYER_SELECT" }));
         
-        showSelectionModal("最多ロック者選択", "ロックカードを奪う相手を選んでください", candidates, "card-back-pattern", 1, (selPl) => {
-            const victim = players.find(v => v.id === selPl[0].id);
+        // 基本の候補者リスト（最多ロック者）
+        let targetList = validPlayers.filter(l => l.total === maxLocks);
+
+        // ★ CPU（ID:1以外）が実行している場合、自分自身をターゲットから除外する
+        if (p.id !== 1) {
+            const filtered = targetList.filter(l => l.id !== p.id);
             
-            showLockStealModal(p, victim, () => {
-                const victimLocks = [];
-                LOCK_ORDER.forEach(col => {
-                    const slot = collections[victim.id][col.id];
-                    if (slot && slot.length > 0) {
-                        const top = slot[slot.length - 1];
-                        if (top.type !== 'ETERNAL' && top.type !== 'FIRST' && top.type !== 'BOOST' && top.colorId !== 'white' && top.colorId !== 'black') {
-                            victimLocks.push(top);
+            // もし自分を除外した結果、誰も残らなければ「自分しか最多ロックがいない」状態なので不発とする
+            if (filtered.length === 0) {
+                addLog(`${p.name} は自分以外に最適な対象がいないため、カラフルホールの使用を見送りました。`);
+                onSuccess({}); // 実際にはカードを捨てる処理へ流れる
+                return;
+            }
+            targetList = filtered;
+        }
+
+        // 最終的な候補者をモーダル用の形式に変換
+        const candidates = targetList.map(l => ({ 
+            id: l.id, 
+            name: `${l.name} (${l.total}枚)`, 
+            type: "PLAYER_SELECT" 
+        }));
+        
+        /* 2026/03/13 修正：カラフルホールの引数を11個に適合させ、自動処理を継続させる */
+        showSelectionModal(
+            "最多ロック者選択", 
+            "ロックカードを奪う相手を選んでください", 
+            candidates, 
+            "card-back-pattern", 
+            1, 
+            (selPl) => {
+                const victim = players.find(v => v.id === selPl[0].id);
+                
+                showLockStealModal(p, victim, () => {
+                    const victimLocks = [];
+                    LOCK_ORDER.forEach(col => {
+                        const slot = collections[victim.id][col.id];
+                        if (slot && slot.length > 0) {
+                            const top = slot[slot.length - 1];
+                            if (top.type !== 'ETERNAL' && top.type !== 'FIRST' && top.type !== 'BOOST' && top.colorId !== 'white' && top.colorId !== 'black') {
+                                victimLocks.push(top);
+                            }
                         }
-                    }
+                    });
+
+                    // 被害者がカードを選ぶモーダル
+                    showRequestSelectionModal(
+                        "カード提供", 
+                        `${victim.name}さん、渡すロックカードを選んでください`, 
+                        victimLocks, 
+                        "card-back-pattern", 
+                        1, 
+                        (selCards) => {
+                            const stolen = selCards[0];
+                            const slot = collections[victim.id][stolen.colorId];
+                            
+                            slot.splice(slot.indexOf(stolen), 1);
+                            hands[p.id].push(stolen);
+
+                            if (!matchStats.lockBreakCount) matchStats.lockBreakCount = {};
+                            matchStats.lockBreakCount[p.id] = (matchStats.lockBreakCount[p.id] || 0) + 1;
+                            
+                            addLog(`${victim.name}が「${stolen.name}」を${p.name}に渡しました。`);
+                            
+                            showCardModal(stolen, () => {
+                                if (typeof renderHand === 'function') renderHand();
+                                if (typeof renderStatus === 'function') renderStatus();
+                                if (typeof renderMyLockArea === 'function') renderMyLockArea();
+                                onSuccess({});
+                            }, "カード獲得", p.name, "ロックカードを奪いました", p); // 第6引数に p を追加
+                        }, 
+                        false,       // 7: isBlind
+                        null,        // 8: cancelCallback
+                        "自動提供",   // 9: autoBtnText (これが必要！)
+                        null,        // 10: restrictedCells
+                        victim       // 11: actingPlayer (ここがvictim)
+                    );
                 });
-
-                // ★外科手術的修正：showRequestSelectionModal を使用し、victim(被害者)を actingPlayer に指定
-                showRequestSelectionModal("カード提供", `${victim.name}さん、渡すロックカードを選んでください`, victimLocks, "card-back-pattern", 1, (selCards) => {
-                    const stolen = selCards[0];
-                    const slot = collections[victim.id][stolen.colorId];
-                    
-                    // カードの物理的移動
-                    slot.splice(slot.indexOf(stolen), 1);
-                    hands[p.id].push(stolen);
-
-                    /** 安全なカウントアップ処理 **/
-                    if (!matchStats.lockBreakCount) matchStats.lockBreakCount = {};
-                    matchStats.lockBreakCount[p.id] = (matchStats.lockBreakCount[p.id] || 0) + 1;
-                    
-                    addLog(`${victim.name}が「${stolen.name}」を${p.name}に渡しました。`);
-                    
-                    showCardModal(stolen, () => {
-                        if (typeof renderHand === 'function') renderHand();
-                        if (typeof renderStatus === 'function') renderStatus();
-                        if (typeof renderMyLockArea === 'function') renderMyLockArea();
-                        onSuccess({});
-                    }, "カード獲得", p.name, "ロックカードを奪いました");
-                }, false, null, null, null, victim); // victim を第11引数に渡す
-            });
-        }, false, null, null, null, p);
+            }, 
+            false,       // 7: isBlind
+            null,        // 8: cancelCallback
+            "自動選択",   // 9: autoBtnText (これが必要！)
+            null,        // 10: restrictedCells
+            p            // 11: actingPlayer (ここがp)
+        );
         return;
     }
 
@@ -2207,7 +2318,12 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         const pIdx = players.indexOf(p);
         const ordered = [];
         for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
-        const wealthyPlayers = ordered.filter(pl => (hands[pl.id] || []).length >= 3); 
+        /* 2026/03/13 修正：発動直後の枚数チェック（自分自身をカウントしない） */
+        const wealthyPlayers = ordered.filter(pl => {
+            const hCount = (hands[pl.id] || []).length;
+            // pl が 発動者(p) の場合、既に「富裕層の気まぐれ」は手札から離れている(捨て札待ち)とみなす
+            return (pl.id === p.id) ? (hCount >= 4) : (hCount >= 3);
+        }); 
         
         if (wealthyPlayers.length === 0) { 
             showMessageOverlay("対象者がいなかったため不発でした。", 2500, () => onSuccess({})); 

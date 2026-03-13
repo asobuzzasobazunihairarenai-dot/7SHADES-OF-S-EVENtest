@@ -508,12 +508,27 @@ function renderBoard() {
 function renderHand() {
     const handEl = document.getElementById('current-hand');
     const handCountEl = document.getElementById('hand-count');
+    const handInstruction = document.getElementById('hand-instruction'); // ラベル書き換え用
     
-    // --- 修正箇所：ここから ---
-    const displayTurn = (typeof isP1HandOnlyView !== 'undefined' && isP1HandOnlyView) ? 0 : turn;
+    /* 2026/03/13 修正：観戦モード時は手番プレイヤーの手札を表示 */
+    const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
+    
+    let displayTurn;
+    if (isForcedCpu) {
+        // 観戦モードなら、いま動いている人（turn）をそのまま表示
+        displayTurn = turn;
+        // ラベルを "YOUR HAND" から "CURRENT HAND" または "CPU'S HAND" に変えると親切です
+        if (handInstruction && players[turn]) {
+            handInstruction.textContent = `${players[turn].name}'S HAND`;
+        }
+    } else {
+        // 通常モード（人間がいる時）は、設定に従ってP1(0)か現在の手番(turn)を決める
+        displayTurn = (typeof isP1HandOnlyView !== 'undefined' && isP1HandOnlyView) ? 0 : turn;
+        if (handInstruction) handInstruction.textContent = "YOUR HAND";
+    }
+
     if (!handEl || !players || !players[displayTurn]) return;
     const p = players[displayTurn];
-    // --- 修正箇所：ここまで ---
 
     const pHand = hands[p.id] || [];
     

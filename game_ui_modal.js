@@ -1582,11 +1582,30 @@ function triggerAutoSelect() {
                 if (distToEnemyGate === 0 && currentDistToEnemyGate <= 1) score += cfg.REACH_ENEMY_GATE;
                 if (distToEnemyGate < currentDistToEnemyGate) score += cfg.MOVE_TOWARD_GATE;
 
+                /* 2026/03/13 修正：NaNガードの実装 */
+                if (isNaN(score)) {
+                    console.warn(`[DEBUG] スコアがNaNになりました。pos:(${pos.x}, ${pos.y}), logic: ${selectionState.logic}`);
+                    score = 0; // 計算不能な場合はとりあえず0点にする
+                }
                 return { pos, score };
             });
 
+
+            // --- 2026/03/13 追加：コンソールへの全候補スコア出力（提案4） ---
+            console.table(scoredCells.map(s => ({
+                x: s.pos.x, 
+                y: s.pos.y, 
+                score: s.score,
+                logic: selectionState.logic
+            })));
+
+
             scoredCells.sort((a, b) => b.score - a.score || Math.random() - 0.5);
             selection = scoredCells.slice(0, selectionState.count).map(item => item.pos);
+            
+            /* 2026/03/13 追加：AI自動選択スコアログ */
+            const scoreDetail = scoredCells.slice(0, selectionState.count).map(s => `${s.score}pt`).join(', ');
+            addLog(`[DEBUG] AI Select (${selectionState.logic}): ${scoreDetail}`, true);
         } else {
             const shuffled = allValidCells.sort(() => Math.random() - 0.5);
             selection = shuffled.slice(0, selectionState.count);
@@ -1650,8 +1669,14 @@ function isCellSelectable(x, y) {
     const origin = selectionState.origin || p || {x: -1, y: -1};
     const dx = Math.abs(origin.x - x), dy = Math.abs(origin.y - y);
 
-    // L === 'civil_path_step2' (民の道の移動先選択) の時は、範囲制限の処理をスキップさせる
-    const isSpecialPlacement = ['place_deck_facedown', 'exile_curse_logic', 'civil_path_step2', 'civil_path_step2_dummy'].includes(L);
+    /* 2026/03/13 修正：民の道などの「全画面の空きマス」が対象のロジック */
+    const isSpecialPlacement = [
+        'place_deck_facedown', 
+        'exile_curse_logic', 
+        'civil_path_step2', 
+        'civil_path_step2_dummy',
+        'civil_path_select_dest' // ← 前回の修正案の名前も追加して安全策をとります
+    ].includes(L);
 
     // --- 範囲チェック ---
     if (!isSpecialPlacement && selectionState.range !== null && selectionState.range !== undefined) {

@@ -6,35 +6,76 @@
  * - 例外: カードに処遇（場に残る、破棄等）が書かれている場合はそれに従う。
  */
 
-function addLog(text) {
+/**
+ * ログを表示する（デバッグフラグ対応版）
+ * @param {string} text - 表示するテキスト
+ * @param {boolean} isDebug - デバッグ用ログかどうか（任意）
+ */
+/* 2026/03/13 修正：ログのスタッキング機能（重複まとめ）を導入 */
+let lastLogText = ""; // 直前に出したログを記憶
+let lastLogCount = 1; // 重複回数
+let lastLogRowElement = null; // 直前のログのDOM要素
+
+function addLog(text, isDebug = false) {
     const logEl = document.getElementById('log-area');
     if(!logEl) return;
 
-    /** 2026/03/08 修正：カード名強調（『 』）の追加 **/
-    // キーワード変換マップ（よりリッチに）
+    const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
+    const isTest = (typeof isTestMode !== 'undefined' && isTestMode);
+
+    if (isDebug && !isForcedCpu && !isTest) {
+        console.log("[DEBUG-HIDDEN]", text);
+        return;
+    }
+
+    // --- 重複チェック ---
+    if (text === lastLogText && lastLogRowElement) {
+        lastLogCount++;
+        
+        // 10回連続で同じログ（特にタイムアウト系）が出たら異常とみなす
+        if (lastLogCount >= 10 && (text.includes("タイムアウト") || text.includes("要請"))) {
+            emergencyStop("タイムアウトが10回連続で発生しました。処理がループしている可能性があります。");
+        }
+
+        const countBadge = lastLogRowElement.querySelector('.log-count-badge');
+        if (countBadge) {
+            countBadge.textContent = `(x${lastLogCount})`;
+        } else {
+            const badge = document.createElement('span');
+            badge.className = 'log-count-badge ml-2 text-[8px] bg-gray-700 text-gray-400 px-1 rounded';
+            badge.textContent = `(x${lastLogCount})`;
+            lastLogRowElement.appendChild(badge);
+        }
+        return; // 新しい行は作らずに終了
+    }
+
+    // 新しいログなのでリセット
+    lastLogText = text;
+    lastLogCount = 1;
+
     const highlights = [
-        // カード名：『 』で囲まれた部分を青白く光らせ、背景を少し暗くする
         { key: /『(.*?)』/g, html: '<span class="bg-gray-900/50 text-cyan-300 font-bold px-1 rounded border border-cyan-500/30 shadow-[0_0_5px_rgba(34,211,238,0.4)]">$&</span>' },
-        // 勝利：金文字＋王冠
         { key: /勝利|WIN|WINNER/g, html: '<span class="text-yellow-400 font-black italic drop-shadow-[0_0_3px_rgba(250,204,21,0.8)]">👑 $&</span>' },
-        // 王手：オレンジ＋脈動
         { key: /王手|リーチ/g, html: '<span class="text-orange-500 font-bold animate-pulse text-[11px]">🔥 $&</span>' },
-        // ゲート侵攻：赤背景
         { key: /GATE INVASION|侵攻/g, html: '<span class="bg-red-600 text-white px-1 rounded font-black">⚠️ $&</span>' },
-        // フェイズ名：枠線
-        { key: /\[PHASE\]/g, html: '<span class="border border-indigo-500/50 px-1 rounded text-[8px] opacity-70">$&</span>' }
+        { key: /\[PHASE\]/g, html: '<span class="border border-indigo-500/50 px-1 rounded text-[8px] opacity-70">$&</span>' },
+        { key: /\[ERROR\](.*)/g, html: '<span class="bg-red-900 text-white font-black px-1 rounded animate-pulse">❌ $&</span>' },
+        { key: /\[DEBUG\]/g, html: '<span class="text-gray-500 text-[8px] font-mono border border-gray-700 px-0.5 rounded">DEBUG</span>' }
     ];
 
     let highlightedText = text;
-    highlights.forEach(h => {
-        highlightedText = highlightedText.replace(h.key, h.html);
-    });
+    highlights.forEach(h => { highlightedText = highlightedText.replace(h.key, h.html); });
 
     const row = document.createElement('div');
-    row.innerHTML = `<span class="opacity-50 mr-1">&gt;</span>${highlightedText}`;
+    if (isDebug) row.className = "opacity-70 text-[9px] italic border-l border-gray-700 pl-1 my-0.5";
+    
+    row.innerHTML = `<span class="opacity-50 mr-1">&gt;</span><span class="log-content">${highlightedText}</span>`;
     
     logEl.insertBefore(row, logEl.firstChild);
-    if (logEl.children.length > 50) logEl.removeChild(logEl.lastChild);
+    lastLogRowElement = row; // この行を記憶
+
+    if (logEl.children.length > 100) logEl.removeChild(logEl.lastChild);
+    console.log(isDebug ? "[DEBUG]" : "[LOG]", text);
 }
 
 // 【外科手術的追加】ログエリアのクリック・拡大イベント
@@ -551,4 +592,76 @@ function discardCardWithLog(pId, card) {
     
     // 手札の再描画（手札から捨てた場合を想定）
     if (typeof renderHand === 'function') renderHand(pId);
+}
+
+/**
+ * 2026/03/13 追加：異常検知時の緊急停止
+ */
+/**
+ * 2026/03/13 改良：異常検知時の緊急停止 ＋ Discord通知
+ */
+function emergencyStop(reason) {
+    if (winner) return; // 決着後は除外
+    
+    // 1. タイマーと進行を完全に止める
+    if(timerInterval) clearInterval(timerInterval);
+    isTimerPaused = true;
+    isAutoProcessing = false; // ループ防止
+
+    // 2. ブラウザのタイトルを変えて通知
+    let toggle = true;
+    const titleInterval = setInterval(() => {
+        document.title = toggle ? "⚠️ ERROR! ⚠️" : "● 7 SHADES";
+        toggle = !toggle;
+    }, 500);
+
+    // 3. ログに赤文字で理由を表示
+    addLog(`[ERROR] 緊急停止: ${reason}`);
+
+    // --- 4. 【新規】Discord Webhookへの送信処理 ---
+    // --- 4. Discord Webhookへの送信処理（ここをalertより先に、かつ確実に実行させる） ---
+    const webhookUrl = "https://discord.com/api/webhooks/1482023390607966279/LQd0_qkEnOnb96d60bwYZ_v1QRCKvy4lAvkigMMjqrBWz8PYeUhESqLr0_c92AgD7ENk";
+    
+    const p = players[turn] || {name: "Unknown"};
+    const content = {
+        username: "7 SHADES デバッグ監視",
+        embeds: [{
+            title: "🚨 異常検知による緊急停止",
+            color: 15158332,
+            fields: [
+                { name: "理由", value: reason },
+                { name: "現在の手番", value: p.name, inline: true },
+                { name: "フェイズ", value: currentPhase, inline: true },
+                { name: "最終ログ", value: lastLogText || "なし" }
+            ],
+            timestamp: new Date().toISOString()
+        }]
+    };
+
+    // 通知を送信（alertで止まる前に実行！）
+    fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(content)
+    }).then(() => {
+        console.log("Discord通知成功");
+    }).catch(err => {
+        console.error("Discord通知失敗:", err);
+    });
+
+    // 5. 警告音（もしあれば）
+    if (typeof playSE === 'function') playSE('se_error.mp3'); 
+
+    // --- 6. 【重要】alertを廃止し、画面上の表示だけにする ---
+    // alertはブラウザを完全に止めてしまうので、以下のように書き換えます
+    
+    addLog(`[System] 緊急停止中。Discordを確認してください。`, true);
+
+    // 代わりに画面中央に大きな警告メッセージを出す（任意）
+    const errorBanner = document.createElement('div');
+    errorBanner.style = "position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(255,0,0,0.9); color:white; padding:20px; border-radius:10px; z-index:10000; font-weight:bold; text-align:center; box-shadow:0 0 20px black;";
+    errorBanner.innerHTML = `<div>⚠️ ERROR DETECTED ⚠️</div><div style="font-size:10px; margin-top:10px;">${reason}</div><button onclick="this.parentElement.remove()" style="margin-top:10px; background:white; color:red; border:none; padding:5px 10px; border-radius:5px; cursor:pointer;">Close</button>`;
+    document.body.appendChild(errorBanner);
+
+    // ※ alert("...") は削除、またはコメントアウトしてください
 }

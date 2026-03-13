@@ -3835,11 +3835,50 @@ async function handleCreateRoom() {
 /**
  * 部屋に入るボタン（TODO: 入室ロジックは次のステップで！）
  */
-function handleJoinRoom() {
+/**
+ * 2026/03/14 修正：ゲストが入室し、Firebaseを更新してホストに合図を送る
+ */
+async function handleJoinRoom() {
     const id = document.getElementById('online-room-input').value;
     if (!id) { alert("ルームIDを入力してください"); return; }
+
+    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(id);
     
-    addLog(`[System] ルーム「${id}」への入室を試みています... (開発中)`);
+    try {
+        const doc = await roomRef.get();
+        if (!doc.exists) {
+            alert("ルームが見つかりません。IDを確認してください。");
+            return;
+        }
+
+        const data = doc.data();
+        if (data.players && data.players.length >= 2) {
+            alert("このルームは既に満員です。");
+            return;
+        }
+
+        // 1. 自分の名前を入室リストに追加し、ステータスを "ready" に変える
+        const guestName = userProfile.name || "GuestPlayer";
+        await roomRef.update({
+            "players": firebase.firestore.FieldValue.arrayUnion(guestName),
+            "status": "ready" // これがホスト側の listenRoomUpdate を発火させます
+        });
+
+        // 2. 自分のマルチプレイ設定を保存
+        window.MULTIPLAY.roomID = id;
+        window.MULTIPLAY.playerNumber = 2; // ゲストは2番
+        window.MULTIPLAY.isHost = false;
+
+        document.getElementById('online-menu-overlay').classList.add('hidden');
+        addLog(`[Online] ルーム「${id}」に入室成功！開始を待っています...`);
+
+        // 3. 監視を開始
+        listenRoomUpdate(id);
+
+    } catch (e) {
+        addLog(`[ERROR] 入室に失敗しました: ${e.message}`, true);
+        console.error(e);
+    }
 }
 
 /**

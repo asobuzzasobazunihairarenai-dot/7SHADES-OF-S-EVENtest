@@ -3752,65 +3752,66 @@ async function createOnlineRoom(roomID) {
  * 2026/03/14 修正：ルームの更新を監視し、自動開始させる
  */
 /* 2026/03/14 修正：盤面復元とUI切り替えを追加 */
+/* 2026/03/14 修正：監視開始時に「現在の最新データ」を一度強制的に読み込む */
 function listenRoomUpdate(roomID) {
-    window.MULTIPLAY.db.collection("rooms").doc(roomID)
-        .onSnapshot((doc) => {
-            if (!doc.exists) return;
-            const data = doc.data();
-            
-            // 1. ステータスが "ready" になったらホストが開始
-            if (data.status === "ready" && !winner) {
-                if (window.MULTIPLAY.isHost) {
-                    startOnlineGameHost(2); 
-                }
+    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(roomID);
+
+    // 監視(onSnapshot)を開始
+    roomRef.onSnapshot((doc) => {
+        if (!doc.exists) return;
+        const data = doc.data();
+        
+        // ログを出して動いているか確認
+        console.log("[Firebase] 受信データ:", data.status, data.gameState?.status);
+
+        // --- 1. ステータスが "ready" かつ ホストなら開始 ---
+        if (data.status === "ready" && !winner) {
+            if (window.MULTIPLAY.isHost) {
+                startOnlineGameHost(2); 
             }
+        }
 
-            // 2. ホストが盤面を書き込んだ(status === "playing")のを検知
-            /* 2026/03/14 修正：ゲスト側のUI生成とデータ復元を確実に実行 */
-            if (data.gameState && data.gameState.status === "playing") {
-                if (!board || board.length === 0) {
-                    addLog(`[Online] 盤面を受信しました。復元を開始します...`);
-
-                    // 1. UIを生成（これを行わないと盤面の描画先が存在しません）
-                    if (typeof generateUI === 'function') {
-                        generateUI(); 
-                    }
-
-                    // 2. 各種オーバーレイを隠す
-                    ['setup-overlay', 'home-screen', 'title-overlay'].forEach(id => {
-                        const el = document.getElementById(id);
-                        if (el) el.classList.add('hidden');
-                    });
-
-                    // 3. データを復元（カードオブジェクトの生成と配置）
-                    if (typeof deserializeBoard === 'function') {
-                        deserializeBoard(data.gameState.board);
-                    }
-
-                    // 4. プレイヤー情報の初期化（簡易版）
-                    if (data.gameState.playersInfo) {
-                        // TODO: プレイヤー名の同期。一旦は既存のplayers配列を使用
-                    }
-                    
-                    addLog(`[Online] ゲーム画面への切り替えが完了しました。`);
-                }
-            }
+        // --- 2. 盤面の復元（ここがゲストにとって重要！） ---
+        if (data.gameState && data.gameState.status === "playing") {
+            // boardが空、または画面にホーム画面が残っているなら復元実行
+            const homeVisible = !document.getElementById('home-screen').classList.contains('hidden');
             
-            // 3. 相手の移動(lastMove)を検知して更新
-            if (data.gameState && data.gameState.lastMove) {
-                const move = data.gameState.lastMove;
-                if (!players || players.length === 0) return; // プレイヤー未準備なら無視
+            if (!board || board.length === 0 || homeVisible) {
+                addLog(`[Online] 盤面を受信。ゲーム画面に切り替えます。`);
                 
+                // UIを生成して画面を隠す
+                if (typeof generateUI === 'function') generateUI(); 
+                ['setup-overlay', 'home-screen', 'title-overlay'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.classList.add('hidden');
+                });
+
+                // データを復元
+                if (typeof deserializeBoard === 'function') {
+                    deserializeBoard(data.gameState.board);
+                    // 山札も同期
+                    if (data.gameState.deck) {
+                        deck = data.gameState.deck.map(id => createCardInstance(CARD_DATABASE.find(c => c.id === id)));
+                    }
+                }
+                updateGameState();
+            }
+        }
+        
+        // --- 3. 移動の同期（既存） ---
+        if (data.gameState && data.gameState.lastMove) {
+            const move = data.gameState.lastMove;
+            if (players && players.length > 0) {
                 const movingP = players.find(pl => pl.id === move.playerId);
                 if (movingP && move.playerId !== window.MULTIPLAY.playerNumber && movingP.lastSyncedTimestamp !== move.timestamp) {
                     movingP.lastSyncedTimestamp = move.timestamp;
-                    addLog(`[Online] ${movingP.name} の移動を受信`);
                     moveToCell(movingP, move.x, move.y, false, () => {
                         updateGameState();
                     });
                 }
             }
-        });
+        }
+    });
 }
 
 
@@ -3963,6 +3964,7 @@ async function startOnlineGameHost(num) {
  * 2026/03/14 追加：受信した数字データから実際のカードを復元する
  */
 function deserializeBoard(miniBoard) {
+    if (!miniBoard) return;
     board = miniBoard.map(row => row.map(miniCell => {
         const cardData = miniCell.cardID ? CARD_DATABASE.find(d => d.id === miniCell.cardID) : null;
         return {
@@ -3974,5 +3976,5 @@ function deserializeBoard(miniBoard) {
             stack: (miniCell.stackIDs || []).map(id => createCardInstance(CARD_DATABASE.find(d => d.id === id)))
         };
     }));
-    renderBoard(); // 復元したら画面を更新
+    renderBoard();
 }

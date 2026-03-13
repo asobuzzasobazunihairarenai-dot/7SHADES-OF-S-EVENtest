@@ -324,8 +324,17 @@ async function startTurn() {
     isStuck = false; 
     isPlacingCard = false; 
     isHandEffectProcessing = false; 
-    isAutoAction = false;
     isPeekingMode = false; 
+
+    /* 2026/03/14 修正：手番開始時の自動化判定 */
+    const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
+    if (isForcedCpu) {
+        // 観戦モードなら無条件で自動
+        isAutoAction = true;
+    } else {
+        // 通常対局なら、IDが 1 以外（CPU）なら自動、IDが 1（人間）なら手動
+        isAutoAction = (p.id !== 1);
+    }
 
     
     
@@ -399,12 +408,15 @@ function nextPhase(isForced = false) {
         isAutoAction = false; 
         isPlacingCard = false;
 
-        // フェイズ移行時の制限時間設定
-        // CPU戦モード(FORCED_CPU_MODE)なら1秒、それ以外は設定画面の「基本秒数」を維持する
-        if (window.FORCED_CPU_MODE) {
+        /* 2026/03/14 修正：動くのがCPU（または観戦モード）なら補充時間を1秒に短縮 */
+        const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
+        const isCurrentPlayerCpu = (p.id !== 1); // 今の手番が人間(P1)ではない
+
+        if (isForcedCpu || isCurrentPlayerCpu) {
+            // 観戦モード、またはCPUの手番なら爆速進行（1秒）
             window.currentPhaseMaxTime = 1; 
         } else {
-            // 設定画面の「基本秒数(setting-phase-time)」を再取得
+            // 人間(P1)の手番なら、設定画面で決めた秒数（デフォルト15秒）を補充
             const pTimeEl = document.getElementById('setting-phase-time');
             window.currentPhaseMaxTime = pTimeEl ? parseInt(pTimeEl.value) : 15;
         }
@@ -632,12 +644,15 @@ function handleTimeOut() {
     const selectionModal = document.getElementById('selection-modal');
     const arrivalModal = document.getElementById('arrival-modal');
     const stealActionModal = document.getElementById('steal-action-modal');
-    // もし今表示されているのが「割込確認」で、かつ対象が P1 なら何もしない
+    /* 2026/03/14 修正：オンライン対戦時のVIPガードを「自分」に適用 */
+    const myID = window.MULTIPLAY.playerNumber || 1;
     const detailModal = document.getElementById('detail-modal');
+    
     if (detailModal && !detailModal.classList.contains('hidden')) {
         const title = document.getElementById('detail-title')?.textContent;
-        if (title === "割込確認" && actingP && actingP.id === 1) {
-            return; // 人間の思考時間なので、自動クリックを阻止
+        // 「割込確認」が出ていて、それが「自分」の番なら自動処理しない（相手の番なら自動で進める）
+        if (title === "割込確認" && actingP && actingP.id === myID) {
+            return; 
         }
     }
 
@@ -1542,6 +1557,15 @@ function executeMove(x, y, cell, epOn) {
     } else {
         // 2026/03/06 修正：ログの視認性向上（プレイヤーカラー＋アイコン）
         addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-gray-400">👟 移動</span> (${x}, ${y})`);
+
+        /* 2026/03/14 修正：オンライン対戦中なら、自分の移動をFirebaseに同期 */
+        if (window.MULTIPLAY.roomID && p.id === window.MULTIPLAY.playerNumber) {
+            const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+            roomRef.update({
+                "gameState.lastMove": { playerId: p.id, x: x, y: y, timestamp: Date.now() }
+            });
+        }
+
         moveToCell(p, x, y, false, moveFinish); 
     }
 }
@@ -2319,7 +2343,8 @@ async function initGameInternal(num, isTest = false) {
         const handOnlyEl = document.getElementById('setting-p1-hand-only');
         isP1HandOnlyView = handOnlyEl ? handOnlyEl.checked : false;
 
-        isSkipSelectionOnAuto = document.getElementById('setting-skip-selection')?.checked ?? false;
+        /* 2026/03/14 追加：開発用ログの常時表示フラグを同期 */
+        window.IS_DEV_LOG_FORCED = document.getElementById('setting-dev-log-always')?.checked ?? false;
         
         // 基本フェイズ秒数の反映
         const pTimeEl = document.getElementById('setting-phase-time');
@@ -2574,7 +2599,8 @@ async function initGameInternal(num, isTest = false) {
 }
 
 async function initGame(n) { 
-    
+    /* 2026/03/14 修正：通常対局時は観戦モードフラグを確実にオフにする */
+    window.FORCED_CPU_MODE = false; 
     await initGameInternal(n); 
 }
 
@@ -3688,4 +3714,200 @@ async function initCpuOnlyGame(num) {
     // 全員を自動行動に
     isAutoAction = true;
     addLog("<span class='text-yellow-500 font-bold'>📺 P1を排除し、ALL CPU(P2-P5)で観戦を開始します</span>");
+}
+
+/**
+ * 2026/03/14 追加：オンライン対戦ルームの作成
+ * @param {string} roomID - 自由な文字列（例: "secret123"）
+ */
+async function createOnlineRoom(roomID) {
+    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(roomID);
+    
+    const initialData = {
+        status: "waiting",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        hostID: userProfile.uid || "guest",
+        players: [userProfile.name || "P1"],
+        gameState: {
+            turn: 0,
+            phase: "LOCK",
+            board: [] // ここに盤面データを載せていく
+        }
+    };
+
+    try {
+        await roomRef.set(initialData);
+        window.MULTIPLAY.roomID = roomID;
+        window.MULTIPLAY.playerNumber = 1;
+        window.MULTIPLAY.isHost = true;
+        
+        addLog(`[Online] ルーム「${roomID}」を作成しました。待機中です...`);
+        listenRoomUpdate(roomID); // 変化を監視開始
+    } catch (e) {
+        addLog(`[ERROR] ルーム作成失敗: ${e.message}`, true);
+    }
+}
+
+/**
+ * 2026/03/14 修正：ルームの更新を監視し、自動開始させる
+ */
+function listenRoomUpdate(roomID) {
+    window.MULTIPLAY.db.collection("rooms").doc(roomID)
+        .onSnapshot((doc) => {
+            if (!doc.exists) return;
+            const data = doc.data();
+            
+            // --- ステータスが "ready" になったらゲーム開始 ---
+            if (data.status === "ready" && !winner) {
+                addLog(`[Online] 全プレイヤーが揃いました。ゲームを開始します！`);
+                
+                // 観戦モードフラグなどはオフにして、通常の2人対戦として初期化
+                window.FORCED_CPU_MODE = false;
+                
+                // ホスト側だけが盤面の初期化（カード配布等）を行い、Firebaseに送る
+                if (window.MULTIPLAY.isHost) {
+                    startOnlineGameHost(2); 
+                } else {
+                    // ゲスト側はホストが盤面を作るのを少し待ってから開始
+                    addLog(`[Online] ホストによる盤面構築を待っています...`);
+                }
+            }
+            
+            /* 2026/03/14 修正：相手の移動(lastMove)を検知して自分の画面を更新 */
+            if (data.gameState && data.gameState.lastMove) {
+                const move = data.gameState.lastMove;
+                const movingP = players.find(pl => pl.id === move.playerId);
+                
+                // 「自分以外の移動」かつ「まだ実行していない移動」なら実行
+                if (movingP && move.playerId !== window.MULTIPLAY.playerNumber && movingP.lastSyncedTimestamp !== move.timestamp) {
+                    movingP.lastSyncedTimestamp = move.timestamp; // 二重実行防止
+                    addLog(`[Online] ${movingP.name} の移動を受信しました`);
+                    
+                    const targetCell = board[move.y][move.x];
+                    // 相手の動きを自分の画面でも再現（moveToCellを呼び出す）
+                    moveToCell(movingP, move.x, move.y, false, () => {
+                        updateGameState();
+                    });
+                }
+            }
+        });
+}
+
+
+
+/**
+ * 2026/03/14 追加：オンラインメニュー表示
+ */
+function showOnlineMenu() {
+    document.getElementById('online-menu-overlay').classList.remove('hidden');
+}
+
+/**
+ * 部屋を作るボタン
+ */
+async function handleCreateRoom() {
+    const id = document.getElementById('online-room-input').value;
+    if (!id) { alert("ルームIDを入力してください"); return; }
+    
+    // 前のステップで作った createOnlineRoom を呼び出し
+    await createOnlineRoom(id);
+    document.getElementById('online-menu-overlay').classList.add('hidden');
+    addLog(`[System] 通信待機中... ID: ${id}`);
+}
+
+/**
+ * 部屋に入るボタン（TODO: 入室ロジックは次のステップで！）
+ */
+function handleJoinRoom() {
+    const id = document.getElementById('online-room-input').value;
+    if (!id) { alert("ルームIDを入力してください"); return; }
+    
+    addLog(`[System] ルーム「${id}」への入室を試みています... (開発中)`);
+}
+
+/**
+ * 2026/03/14 追加：既存のルームへ入室する (Guest)
+ */
+async function handleJoinRoom() {
+    const id = document.getElementById('online-room-input').value;
+    if (!id) { alert("ルームIDを入力してください"); return; }
+
+    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(id);
+    const doc = await roomRef.get();
+
+    if (!doc.exists) {
+        alert("ルームが見つかりません。IDを確認してください。");
+        return;
+    }
+
+    const data = doc.data();
+    if (data.players.length >= 2) {
+        alert("このルームは既に満員です。");
+        return;
+    }
+
+    // 自分の情報を追加して更新
+    try {
+        await roomRef.update({
+            players: firebase.firestore.FieldValue.arrayUnion(userProfile.name || "GuestPlayer"),
+            status: "ready" // 二人揃ったのでステータスを更新
+        });
+
+        window.MULTIPLAY.roomID = id;
+        window.MULTIPLAY.playerNumber = 2; // Guestは2番
+        window.MULTIPLAY.isHost = false;
+
+        document.getElementById('online-menu-overlay').classList.add('hidden');
+        addLog(`[Online] ルーム「${id}」に入室しました！`);
+        
+        listenRoomUpdate(id); // 監視開始
+    } catch (e) {
+        addLog(`[ERROR] 入室失敗: ${e.message}`, true);
+    }
+}
+
+/**
+ * 2026/03/14 追加：ホストによるオンライン戦の開始
+ */
+/**
+ * 2026/03/14 修正：ホストが盤面を作成し、Firebaseへ「真実」を書き込む
+ */
+async function startOnlineGameHost(num) {
+    // 1. まず自分の手元で盤面を生成
+    await initGameInternal(num);
+    
+    // 2. 盤面とデッキ、プレイヤー情報を軽量化してまとめる
+    const compressedBoard = serializeBoard(board);
+    const compressedDeck = deck.map(c => c.id);
+    
+    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+    
+    try {
+        await roomRef.update({
+            "gameState.board": compressedBoard,
+            "gameState.deck": compressedDeck,
+            "gameState.status": "playing" // 準備完了、対局開始！
+        });
+        addLog(`[Online] 盤面データを同期しました。`);
+    } catch (e) {
+        addLog(`[ERROR] 同期失敗: ${e.message}`, true);
+    }
+}
+
+/**
+ * 2026/03/14 追加：受信した数字データから実際のカードを復元する
+ */
+function deserializeBoard(miniBoard) {
+    board = miniBoard.map(row => row.map(miniCell => {
+        const cardData = miniCell.cardID ? CARD_DATABASE.find(d => d.id === miniCell.cardID) : null;
+        return {
+            x: miniCell.x,
+            y: miniCell.y,
+            color: cardData ? createCardInstance(cardData) : null,
+            revealed: miniCell.revealed,
+            empty: miniCell.empty,
+            stack: (miniCell.stackIDs || []).map(id => createCardInstance(CARD_DATABASE.find(d => d.id === id)))
+        };
+    }));
+    renderBoard(); // 復元したら画面を更新
 }

@@ -23,7 +23,11 @@ function addLog(text, isDebug = false) {
     const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
     const isTest = (typeof isTestMode !== 'undefined' && isTestMode);
 
-    if (isDebug && !isForcedCpu && !isTest) {
+    /* 2026/03/14 修正：開発用ログの強制表示判定を追加 */
+    const isDevLogForced = (typeof window.IS_DEV_LOG_FORCED !== 'undefined' && window.IS_DEV_LOG_FORCED);
+
+    // デバッグログの時：観戦・テスト・強制表示 のいずれも当てはまらない場合のみ隠す
+    if (isDebug && !isForcedCpu && !isTest && !isDevLogForced) {
         console.log("[DEBUG-HIDDEN]", text);
         return;
     }
@@ -664,4 +668,22 @@ function emergencyStop(reason) {
     document.body.appendChild(errorBanner);
 
     // ※ alert("...") は削除、またはコメントアウトしてください
+}
+
+/**
+ * 2026/03/14 追加：盤面データを送信用の軽量形式に変換
+ */
+function serializeBoard(boardData) {
+    return boardData.map(row => row.map(cell => {
+        return {
+            x: cell.x,
+            y: cell.y,
+            // カード本体ではなく ID だけを記録
+            cardID: cell.empty ? null : (cell.color.id),
+            revealed: cell.revealed,
+            empty: cell.empty,
+            // スタックも ID の配列にする
+            stackIDs: (cell.stack || []).map(c => c.id)
+        };
+    }));
 }

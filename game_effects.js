@@ -51,35 +51,36 @@ function canPlayHandEffect(card, p) {
 
 
 
-    /* --- 2026/03/13 修正：セレナーデ(ID:13) の有効判定（無駄撃ち防止） --- */
+    /* 2026/03/14 修正：セレナーデ(ID:13) の二重計算バグを修正 */
     if (card.id === 13) {
-        // 1. コストチェック：自分以外の「桃」または「虹」が手札にあるか
-        const costCandidates = (hands[p.id] || []).filter(c => (c.colorId === 'pink' || c.colorId === 'rainbow') && c !== card);
-        if (costCandidates.length < 1) return false;
+        const pHand = hands[p.id] || [];
+        const otherCards = pHand.filter(c => c !== card);
 
-        // 2. 現在のロック状況を確認
+        // 1. コストとして使えるカードを特定
+        const costCandidates = otherCards.filter(c => c.colorId === 'pink' || c.colorId === 'rainbow');
+        if (costCandidates.length === 0) return false;
+
+        // 2. 「コストを1枚払った後」に、まだロックできるカードが残っているか？
         const lockCount = LOCK_ORDER.filter(col => collections[p.id][col.id].some(c => c.colorId !== 'white' && c.colorId !== 'black')).length;
         
-        // 3. ロック可能な対象が手札にあるか
-        const pHand = hands[p.id] || [];
-        const hasValidTarget = pHand.some(c => {
-            if (c === card || c.colorId === 'white' || c.colorId === 'black') return false;
+        const hasValidTargetAfterCost = otherCards.some(targetC => {
+            // A. この targetC を「ロック対象」にする場合、
+            //    それ以外のカードの中に「コスト」として使えるものが残っているか？
+            const remainingForCost = costCandidates.filter(cc => cc !== targetC);
+            if (remainingForCost.length === 0) return false;
+
+            // B. あとは通常のロック可能条件チェック
+            if (targetC.colorId === 'white' || targetC.colorId === 'black') return false;
             
-            // 虹色のカードは、空きスロットがあれば常に候補（ただし7色目は不可）
-            if (c.colorId === 'rainbow') {
+            if (targetC.colorId === 'rainbow') {
                 return lockCount < 6 && BASE_COLORS.some(bc => collections[p.id][bc.id].length === 0);
             }
             
-            // 通常色のカードは、そのスロットが空、かつ「7色目の新規ロック」でなければOK
-            const slot = collections[p.id][c.colorId];
-            const isNewColor = (!slot || slot.length === 0);
-            if (isNewColor) {
-                return lockCount < 6; // 7色目の新規ロックはセレナーデでは禁止
-            }
-            return false; // 既に埋まっているスロットの色はロック不可
+            const slot = collections[p.id][targetC.colorId];
+            return (lockCount < 6 && (!slot || slot.length === 0));
         });
 
-        if (!hasValidTarget) return false; // 条件を満たさないならグレーアウト
+        if (!hasValidTargetAfterCost) return false;
     }
 
     // ID 15: ダッシュ - 移動できるマスがない場合はグレーアウト

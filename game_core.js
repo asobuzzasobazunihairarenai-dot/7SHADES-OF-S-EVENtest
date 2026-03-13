@@ -3751,40 +3751,57 @@ async function createOnlineRoom(roomID) {
 /**
  * 2026/03/14 修正：ルームの更新を監視し、自動開始させる
  */
+/* 2026/03/14 修正：盤面復元とUI切り替えを追加 */
 function listenRoomUpdate(roomID) {
     window.MULTIPLAY.db.collection("rooms").doc(roomID)
         .onSnapshot((doc) => {
             if (!doc.exists) return;
             const data = doc.data();
             
-            // --- ステータスが "ready" になったらゲーム開始 ---
+            // 1. ステータスが "ready" になったらホストが開始
             if (data.status === "ready" && !winner) {
-                addLog(`[Online] 全プレイヤーが揃いました。ゲームを開始します！`);
-                
-                // 観戦モードフラグなどはオフにして、通常の2人対戦として初期化
-                window.FORCED_CPU_MODE = false;
-                
-                // ホスト側だけが盤面の初期化（カード配布等）を行い、Firebaseに送る
                 if (window.MULTIPLAY.isHost) {
                     startOnlineGameHost(2); 
-                } else {
-                    // ゲスト側はホストが盤面を作るのを少し待ってから開始
-                    addLog(`[Online] ホストによる盤面構築を待っています...`);
+                }
+            }
+
+            // 2. ホストが盤面を書き込んだ(status === "playing")のを検知
+            if (data.gameState && data.gameState.status === "playing") {
+                // まだ盤面がこちらで初期化されていなければ、画面を切り替えて復元
+                if (!board || board.length === 0) {
+                    addLog(`[Online] 盤面を受信。ゲーム画面に切り替えます。`);
+                    
+                    // ホーム画面などのオーバーレイを隠す（通常の initGameInternal と同じ処理）
+                    const setupOverlay = document.getElementById('setup-overlay');
+                    if(setupOverlay) setupOverlay.classList.add('hidden');
+                    const homeScreen = document.getElementById('home-screen');
+                    if(homeScreen) homeScreen.classList.add('hidden');
+                    const titleOverlay = document.getElementById('title-overlay');
+                    if(titleOverlay) titleOverlay.classList.add('hidden');
+
+                    // データを復元（deserializeBoard は前ステップで作ったもの）
+                    if (typeof deserializeBoard === 'function') {
+                        deserializeBoard(data.gameState.board);
+                        
+                        // ゲスト側でのプレイヤー情報などの初期化
+                        // 本来は initGameInternal で行いますが、ゲストは受信データから構築
+                        // ※簡易化のため、今回は盤面表示を優先
+                        players.forEach(p => {
+                            if (!playerStats[p.id]) playerStats[p.id] = { moveCount: 0 };
+                        });
+                    }
                 }
             }
             
-            /* 2026/03/14 修正：相手の移動(lastMove)を検知して自分の画面を更新 */
+            // 3. 相手の移動(lastMove)を検知して更新
             if (data.gameState && data.gameState.lastMove) {
                 const move = data.gameState.lastMove;
-                const movingP = players.find(pl => pl.id === move.playerId);
+                if (!players || players.length === 0) return; // プレイヤー未準備なら無視
                 
-                // 「自分以外の移動」かつ「まだ実行していない移動」なら実行
+                const movingP = players.find(pl => pl.id === move.playerId);
                 if (movingP && move.playerId !== window.MULTIPLAY.playerNumber && movingP.lastSyncedTimestamp !== move.timestamp) {
-                    movingP.lastSyncedTimestamp = move.timestamp; // 二重実行防止
-                    addLog(`[Online] ${movingP.name} の移動を受信しました`);
-                    
-                    const targetCell = board[move.y][move.x];
-                    // 相手の動きを自分の画面でも再現（moveToCellを呼び出す）
+                    movingP.lastSyncedTimestamp = move.timestamp;
+                    addLog(`[Online] ${movingP.name} の移動を受信`);
                     moveToCell(movingP, move.x, move.y, false, () => {
                         updateGameState();
                     });
@@ -3872,23 +3889,29 @@ async function handleJoinRoom() {
 /**
  * 2026/03/14 修正：ホストが盤面を作成し、Firebaseへ「真実」を書き込む
  */
+/* 2026/03/14 修正：画面の非表示処理を追加 */
 async function startOnlineGameHost(num) {
-    // 1. まず自分の手元で盤面を生成
+    // 1. ホーム画面などを隠す
+    const homeScreen = document.getElementById('home-screen');
+    if(homeScreen) homeScreen.classList.add('hidden');
+    const setupOverlay = document.getElementById('setup-overlay');
+    if(setupOverlay) setupOverlay.classList.add('hidden');
+
+    // 2. 手元で盤面生成（initGameInternal 内でUI生成なども行われます）
     await initGameInternal(num);
     
-    // 2. 盤面とデッキ、プレイヤー情報を軽量化してまとめる
+    // 3. 同期
     const compressedBoard = serializeBoard(board);
-    const compressedDeck = deck.map(c => c.id);
+    const compressedDeck = (deck || []).map(c => c.id);
     
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-    
     try {
         await roomRef.update({
             "gameState.board": compressedBoard,
             "gameState.deck": compressedDeck,
-            "gameState.status": "playing" // 準備完了、対局開始！
+            "gameState.status": "playing" 
         });
-        addLog(`[Online] 盤面データを同期しました。`);
+        addLog(`[Online] 盤面を同期しました。`);
     } catch (e) {
         addLog(`[ERROR] 同期失敗: ${e.message}`, true);
     }

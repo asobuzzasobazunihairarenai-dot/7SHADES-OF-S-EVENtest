@@ -1209,6 +1209,18 @@ function handleHandClick(cardIndex, lockedCard = null) {
     } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime || activeTimerPlayerId === 1) { 
         // （ハンドフェイズの処理は変更なし）
         const executeLogic = () => {
+            /* 2026/03/14 修正：手札使用の演出をオンライン同期 */
+            if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
+                const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+                roomRef.update({
+                    "lastCardEffect": {
+                        cardId: card.id,
+                        playerName: p.name,
+                        timestamp: Date.now()
+                    }
+                });
+            }
+
             showCardModal(card, () => {
                 activeHandCard = card; 
                 executeCardEffect(card.handEffect, p, (res) => { 
@@ -1246,6 +1258,16 @@ function proceedLockLogic(card, cardIndex, lockedCard, p) {
             if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
             const tSlot = collections[p.id][targetColorId];
             tSlot.push(card);
+
+            /* 2026/03/14 修正：レインボーロックを同期 */
+            if (window.MULTIPLAY && window.MULTIPLAY.roomID && p.id === window.MULTIPLAY.playerNumber) {
+                const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+                roomRef.update({
+                    [`lock_${p.id}_${targetColorId}`]: collections[p.id][targetColorId].map(c => c.id),
+                    "lastUpdate": Date.now()
+                });
+            }
+
             if (typeof triggerLockEffect === 'function') triggerLockEffect(p.id, targetColorId);
             addLog(`${p.name}が「${card.name}」を${sel[0].name}としてロック！`);
             setTimeout(() => {
@@ -1260,6 +1282,23 @@ function proceedLockLogic(card, cardIndex, lockedCard, p) {
     const slot = collections[p.id][card.colorId];
     if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
     slot.push(card);
+
+    /* 2026/03/14 修正：ロック情報をオンライン同期 */
+    if (window.MULTIPLAY && window.MULTIPLAY.roomID && p.id === window.MULTIPLAY.playerNumber) {
+        const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+        
+        // 自分の全スロットの状態をIDの配列にして送る（もっとも確実な方法）
+        const lockState = {};
+        BASE_COLORS.forEach(bc => {
+            lockState[`lock_${p.id}_${bc.id}`] = collections[p.id][bc.id].map(c => c.id);
+        });
+
+        roomRef.update({
+            ...lockState,
+            "lastUpdate": Date.now()
+        }).catch(e => console.error("Lock Sync Error:", e));
+    }
+
     if (typeof triggerLockEffect === 'function') triggerLockEffect(p.id, card.colorId);
     addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-yellow-500">🔒 LOCK</span> 「${card.name}」`);
 
@@ -3901,6 +3940,22 @@ function listenRoomUpdate(roomID) {
                 if (data.deck_flat) {
                     deck = data.deck_flat.map(id => createCardInstance(CARD_DATABASE.find(c => c.id === id)));
                 }
+
+                /* 2026/03/14 修正：相手が使ったカードの演出を同期表示 */
+        if (data.lastCardEffect) {
+            const effect = data.lastCardEffect;
+            // まだ表示していない、かつ自分以外のプレイヤーの演出であれば実行
+            if (window.lastSyncedEffectTime !== effect.timestamp && effect.playerName !== players[window.MULTIPLAY.playerNumber-1].name) {
+                window.lastSyncedEffectTime = effect.timestamp;
+                
+                const effectCard = CARD_DATABASE.find(c => c.id === effect.cardId);
+                if (effectCard && typeof showCardModal === 'function') {
+                    // 相手の演出なので、コールバック（OKボタン後の処理）は空っぽにする
+                    // ※実際の処理は相手のブラウザで実行され、その結果がFirebase経由で届くため
+                    showCardModal(effectCard, () => {}, "手札効果発動！", effect.playerName, "手札から効果を発動しました");
+                }
+            }
+        }
                 
                 /* 2026/03/14 修正：ゲスト側でも開始演出（ロゴ・先手通知）を表示 */
                 /* 2026/03/14 修正：ホストからの先手情報(currentTurn)を待ってから演出を開始する */
@@ -3986,20 +4041,23 @@ function listenRoomUpdate(roomID) {
         }
 
         /* 2026/03/14 修正：相手の手札枚数の同期を受信 */
+        /* 2026/03/14 修正：相手のロックエリアの同期を受信 */
         players.forEach(p => {
-            // 自分以外のプレイヤーの枚数データをチェック
             if (p.id !== window.MULTIPLAY.playerNumber) {
-                const remoteCount = data[`handCount_${p.id}`];
-                if (remoteCount !== undefined) {
-                    // 相手の手札配列の「長さ」だけを同期（中身は見えないようにする）
-                    if (!hands[p.id] || hands[p.id].length !== remoteCount) {
-                        // 1. 中身は空だけど、数は合っている配列を作成
-                        hands[p.id] = new Array(remoteCount).fill({ name: "Unknown", colorId: "white" });
-                        // 2. 画面上の数字を更新
-                        if (typeof renderStatus === 'function') renderStatus();
-                        console.log(`[Online] ${p.name} の手札枚数を同期: ${remoteCount}枚`);
+                BASE_COLORS.forEach(bc => {
+                    const remoteLockIDs = data[`lock_${p.id}_${bc.id}`];
+                    if (remoteLockIDs && Array.isArray(remoteLockIDs)) {
+                        const localSlot = collections[p.id][bc.id];
+                        // 枚数が違う場合のみ更新（通信量を抑える）
+                        if (localSlot.length !== remoteLockIDs.length) {
+                            collections[p.id][bc.id] = remoteLockIDs.map(id => 
+                                createCardInstance(CARD_DATABASE.find(c => c.id === id))
+                            );
+                            if (typeof renderStatus === 'function') renderStatus();
+                            console.log(`[Online] ${p.name} の ${bc.id} ロックを同期`);
+                        }
                     }
-                }
+                });
             }
         });
 

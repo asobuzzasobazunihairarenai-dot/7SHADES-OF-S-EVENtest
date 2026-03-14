@@ -3809,7 +3809,13 @@ function listenRoomUpdate(roomID) {
         // --- 2. 盤面の復元（ここがゲストにとって重要！） ---
         /* 2026/03/14 修正：新データ形式（直下書き込み）に対応 */
         /* 2026/03/14 修正：バラバラに届いたデータを組み立て直す */
+        /* 2026/03/14 修正：ゲスト側での変数未定義エラーを防止 */
         if (data.status === "playing") {
+            // ゲスト側で未定義になりやすい変数をデフォルト値で初期化
+            if (typeof window.currentPhaseMaxTime === 'undefined') window.currentPhaseMaxTime = 15;
+            if (typeof window.PHASE_TIME_ADD === 'undefined') window.PHASE_TIME_ADD = 15;
+            if (typeof isP1HandOnlyView === 'undefined') isP1HandOnlyView = false;
+
             const homeVisible = !document.getElementById('home-screen').classList.contains('hidden');
             
             if (!board || board.length === 0 || homeVisible) {
@@ -3847,8 +3853,12 @@ function listenRoomUpdate(roomID) {
                         };
                     });
                     
-                    /* 2026/03/14 追加：復元したプレイヤー情報を画面に即座に反映 */
-                    if (typeof renderStatus === 'function') renderStatus();
+                    /* 2026/03/14 修正：プレイヤー情報を全UIに強制反映 */
+                    setTimeout(() => {
+                        if (typeof renderStatus === 'function') renderStatus();
+                        if (typeof updateGameState === 'function') updateGameState();
+                        console.log("[Online] UI Sync Complete:", players.map(p => p.name));
+                    }, 100); 
                 }
 
                 // 2. UIの生成（マス目を作る）
@@ -4017,10 +4027,15 @@ async function handleJoinRoom() {
         }
 
         // 1. 自分の名前を入室リストに追加し、ステータスを "ready" に変える
+        /* 2026/03/14 修正：自分の最新プロフィールをホストへ通知 */
         const guestName = userProfile.name || "GuestPlayer";
+        const guestIcon = (userProfile.icon && !userProfile.icon.includes('googleusercontent')) ? userProfile.icon : `images/character_002.webp`;
+
         await roomRef.update({
             "players": firebase.firestore.FieldValue.arrayUnion(guestName),
-            "status": "ready" // これがホスト側の listenRoomUpdate を発火させます
+            "status": "ready",
+            // P2の情報を直接書き込む（ホストがこれを読み取ります）
+            "guestInfo": `${guestName}|${guestIcon}`
         });
 
         // 2. 自分のマルチプレイ設定を保存

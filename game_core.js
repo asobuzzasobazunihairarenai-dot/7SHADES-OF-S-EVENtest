@@ -3773,44 +3773,48 @@ function listenRoomUpdate(roomID) {
 
         // --- 2. 盤面の復元（ここがゲストにとって重要！） ---
         /* 2026/03/14 修正：新データ形式（直下書き込み）に対応 */
+        /* 2026/03/14 修正：バラバラに届いたデータを組み立て直す */
         if (data.status === "playing") {
             const homeVisible = !document.getElementById('home-screen').classList.contains('hidden');
             
             if (!board || board.length === 0 || homeVisible) {
-                addLog(`[Online] 盤面データを受信。復元します...`);
+                addLog(`[Online] 盤面データを受信。復元を開始します...`);
 
-                // 1. プレイヤーの復元（ホストと同じ色・位置にする）
-                if (data.playersData) {
-                    players = data.playersData.map(pd => {
-                        const pColor = BASE_COLORS.find(c => c.id === pd.colorId);
+                // 1. プレイヤーの復元（文字列を | で分解して戻す）
+                if (data.players_flat) {
+                    players = data.players_flat.map(pStr => {
+                        const [id, name, icon, sx, sy, colId] = pStr.split('|');
+                        const pColor = BASE_COLORS.find(c => c.id === colId);
                         return {
-                            id: pd.id,
-                            name: pd.name,
-                            icon: pd.icon,
-                            x: pd.startX, y: pd.startY,
-                            startPos: { x: pd.startX, y: pd.startY },
-                            color: pColor,
-                            pieceImage: pColor.pieceImage,
+                            id: parseInt(id), name, icon,
+                            x: parseInt(sx), y: parseInt(sy),
+                            startPos: { x: parseInt(sx), y: parseInt(sy) },
+                            color: pColor, pieceImage: pColor.pieceImage,
                             css: `${pColor.bg} border-2 border-white`
                         };
                     });
                 }
 
-                // 2. UI生成と画面切り替え
+                // 2. UIの生成（マス目を作る）
                 if (typeof generateUI === 'function') generateUI(); 
                 ['setup-overlay', 'home-screen', 'title-overlay'].forEach(id => {
                     const el = document.getElementById(id);
                     if (el) el.classList.add('hidden');
                 });
 
-                // 3. 盤面と山札の復元
-                if (data.boardData) deserializeBoard(data.boardData);
-                if (data.deckData) {
-                    deck = data.deckData.map(id => createCardInstance(CARD_DATABASE.find(c => c.id === id)));
+                // 3. 盤面の復元（JSON文字列をオブジェクトに戻す）
+                if (data.board_flat) {
+                    const decodedBoard = data.board_flat.map(s => JSON.parse(s));
+                    deserializeBoard(decodedBoard);
+                }
+
+                // 4. 山札の復元
+                if (data.deck_flat) {
+                    deck = data.deck_flat.map(id => createCardInstance(CARD_DATABASE.find(c => c.id === id)));
                 }
                 
                 updateGameState();
-                addLog(`[Online] 対戦準備が整いました！`);
+                addLog(`[Online] 全てのデータを同期し、対戦を開始しました！`);
             }
         }
         
@@ -3949,44 +3953,39 @@ async function handleJoinRoom() {
  * 2026/03/14 修正：ホストが盤面を作成し、Firebaseへ「真実」を書き込む
  */
 /* 2026/03/14 修正：画面の非表示処理を追加 */
-/* 2026/03/14 修正：Firebaseの制限に抵触しないよう、データを完全にフラット化して送信 */
+/* 2026/03/14 修正：Firebaseエラーを回避するため、データを徹底的に分解して送信 */
 async function startOnlineGameHost(num) {
     const homeScreen = document.getElementById('home-screen');
     if(homeScreen) homeScreen.classList.add('hidden');
     const setupOverlay = document.getElementById('setup-overlay');
     if(setupOverlay) setupOverlay.classList.add('hidden');
 
-    // 1. まずは手元で通常通り初期化
+    // 1. 手元で初期化
     await initGameInternal(num);
     
-    // 2. 送信用にデータを徹底的に「削ぎ落とす」
-    const flatBoard = serializeBoard(board); // すでに1次元化済み
-    const flatDeck = (deck || []).map(c => c.id); // 数字のリストにする
+    // 2. 盤面を1次元の「文字」に変換（もっとも安全な方法）
+    const boardStrings = serializeBoard(board).map(cell => JSON.stringify(cell));
     
-    // プレイヤー情報も、Firebaseが嫌がる複雑なオブジェクト（color等）を除外
-    const simplePlayers = players.map(p => ({
-        id: p.id,
-        name: p.name,
-        icon: p.icon,
-        startX: p.startPos.x,
-        startY: p.startPos.y,
-        colorId: p.color.id
-    }));
+    // 3. デッキとプレイヤーをただの「数字/文字の配列」にする
+    const deckIDs = (deck || []).map(c => c.id);
+    const playersBasic = players.map(p => {
+        return `${p.id}|${p.name}|${p.icon}|${p.startPos.x}|${p.startPos.y}|${p.color.id}`;
+    });
 
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
     
     try {
-        // ネスト（階層）を深くせず、直下に書き込む
+        // 全てを「配列の配列」にせず、バラバラの項目として保存
         await roomRef.update({
             "status": "playing",
-            "boardData": flatBoard,
-            "deckData": flatDeck,
-            "playersData": simplePlayers,
+            "board_flat": boardStrings,     // 文字列の配列
+            "deck_flat": deckIDs,           // 数値の配列
+            "players_flat": playersBasic,   // 文字列の配列
             "lastUpdate": Date.now()
         });
         addLog(`[Online] 盤面を同期しました。`);
     } catch (e) {
-        console.error("Firebase Update Error:", e);
+        console.error("Firebase送信エラー:", e);
         addLog(`[ERROR] 同期失敗: ${e.message}`, true);
     }
 }

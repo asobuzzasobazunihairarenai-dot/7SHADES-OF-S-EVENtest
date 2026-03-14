@@ -462,17 +462,29 @@ function endTurn() {
     isProcessingMove = false; 
 }
 
+/* 2026/03/14 修正：タイマーの重複起動（加速バグ）を完全に防ぐ */
 function resetTimer() {
-    if(timerInterval) clearInterval(timerInterval);
+    // 1. 既存のタイマーを物理的に停止させる（念には念を入れます）
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null; 
+    }
     
-    // ★修正：固定の 30 (PHASE_TIME_SEC) ではなく、設定値を使う
+    // 2. 秒数をセット
     timeLeft = currentPhaseMaxTime;
     
     const p = players[turn];
     if (p) {
         timeAtTurnStart = p.totalTimeLeft;
     }
-    timerInterval = setInterval(updateTimerTick, 1000);
+
+    // 3. タイマーを1つだけ起動
+    // window. に紐付けることで、確実に一つの実体として管理します
+    timerInterval = setInterval(() => {
+        if (typeof updateTimerTick === 'function') {
+            updateTimerTick();
+        }
+    }, 1000);
 }
 
 /**
@@ -3857,8 +3869,32 @@ function listenRoomUpdate(roomID) {
                     deck = data.deck_flat.map(id => createCardInstance(CARD_DATABASE.find(c => c.id === id)));
                 }
                 
+                /* 2026/03/14 修正：ゲスト側でも開始演出（ロゴ・先手通知）を表示 */
                 updateGameState();
-                addLog(`[Online] 全てのデータを同期し、対戦を開始しました！`);
+                
+                if (typeof showOpeningLogo === 'function') {
+                    showOpeningLogo(() => {
+                        // ロゴが終わったら、ホストが同期した turn (先手) を通知する
+                        const firstPlayer = players[turn];
+                        const msg = `<div class="flex flex-col items-center gap-4 animate-bounce">
+                            <span class="text-xs text-gray-400 font-bold tracking-[0.3em] uppercase">Starting Order</span>
+                            <div class="flex items-center gap-3 bg-white/10 px-6 py-3 rounded-full border border-white/20">
+                                <span class="text-2xl font-black text-yellow-400">1st</span>
+                                <img src="${firstPlayer.icon}" class="w-10 h-10 rounded-full border-2 border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)]">
+                                <span class="text-xl font-bold text-white">${firstPlayer.name}</span>
+                            </div>
+                        </div>`;
+                        
+                        if (typeof showMessageOverlay === 'function') {
+                            showMessageOverlay(msg, 2000, () => {
+                                startTurn(); // 演出が終わってからタイマー開始
+                            });
+                        } else {
+                            startTurn();
+                        }
+                    });
+                }
+                addLog(`[Online] 対戦を開始しました！先手は ${players[turn].name} です。`);
             }
         }
 
@@ -3873,10 +3909,11 @@ function listenRoomUpdate(roomID) {
                 // ターンが変わった（次の人になった）場合
                 if (oldTurn !== turn) {
                     addLog(`[Online] ターンが ${players[turn].name} に移りました。`);
-                    // ターン開始時の処理（タイマーリセットなど）を呼ぶ
+                    // 以前のタイマーを止めてから開始
+                    if(timerInterval) clearInterval(timerInterval);
                     startTurn(); 
                 } else {
-                    // フェイズだけが変わった場合
+                    // ターンが変わっていないなら、表示の更新だけでタイマーは触らない
                     updateGameState();
                 }
             }
@@ -4088,8 +4125,10 @@ async function startOnlineGameHost(num) {
     
     try {
         // 全てを「配列の配列」にせず、バラバラの項目として保存
+        /* 2026/03/14 修正：決定した先手（turn）も同期データに含める */
         await roomRef.update({
             "status": "playing",
+            "currentTurn": turn, // ホストがランダムに決めた先手番号
             "board_flat": boardStrings,     // 文字列の配列
             "deck_flat": deckIDs,           // 数値の配列
             "players_flat": playersBasic,   // 文字列の配列

@@ -1600,12 +1600,13 @@ function executeMove(x, y, cell, epOn) {
         // 2026/03/06 修正：ログの視認性向上（プレイヤーカラー＋アイコン）
         addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-gray-400">👟 移動</span> (${x}, ${y})`);
 
-        /* 2026/03/14 修正：移動同期のパスを listenRoomUpdate と一致させる */
-        if (window.MULTIPLAY.roomID && p.id === window.MULTIPLAY.playerNumber) {
+        /* 2026/03/14 修正：移動同期を最優先で Firebase へ送る */
+        if (window.MULTIPLAY && window.MULTIPLAY.roomID && p.id === window.MULTIPLAY.playerNumber) {
             const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
             roomRef.update({
-                "lastMove": { playerId: p.id, x: x, y: y, timestamp: Date.now() }
-            });
+                "lastMove": { playerId: p.id, x: x, y: y, timestamp: Date.now() },
+                "lastUpdate": Date.now()
+            }).catch(e => console.error("Move Sync Error:", e));
         }
 
         moveToCell(p, x, y, false, moveFinish); 
@@ -3818,7 +3819,11 @@ function listenRoomUpdate(roomID) {
         /* 2026/03/14 修正：バラバラに届いたデータを組み立て直す */
         /* 2026/03/14 修正：ゲスト側での変数未定義エラーを防止 */
         if (data.status === "playing") {
-            if (!collections) collections = {}; // 2026/03/14 追加：エラー防止
+            /* 2026/03/14 修正：各種変数の実体を確実に作成してエラーを防ぐ */
+            if (!collections) collections = {}; 
+            if (!hands) hands = {}; 
+            // プレイヤー1と2の手札用の箱をあらかじめ作っておく
+            [1, 2].forEach(id => { if(!hands[id]) hands[id] = []; });
             // ゲスト側で未定義になりやすい変数をデフォルト値で初期化
             if (typeof window.currentPhaseMaxTime === 'undefined') window.currentPhaseMaxTime = 15;
             if (typeof window.PHASE_TIME_ADD === 'undefined') window.PHASE_TIME_ADD = 15;

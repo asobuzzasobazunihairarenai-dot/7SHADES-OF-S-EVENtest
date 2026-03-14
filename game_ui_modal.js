@@ -2122,9 +2122,11 @@ function executeSelectionLogic(logic, selection, callback) {
 
                     const target = board[pos.y][pos.x];
                     if (!target.empty) {
-                        // 盤面での「表か裏か」の状態を、一時的にカードデータへ持たせる
+                        // 2026/03/14 修正：手札配列の存在を保証してから追加
                         const cardWithState = { ...target.color, revealed: target.revealed };
                         acquiredCards.push(cardWithState);
+
+                        if (!hands[p.id]) hands[p.id] = [];
                         hands[p.id].push(target.color);
                         if (target.stack && target.stack.length > 0) {
                             const topStack = target.stack.shift();

@@ -105,14 +105,22 @@ function updateGameState() {
     if (typeof updatePhaseIndicator === 'function') updatePhaseIndicator(); 
 
     // ★追加：配置モードボタンの表示制御
-    /* 2026/03/14 修正：ターンとフェイズの変更をオンライン同期 */
-    if (window.MULTIPLAY.roomID && players[turn].id === window.MULTIPLAY.playerNumber) {
-        const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-        roomRef.update({
-            "currentTurn": turn,
-            "currentPhase": currentPhase,
-            "lastUpdate": Date.now()
-        });
+    /* 2026/03/14 修正：無限ループ防止。
+       自分が操作主(playerNumber)であり、かつ本当に自分の手番の時だけFirebaseを更新する */
+    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
+        const activeP = players[turn];
+        const isMyTurn = (activeP && activeP.id === window.MULTIPLAY.playerNumber);
+        
+        // 重要：自分が「操作している本人」の時だけ書き込む。
+        // これにより、相手からの通知を受け取っただけの側が勝手に書き戻すのを防ぎます。
+        if (isMyTurn) {
+            const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+            roomRef.update({
+                "currentTurn": turn,
+                "currentPhase": currentPhase,
+                "lastUpdate": Date.now()
+            }).catch(e => console.error("Sync Error:", e));
+        }
     }
 
     checkAutoSkip(); 
@@ -3948,8 +3956,10 @@ function listenRoomUpdate(roomID) {
                     if(timerInterval) clearInterval(timerInterval);
                     startTurn(); 
                 } else {
-                    // ターンが変わっていないなら、表示の更新だけでタイマーは触らない
-                    updateGameState();
+                    // フェイズだけが変わった場合、描画だけを行い、Firebaseへの再報告(update)は行わない
+                    if (typeof renderBoard === 'function') renderBoard();
+                    if (typeof renderStatus === 'function') renderStatus();
+                    if (typeof updatePhaseIndicator === 'function') updatePhaseIndicator();
                 }
             }
         }

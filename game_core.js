@@ -68,7 +68,11 @@ function discardCard(card, player = null) {
     if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); 
 }
 
-function updateGameState() { 
+/**
+ * 2026/03/14 修正：オンライン同期の無限ループを完全に防止
+ * @param {boolean} skipFirebaseUpdate - trueの場合、Firebaseへの再報告を行わない
+ */
+function updateGameState(skipFirebaseUpdate = false) { 
     if (!players || players.length === 0 || !players[turn]) return;
     const p = players[turn]; 
     isStuck = false; 
@@ -93,10 +97,7 @@ function updateGameState() {
         } 
     } 
 
-    /**
- * 2026/03/06 修正
- * 「P1のみ手札表示」が有効な場合、P1以外のターンでは「配置モード」ボタンを強制的に非表示にする
- */
+    // 各UIの描画
     if (typeof renderBoard === 'function') renderBoard(); 
     if (typeof renderStatus === 'function') renderStatus(); 
     if (typeof renderHand === 'function') renderHand(); 
@@ -104,22 +105,20 @@ function updateGameState() {
     if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); 
     if (typeof updatePhaseIndicator === 'function') updatePhaseIndicator(); 
 
-    // ★追加：配置モードボタンの表示制御
-    /* 2026/03/14 修正：無限ループ防止。
-       自分が操作主(playerNumber)であり、かつ本当に自分の手番の時だけFirebaseを更新する */
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
+    /* --- オンライン同期ロジック --- */
+    // skipFirebaseUpdate が false の場合のみ、Firebaseへ書き込む
+    if (!skipFirebaseUpdate && window.MULTIPLAY && window.MULTIPLAY.roomID) {
         const activeP = players[turn];
         const isMyTurn = (activeP && activeP.id === window.MULTIPLAY.playerNumber);
         
-        // 重要：自分が「操作している本人」の時だけ書き込む。
-        // これにより、相手からの通知を受け取っただけの側が勝手に書き戻すのを防ぎます。
+        // 自分が操作主であり、かつ自分のターンの時だけ「真実」を報告する
         if (isMyTurn) {
             const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
             roomRef.update({
                 "currentTurn": turn,
                 "currentPhase": currentPhase,
                 "lastUpdate": Date.now()
-            }).catch(e => console.error("Sync Error:", e));
+            }).catch(e => console.error("Sync Update Error:", e));
         }
     }
 
@@ -3952,14 +3951,12 @@ function listenRoomUpdate(roomID) {
                 // ターンが変わった（次の人になった）場合
                 if (oldTurn !== turn) {
                     addLog(`[Online] ターンが ${players[turn].name} に移りました。`);
-                    // 以前のタイマーを止めてから開始
                     if(timerInterval) clearInterval(timerInterval);
+                    // 受信によるターン開始なので、Firebaseへの再報告はスキップ
                     startTurn(); 
                 } else {
-                    // フェイズだけが変わった場合、描画だけを行い、Firebaseへの再報告(update)は行わない
-                    if (typeof renderBoard === 'function') renderBoard();
-                    if (typeof renderStatus === 'function') renderStatus();
-                    if (typeof updatePhaseIndicator === 'function') updatePhaseIndicator();
+                    // フェイズのみ変更の場合。引数 true を渡して「再報告」を封じる
+                    updateGameState(true);
                 }
             }
         }

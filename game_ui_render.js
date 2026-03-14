@@ -554,8 +554,12 @@ function renderHand() {
             canPlay = typeof canPlayHandEffect === 'function' ? canPlayHandEffect(card, p) : true;
         } else if (currentPhase === PHASE.LOCK) {
             const isSpecialColor = ['white', 'black', 'rainbow'].includes(card.colorId);
-            const slotCards = collections[p.id] ? collections[p.id][card.colorId] : [];
-            const hasCurse = slotCards.some(c => c.id === 34);
+            
+            // 2026/03/14 修正：collections[p.id] がない場合に備えて空配列を保証
+            const pColl = collections[p.id] || {};
+            const slotCards = pColl[card.colorId] || [];
+            
+            const hasCurse = slotCards.length > 0 ? slotCards.some(c => c.id === 34) : false;
             const isAlreadyLocked = !isSpecialColor && slotCards.length > 0 && !(hasCurse && slotCards.length < 3);
 
             if (card.type === "ETERNAL" || isSpecialColor || isAlreadyLocked) {

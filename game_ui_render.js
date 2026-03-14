@@ -885,9 +885,15 @@ function updatePhaseIndicator() {
     
     if(actionsContainer) actionsContainer.classList.remove('hidden');
 
-    // After: 
-    // スキップボタンの非表示条件に「P1固定表示中 かつ P1以外のターン」を追加
-    const isForbiddenNonP1Action = isP1HandOnlyView && turn !== 0;
+    /* 2026/03/14 修正：オンライン対戦時、自分の番以外はボタンを隠す */
+    let isForbiddenAction = false;
+    if (window.MULTIPLAY.roomID) {
+        // オンライン戦：今の手番(players[turn].id)が自分の番号と違えば禁止
+        isForbiddenAction = (players[turn].id !== window.MULTIPLAY.playerNumber);
+    } else {
+        // 通常戦（CPU戦含む）：既存のP1固定フラグがあればそれに従う
+        isForbiddenAction = isP1HandOnlyView && turn !== 0;
+    }
     if(skipBtn) {
         skipBtn.classList.toggle('hidden', selectionState.active || currentPhase === PHASE.MOVE || isForbiddenNonP1Action); 
     }

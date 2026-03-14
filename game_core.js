@@ -1138,6 +1138,9 @@ function requestLockCheck(card, cardIndex, lockedCard, p) {
  * CPU/自動処理時であっても、自分が「ちょっと待った！」を持っている場合は割り込み確認を強制表示するよう修正。
  */
 function handleHandClick(cardIndex, lockedCard = null) {
+    /* 2026/03/14 修正：自分の番以外はクリック無効 */
+    if (window.MULTIPLAY.roomID && players[turn].id !== window.MULTIPLAY.playerNumber) return;
+
     const isAI = isAutoAction || isAutoProcessing;
     if (isPeekingMode || !players || !players[turn]) return;
     const displayTurn = isP1HandOnlyView ? 0 : turn;
@@ -1450,6 +1453,9 @@ function executePlaceCard(x, y) {
 }
 
 function handleBoardClick(x, y) { 
+    /* 2026/03/14 修正：自分の番以外はクリック無効 */
+    if (window.MULTIPLAY.roomID && players[turn].id !== window.MULTIPLAY.playerNumber) return;
+    
     if (winner || currentPhase !== PHASE.MOVE || isStuck || isPlacingCard || isProcessingMove || isPeekingMode || !players[turn]) return; 
     const p = players[turn]; 
     const dist = Math.abs(p.x - x) + Math.abs(p.y - y); 
@@ -3781,12 +3787,29 @@ function listenRoomUpdate(roomID) {
                 addLog(`[Online] 盤面データを受信。復元を開始します...`);
 
                 // 1. プレイヤーの復元（文字列を | で分解して戻す）
+                /* 2026/03/14 修正：プレイヤー情報と同時にロックエリアも初期化 */
                 if (data.players_flat) {
+                    // まず collections を空にする
+                    collections = {};
                     players = data.players_flat.map(pStr => {
-                        const [id, name, icon, sx, sy, colId] = pStr.split('|');
+                        const [id, name, icon, sx, sy, colId, firstCardId] = pStr.split('|');
+                        const pId = parseInt(id);
                         const pColor = BASE_COLORS.find(c => c.id === colId);
+                        
+                        // ロックエリアの枠組みを作成
+                        collections[pId] = {};
+                        BASE_COLORS.forEach(bc => collections[pId][bc.id] = []);
+
+                        // ファーストカードがあればロックエリアに入れる
+                        if (firstCardId) {
+                            const fCardData = CARD_DATABASE.find(d => d.id === parseInt(firstCardId));
+                            if (fCardData) {
+                                collections[pId][fCardData.colorId].push(createCardInstance(fCardData));
+                            }
+                        }
+
                         return {
-                            id: parseInt(id), name, icon,
+                            id: pId, name, icon,
                             x: parseInt(sx), y: parseInt(sy),
                             startPos: { x: parseInt(sx), y: parseInt(sy) },
                             color: pColor, pieceImage: pColor.pieceImage,
@@ -3818,13 +3841,15 @@ function listenRoomUpdate(roomID) {
             }
         }
         
-        // --- 3. 移動の同期（既存） ---
-        if (data.gameState && data.gameState.lastMove) {
-            const move = data.gameState.lastMove;
+        /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正 */
+        /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正（重複を削除） */
+        if (data.lastMove) {
+            const move = data.lastMove;
             if (players && players.length > 0) {
                 const movingP = players.find(pl => pl.id === move.playerId);
                 if (movingP && move.playerId !== window.MULTIPLAY.playerNumber && movingP.lastSyncedTimestamp !== move.timestamp) {
                     movingP.lastSyncedTimestamp = move.timestamp;
+                    addLog(`[Online] ${movingP.name} の移動を受信`);
                     moveToCell(movingP, move.x, move.y, false, () => {
                         updateGameState();
                     });
@@ -3968,8 +3993,13 @@ async function startOnlineGameHost(num) {
     
     // 3. デッキとプレイヤーをただの「数字/文字の配列」にする
     const deckIDs = (deck || []).map(c => c.id);
-    const playersBasic = players.map(p => {
-        return `${p.id}|${p.name}|${p.icon}|${p.startPos.x}|${p.startPos.y}|${p.color.id}`;
+    /* 2026/03/14 修正：プレイヤーの初期ロック情報（ファーストカード）も文字列に含める */
+    const playersBasic = players.map((p, idx) => {
+        // collections[p.id] から初期ロック（FIRSTカード）のIDを取得
+        const firstCard = collections[p.id][p.color.id][0];
+        const firstCardId = firstCard ? firstCard.id : "";
+        
+        return `${p.id}|${p.name}|${p.icon}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
     });
 
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);

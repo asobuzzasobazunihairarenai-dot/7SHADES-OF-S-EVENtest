@@ -523,8 +523,14 @@ function resetTimer() {
         timerInterval = null; 
     }
     
-    // 2. 秒数をセット（window. から確実に取得し、なければ 15秒）
-    const maxTime = window.currentPhaseMaxTime || 15;
+    /* 2026/03/15 修正：CPU戦の1秒タイマーとオンライン戦の15秒を両立 */
+    let maxTime = window.currentPhaseMaxTime || 15;
+
+    // オフラインのCPU戦（またはタイムアウト自動処理）の場合は、1秒で即実行させる
+    if (!window.MULTIPLAY?.roomID && isAutoAction) {
+        maxTime = 1;
+    }
+
     timeLeft = maxTime;
     
     const p = players[turn];

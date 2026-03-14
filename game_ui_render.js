@@ -606,6 +606,20 @@ function renderHand() {
         if (typeof attachHoverEvents === 'function') attachHoverEvents(cardDiv, card);
         handEl.appendChild(cardDiv);
     });
+
+    /* 2026/03/14 修正：自分の手札枚数をオンライン同期 */
+    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
+        // 自分が操作しているプレイヤーのIDを特定
+        const myID = window.MULTIPLAY.playerNumber;
+        const myHandCount = (hands[myID] || []).length;
+        
+        const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+        // "handCount_1" または "handCount_2" という名前で枚数だけを保存
+        roomRef.update({
+            [`handCount_${myID}`]: myHandCount,
+            "lastUpdate": Date.now()
+        });
+    }
 }
 
 function renderStatus() { 
@@ -643,7 +657,8 @@ function renderStatus() {
             const handInfo = document.createElement('div');
             //ステータスエリアの手札枚数のフォントサイズ
             handInfo.className = "flex items-center text-[12px] font-bold text-gray-300 mr-1";
-            const handCount = hands[p.id] ? hands[p.id].length : 0;
+            // 2. 手札枚数の反映（同期された枚数を使う）
+            const handCount = (hands[p.id] || []).length;
             handInfo.innerHTML = `
              <div class="w-4 h-4 mr-1 border border-gray-500 rounded-[2px] overflow-hidden shadow-sm opacity-80" 
              style="background-image: url('images/normal_card_back.webp'); background-size: cover; background-position: center;">

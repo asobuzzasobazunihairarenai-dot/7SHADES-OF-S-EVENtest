@@ -30,17 +30,27 @@ function createCardInstance(data) {
     }; 
 }
 
+/* 2026/03/14 修正：カードを引いたら Firebase の山札データも更新する */
 function drawCard() { 
     if (!deck || deck.length === 0) { 
         if (!discardPile || discardPile.length === 0) return null; 
         deck = [...discardPile].reverse(); 
         discardPile = []; 
         addLog("♻ 山札戻し。"); 
-        if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); 
     } 
     const card = deck.pop();
-    // 手札枚数の表示更新を確実に行うため追加
+
+    // オンライン戦なら、残りの山札IDリストを Firebase に送る
+    if (window.MULTIPLAY.roomID && players[turn].id === window.MULTIPLAY.playerNumber) {
+        const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+        roomRef.update({
+            "deck_flat": deck.map(c => c.id),
+            "lastUpdate": Date.now()
+        });
+    }
+
     if (typeof renderHand === 'function') renderHand(); 
+    if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); // 山札の枚数表示を更新
     return card; 
 }
 
@@ -330,11 +340,12 @@ async function startTurn() {
 
     /* 2026/03/14 修正：手番開始時の自動化判定 */
     const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
-    if (isForcedCpu) {
-        // 観戦モードなら無条件で自動
+    /* 2026/03/14 修正：オンライン時はP2も「人間」として扱う */
+    if (window.MULTIPLAY.roomID) {
+        isAutoAction = false; // 誰の番であっても自動では動かさない
+    } else if (isForcedCpu) {
         isAutoAction = true;
     } else {
-        // 通常対局なら、IDが 1 以外（CPU）なら自動、IDが 1（人間）なら手動
         isAutoAction = (p.id !== 1);
     }
 
@@ -640,6 +651,7 @@ function updateTimerTick() {
 }
 
 function handleTimeOut() { 
+    if (window.MULTIPLAY.roomID) return; // オンライン時はタイムアウトで勝手に動かさない
     if (isEndingTurn || winner) return; 
 
 
@@ -991,8 +1003,11 @@ function autoPlace(p) {
     }
 }
 
+/* 2026/03/14 修正：オンライン対戦時は勝手にフェイズを進めない */
 function checkAutoSkip() { 
-    if (winner || isAutoSkipping || isPlacingCard || (invasionQueue && invasionQueue.length > 0)) return; 
+    if (window.MULTIPLAY.roomID) return; // オンライン時は完全停止
+
+    if (winner || isAutoSkipping || isPlacingCard || (invasionQueue && invasionQueue.length > 0)) return;
     if (!players || !players[turn]) return;
     const p = players[turn]; 
     if (currentPhase === PHASE.LOCK) { 
@@ -3884,6 +3899,36 @@ function listenRoomUpdate(roomID) {
                 }
             }
         }
+
+        /* 2026/03/14 修正：相手の手札枚数の同期を受信 */
+        players.forEach(p => {
+            // 自分以外のプレイヤーの枚数データをチェック
+            if (p.id !== window.MULTIPLAY.playerNumber) {
+                const remoteCount = data[`handCount_${p.id}`];
+                if (remoteCount !== undefined) {
+                    // 相手の手札配列の「長さ」だけを同期（中身は見えないようにする）
+                    if (!hands[p.id] || hands[p.id].length !== remoteCount) {
+                        // 1. 中身は空だけど、数は合っている配列を作成
+                        hands[p.id] = new Array(remoteCount).fill({ name: "Unknown", colorId: "white" });
+                        // 2. 画面上の数字を更新
+                        if (typeof renderStatus === 'function') renderStatus();
+                        console.log(`[Online] ${p.name} の手札枚数を同期: ${remoteCount}枚`);
+                    }
+                }
+            }
+        });
+
+        /* 2026/03/14 修正：山札の同期を受信 */
+        if (data.deck_flat && deck) {
+            // 自分の手元の枚数と Firebase の枚数が違う場合のみ更新
+            if (deck.length !== data.deck_flat.length) {
+                // 届いたIDリストに基づいて山札を再構築
+                deck = data.deck_flat.map(id => createCardInstance(CARD_DATABASE.find(c => c.id === id)));
+                if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard();
+                console.log(`[Online] 山札を同期しました。残り: ${deck.length}枚`);
+            }
+        }
+
     });
 }
 

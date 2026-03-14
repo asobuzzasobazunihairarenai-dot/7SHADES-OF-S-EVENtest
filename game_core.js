@@ -467,6 +467,24 @@ function endTurn() {
     if(timerInterval) { clearInterval(timerInterval); timerInterval = null; } 
     if (typeof checkGateInvasionForAll === 'function') checkGateInvasionForAll(); 
     isProcessingMove = false; 
+
+    /* 2026/03/15 修正：ターン終了をオンライン同期 */
+    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
+        const activeP = players[turn];
+        // 自分が操作しているプレイヤーの番が終わる時だけ、次の人を計算して Firebase へ送る
+        if (activeP && activeP.id === window.MULTIPLAY.playerNumber) {
+            const nextTurn = (turn + 1) % players.length;
+            const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+            
+            roomRef.update({
+                "currentTurn": nextTurn,
+                "currentPhase": PHASE.LOCK, // 次のプレイヤーのロックフェイズから開始
+                "lastUpdate": Date.now()
+            }).then(() => {
+                addLog(`[Online] ターン終了を同期しました。`);
+            });
+        }
+    }
 }
 
 /* 2026/03/14 修正：タイマー加速防止と変数エラー防止を一本化 */
@@ -4042,22 +4060,29 @@ function listenRoomUpdate(roomID) {
 
         /* 2026/03/14 修正：相手の手札枚数の同期を受信 */
         /* 2026/03/14 修正：相手のロックエリアの同期を受信 */
+        /* 2026/03/15 修正：相手の手札変更（ロックや使用）をリアルタイムに受信して反映 */
         players.forEach(p => {
             if (p.id !== window.MULTIPLAY.playerNumber) {
+                // 1. 相手のロックエリアが更新されたら自分の画面も書き換える
                 BASE_COLORS.forEach(bc => {
                     const remoteLockIDs = data[`lock_${p.id}_${bc.id}`];
                     if (remoteLockIDs && Array.isArray(remoteLockIDs)) {
                         const localSlot = collections[p.id][bc.id];
-                        // 枚数が違う場合のみ更新（通信量を抑える）
                         if (localSlot.length !== remoteLockIDs.length) {
                             collections[p.id][bc.id] = remoteLockIDs.map(id => 
                                 createCardInstance(CARD_DATABASE.find(c => c.id === id))
                             );
                             if (typeof renderStatus === 'function') renderStatus();
-                            console.log(`[Online] ${p.name} の ${bc.id} ロックを同期`);
                         }
                     }
                 });
+
+                // 2. 相手の手札枚数の同期（念押し）
+                const remoteCount = data[`handCount_${p.id}`];
+                if (remoteCount !== undefined && (!hands[p.id] || hands[p.id].length !== remoteCount)) {
+                    hands[p.id] = new Array(remoteCount).fill({ name: "Unknown", colorId: "white" });
+                    if (typeof renderStatus === 'function') renderStatus();
+                }
             }
         });
 

@@ -3890,30 +3890,45 @@ function listenRoomUpdate(roomID) {
                 }
                 
                 /* 2026/03/14 修正：ゲスト側でも開始演出（ロゴ・先手通知）を表示 */
+                /* 2026/03/14 修正：ホストからの先手情報(currentTurn)を待ってから演出を開始する */
                 updateGameState();
-                
-                if (typeof showOpeningLogo === 'function') {
-                    showOpeningLogo(() => {
-                        // ロゴが終わったら、ホストが同期した turn (先手) を通知する
-                        const firstPlayer = players[turn];
-                        const msg = `<div class="flex flex-col items-center gap-4 animate-bounce">
-                            <span class="text-xs text-gray-400 font-bold tracking-[0.3em] uppercase">Starting Order</span>
-                            <div class="flex items-center gap-3 bg-white/10 px-6 py-3 rounded-full border border-white/20">
-                                <span class="text-2xl font-black text-yellow-400">1st</span>
-                                <img src="${firstPlayer.icon}" class="w-10 h-10 rounded-full border-2 border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)]">
-                                <span class="text-xl font-bold text-white">${firstPlayer.name}</span>
-                            </div>
-                        </div>`;
-                        
-                        if (typeof showMessageOverlay === 'function') {
-                            showMessageOverlay(msg, 2000, () => {
-                                startTurn(); // 演出が終わってからタイマー開始
-                            });
-                        } else {
-                            startTurn();
-                        }
-                    });
-                }
+
+                const startSequence = () => {
+                    if (data.currentTurn === undefined) {
+                        // まだ先手データがFirebaseに届いていなければ、0.5秒待って再トライ
+                        setTimeout(startSequence, 500);
+                        return;
+                    }
+
+                    // ホストが決めた先手を自分の turn 変数に上書き
+                    turn = data.currentTurn;
+
+                    if (typeof showOpeningLogo === 'function') {
+                        showOpeningLogo(() => {
+                            const firstPlayer = players[turn];
+                            const msg = `<div class="flex flex-col items-center gap-4 animate-bounce">
+                                <span class="text-xs text-gray-400 font-bold tracking-[0.3em] uppercase">Starting Order</span>
+                                <div class="flex items-center gap-3 bg-white/10 px-6 py-3 rounded-full border border-white/20">
+                                    <span class="text-2xl font-black text-yellow-400">1st</span>
+                                    <img src="${firstPlayer.icon}" class="w-10 h-10 rounded-full border-2 border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)]">
+                                    <span class="text-xl font-bold text-white">${firstPlayer.name}</span>
+                                </div>
+                            </div>`;
+                            
+                            if (typeof showMessageOverlay === 'function') {
+                                showMessageOverlay(msg, 2000, () => {
+                                    addLog(`[Online] 先手は ${firstPlayer.name} です。`);
+                                    startTurn(); 
+                                });
+                            } else {
+                                startTurn();
+                            }
+                        });
+                    }
+                };
+
+                // 演出シーケンスを実行
+                startSequence();
                 addLog(`[Online] 対戦を開始しました！先手は ${players[turn].name} です。`);
             }
         }

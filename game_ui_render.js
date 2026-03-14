@@ -875,6 +875,9 @@ function renderDeckAndDiscard() {
 /**
  * 2026/03/14 修正：オンライン戦の操作権限に対応したフェイズ表示
  */
+/**
+ * 2026/03/14 修正：オンライン戦の操作権限に対応（エラー防止版）
+ */
 function updatePhaseIndicator() { 
     if(!players || !players[turn]) return;
     const p = players[turn];
@@ -886,7 +889,7 @@ function updatePhaseIndicator() {
     
     if(!textEl) return;
 
-    // フェイズ表示の更新
+    // 1. フェイズ表示の更新
     document.querySelectorAll('.phase-step').forEach(el => el.classList.remove('active', 'passed')); 
     if (currentPhase === PHASE.LOCK) document.getElementById('phase-lock').classList.add('active'); 
     else if (currentPhase === PHASE.HAND) { document.getElementById('phase-lock').classList.add('passed'); document.getElementById('phase-hand').classList.add('active'); } 
@@ -894,7 +897,7 @@ function updatePhaseIndicator() {
     
     if(actionsContainer) actionsContainer.classList.remove('hidden');
 
-    /* --- 【重要】操作権限の判定 --- */
+    /* --- 【重要】操作権限の判定（変数名を一本化） --- */
     let isForbiddenAction = false;
     if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
         // オンライン戦：今の手番(p.id)が自分の番号と違えば禁止
@@ -904,9 +907,8 @@ function updatePhaseIndicator() {
         isForbiddenAction = (typeof isP1HandOnlyView !== 'undefined' && isP1HandOnlyView && turn !== 0);
     }
 
-    // スキップボタンの表示制御
+    // 2. スキップボタンの表示制御
     if(skipBtn) {
-        // 選択中、またはムーブフェイズ、または自分の番でない時は隠す
         const shouldHide = selectionState.active || currentPhase === PHASE.MOVE || isForbiddenAction;
         skipBtn.classList.toggle('hidden', shouldHide); 
         if(currentPhase !== PHASE.MOVE) {
@@ -914,13 +916,13 @@ function updatePhaseIndicator() {
         }
     }
     
-    // 配置ボタンの表示制御
+    // 3. 配置ボタンの表示制御
     if(stuckBtn) {
         const canPlace = (currentPhase === PHASE.MOVE && isStuck && !isPlacingCard && !p.baseMoveUsed);
         stuckBtn.classList.toggle('hidden', selectionState.active || !canPlace || isForbiddenAction); 
     }
     
-    // 反応スルーボタン
+    // 4. 反応スルーボタン
     const anyAnytimeCard = players.some(pl => hands[pl.id] && hands[pl.id].some(c => c.handEffect?.anytime));
     if (rxBtn) {
         if (anyAnytimeCard && !selectionState.active && !isForbiddenAction) { 
@@ -931,14 +933,14 @@ function updatePhaseIndicator() {
         }
     }
     
-    // ガイドテキストの更新
+    // 5. ガイドテキストの更新
     if (winner) textEl.textContent = "勝者決定"; 
     else if (isPlacingCard) textEl.textContent = "配置：場所タップ"; 
     else if (selectionState.active) textEl.innerHTML = `<span class="text-yellow-400 font-bold animate-pulse">${selectionState.prompt}</span>`; 
     else if (p.extraMoves > 0 && currentPhase === PHASE.MOVE && p.baseMoveUsed) textEl.innerHTML = `<span class="text-red-400 font-bold animate-pulse">追加移動権利：場所タップ</span>`;
     else {
         const actionName = currentPhase === PHASE.LOCK ? 'ロック可' : currentPhase === PHASE.HAND ? '手札使用' : '移動';
-        const colorClass = p.color.bg.replace('bg-', 'text-');
+        const colorClass = (p.color && p.color.bg) ? p.color.bg.replace('bg-', 'text-') : 'text-white';
         textEl.innerHTML = `<span class="${colorClass}">${p.name}</span>: ${actionName}`;
     }
 }

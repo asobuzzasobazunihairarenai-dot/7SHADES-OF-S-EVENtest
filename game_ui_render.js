@@ -611,21 +611,30 @@ function renderHand() {
 function renderStatus() { 
     if(!players) return;
     players.forEach(p => { 
-        const container = document.getElementById(`p${p.id}-status`), isMyTurn = (turn === players.indexOf(p)); 
-        const isHuman = (p.id === 1); 
+        const container = document.getElementById(`p${p.id}-status`);
+        const isMyTurn = (turn === players.indexOf(p)); 
 
         if (container) {
-            if (isMyTurn) container.classList.add("player-active-box"); else container.classList.remove("player-active-box"); 
+            if (isMyTurn) container.classList.add("player-active-box"); 
+            else container.classList.remove("player-active-box"); 
         }
         
+        /* 2026/03/14 追加：プレイヤー名とアイコンを同期反映 */
+        const nameEl = document.getElementById(`p${p.id}-name`);
+        if (nameEl) {
+            // Firebaseから届いた名前に書き換える
+            nameEl.textContent = p.name || `Player ${p.id}`;
+        }
+
         const rightsEl = document.getElementById(`p${p.id}-rights`);
         if (rightsEl) {
             rightsEl.innerHTML = '';
-            rightsEl.className = "flex items-center gap-1 mt-0.5"; // レイアウト調整用クラス
+            rightsEl.className = "flex items-center gap-1 mt-0.5"; 
 
-            // 1. プロフィール画像の追加
+            // 1. プロフィール画像の反映
             const profImg = document.createElement('img');
-            const iconPath = p.icon || `images/character_00${p.id + 1}.webp`;
+            // Firebaseから届いたアイコンパスを使用（なければデフォルト）
+            const iconPath = p.icon || `images/character_00${p.id}.webp`;
             profImg.src = iconPath;
             profImg.className = "w-6 h-6 rounded-full border border-gray-500 shadow-sm object-cover";
             rightsEl.appendChild(profImg);

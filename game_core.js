@@ -4023,20 +4023,20 @@ async function startOnlineGameHost(num) {
     const deckIDs = (deck || []).map(c => c.id);
     /* 2026/03/14 修正：プレイヤーの初期ロック情報（ファーストカード）も文字列に含める */
     /* 2026/03/14 修正：Googleアイコンのエラー防止措置を追加 */
+    /* 2026/03/14 修正：ホスト自身の最新情報を確実に送信 */
     const playersBasic = players.map((p, idx) => {
         const firstCard = collections[p.id][p.color.id][0];
         const firstCardId = firstCard ? firstCard.id : "";
         
-        // Googleアイコン等の外部URLでエラーが出る場合は、標準アイコンに差し替えて送る
-        /* 2026/03/14 修正：自分のアイコンは維持し、相手に送る時だけ安全なパスにする */
+        // P1（ホスト自身）の場合は、userProfile の最新の名前を使う
+        const actualName = (p.id === 1) ? (userProfile.name || p.name) : p.name;
+        
         let safeIcon = p.icon;
-        // 外部（Google等）のURL、または未設定の場合は、そのプレイヤーのIDに基づいた標準アイコンを送る
         if (!safeIcon || safeIcon.includes('googleusercontent') || safeIcon.includes('http')) {
-            // p.id が 1,2.. なのでそのまま character_001.. に対応
             safeIcon = `images/character_00${p.id}.webp`;
         }
         
-        return `${p.id}|${safeIcon}|${p.name}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
+        return `${p.id}|${safeIcon}|${actualName}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
     });
 
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);

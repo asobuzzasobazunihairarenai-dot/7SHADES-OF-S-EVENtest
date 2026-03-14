@@ -3772,29 +3772,45 @@ function listenRoomUpdate(roomID) {
         }
 
         // --- 2. 盤面の復元（ここがゲストにとって重要！） ---
-        if (data.gameState && data.gameState.status === "playing") {
-            // boardが空、または画面にホーム画面が残っているなら復元実行
+        /* 2026/03/14 修正：新データ形式（直下書き込み）に対応 */
+        if (data.status === "playing") {
             const homeVisible = !document.getElementById('home-screen').classList.contains('hidden');
             
             if (!board || board.length === 0 || homeVisible) {
-                addLog(`[Online] 盤面を受信。ゲーム画面に切り替えます。`);
-                
-                // UIを生成して画面を隠す
+                addLog(`[Online] 盤面データを受信。復元します...`);
+
+                // 1. プレイヤーの復元（ホストと同じ色・位置にする）
+                if (data.playersData) {
+                    players = data.playersData.map(pd => {
+                        const pColor = BASE_COLORS.find(c => c.id === pd.colorId);
+                        return {
+                            id: pd.id,
+                            name: pd.name,
+                            icon: pd.icon,
+                            x: pd.startX, y: pd.startY,
+                            startPos: { x: pd.startX, y: pd.startY },
+                            color: pColor,
+                            pieceImage: pColor.pieceImage,
+                            css: `${pColor.bg} border-2 border-white`
+                        };
+                    });
+                }
+
+                // 2. UI生成と画面切り替え
                 if (typeof generateUI === 'function') generateUI(); 
                 ['setup-overlay', 'home-screen', 'title-overlay'].forEach(id => {
                     const el = document.getElementById(id);
                     if (el) el.classList.add('hidden');
                 });
 
-                // データを復元
-                if (typeof deserializeBoard === 'function') {
-                    deserializeBoard(data.gameState.board);
-                    // 山札も同期
-                    if (data.gameState.deck) {
-                        deck = data.gameState.deck.map(id => createCardInstance(CARD_DATABASE.find(c => c.id === id)));
-                    }
+                // 3. 盤面と山札の復元
+                if (data.boardData) deserializeBoard(data.boardData);
+                if (data.deckData) {
+                    deck = data.deckData.map(id => createCardInstance(CARD_DATABASE.find(c => c.id === id)));
                 }
+                
                 updateGameState();
+                addLog(`[Online] 対戦準備が整いました！`);
             }
         }
         
@@ -3933,29 +3949,44 @@ async function handleJoinRoom() {
  * 2026/03/14 修正：ホストが盤面を作成し、Firebaseへ「真実」を書き込む
  */
 /* 2026/03/14 修正：画面の非表示処理を追加 */
+/* 2026/03/14 修正：Firebaseの制限に抵触しないよう、データを完全にフラット化して送信 */
 async function startOnlineGameHost(num) {
-    // 1. ホーム画面などを隠す
     const homeScreen = document.getElementById('home-screen');
     if(homeScreen) homeScreen.classList.add('hidden');
     const setupOverlay = document.getElementById('setup-overlay');
     if(setupOverlay) setupOverlay.classList.add('hidden');
 
-    // 2. 手元で盤面生成（initGameInternal 内でUI生成なども行われます）
+    // 1. まずは手元で通常通り初期化
     await initGameInternal(num);
     
-    // 3. 同期
-    const compressedBoard = serializeBoard(board);
-    const compressedDeck = (deck || []).map(c => c.id);
+    // 2. 送信用にデータを徹底的に「削ぎ落とす」
+    const flatBoard = serializeBoard(board); // すでに1次元化済み
+    const flatDeck = (deck || []).map(c => c.id); // 数字のリストにする
     
+    // プレイヤー情報も、Firebaseが嫌がる複雑なオブジェクト（color等）を除外
+    const simplePlayers = players.map(p => ({
+        id: p.id,
+        name: p.name,
+        icon: p.icon,
+        startX: p.startPos.x,
+        startY: p.startPos.y,
+        colorId: p.color.id
+    }));
+
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+    
     try {
+        // ネスト（階層）を深くせず、直下に書き込む
         await roomRef.update({
-            "gameState.board": compressedBoard,
-            "gameState.deck": compressedDeck,
-            "gameState.status": "playing" 
+            "status": "playing",
+            "boardData": flatBoard,
+            "deckData": flatDeck,
+            "playersData": simplePlayers,
+            "lastUpdate": Date.now()
         });
         addLog(`[Online] 盤面を同期しました。`);
     } catch (e) {
+        console.error("Firebase Update Error:", e);
         addLog(`[ERROR] 同期失敗: ${e.message}`, true);
     }
 }
@@ -3963,18 +3994,28 @@ async function startOnlineGameHost(num) {
 /**
  * 2026/03/14 追加：受信した数字データから実際のカードを復元する
  */
-function deserializeBoard(miniBoard) {
-    if (!miniBoard) return;
-    board = miniBoard.map(row => row.map(miniCell => {
+/* 2026/03/14 修正：1次元で届いた盤面データを 7x7 に復元する */
+function deserializeBoard(flatBoard) {
+    if (!flatBoard || !Array.isArray(flatBoard)) return;
+    
+    // 空の7x7配列を作成
+    const newBoard = Array.from({ length: 7 }, () => Array(7).fill(null));
+
+    flatBoard.forEach(miniCell => {
         const cardData = miniCell.cardID ? CARD_DATABASE.find(d => d.id === miniCell.cardID) : null;
-        return {
+        newBoard[miniCell.y][miniCell.x] = {
             x: miniCell.x,
             y: miniCell.y,
             color: cardData ? createCardInstance(cardData) : null,
             revealed: miniCell.revealed,
             empty: miniCell.empty,
-            stack: (miniCell.stackIDs || []).map(id => createCardInstance(CARD_DATABASE.find(d => d.id === id)))
+            stack: (miniCell.stackIDs || []).map(id => {
+                const data = CARD_DATABASE.find(c => c.id === id);
+                return data ? createCardInstance(data) : null;
+            }).filter(c => c !== null)
         };
-    }));
+    });
+
+    board = newBoard;
     renderBoard();
 }

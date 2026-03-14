@@ -462,24 +462,24 @@ function endTurn() {
     isProcessingMove = false; 
 }
 
-/* 2026/03/14 修正：タイマーの重複起動（加速バグ）を完全に防ぐ */
+/* 2026/03/14 修正：タイマー加速防止と変数エラー防止を一本化 */
 function resetTimer() {
-    // 1. 既存のタイマーを物理的に停止させる（念には念を入れます）
+    // 1. 既存タイマーを完全に停止
     if (timerInterval) {
         clearInterval(timerInterval);
         timerInterval = null; 
     }
     
-    // 2. 秒数をセット
-    timeLeft = currentPhaseMaxTime;
+    // 2. 秒数をセット（window. から確実に取得し、なければ 15秒）
+    const maxTime = window.currentPhaseMaxTime || 15;
+    timeLeft = maxTime;
     
     const p = players[turn];
     if (p) {
         timeAtTurnStart = p.totalTimeLeft;
     }
 
-    // 3. タイマーを1つだけ起動
-    // window. に紐付けることで、確実に一つの実体として管理します
+    // 3. タイマーを1つだけ再起動
     timerInterval = setInterval(() => {
         if (typeof updateTimerTick === 'function') {
             updateTimerTick();
@@ -3853,12 +3853,22 @@ function listenRoomUpdate(roomID) {
                         };
                     });
                     
-                    /* 2026/03/14 修正：プレイヤー情報を全UIに強制反映 */
+                    /* 2026/03/14 修正：プレイヤー情報の反映をさらに確実に実行 */
+                    // 1. まず変数を窓口（window）にセットしてエラーを防ぐ
+                    window.currentPhaseMaxTime = 15;
+                    window.PHASE_TIME_ADD = 15;
+
+                    // 2. 画面への反映を時間差で2回行い、描画漏れを防ぐ
                     setTimeout(() => {
                         if (typeof renderStatus === 'function') renderStatus();
                         if (typeof updateGameState === 'function') updateGameState();
-                        console.log("[Online] UI Sync Complete:", players.map(p => p.name));
-                    }, 100); 
+                        console.log("[Online] UI Sync Phase 1:", players.map(p => p.name));
+                    }, 200);
+
+                    setTimeout(() => {
+                        if (typeof renderStatus === 'function') renderStatus();
+                        console.log("[Online] UI Sync Phase 2 (Final)");
+                    }, 1000); 
                 }
 
                 // 2. UIの生成（マス目を作る）

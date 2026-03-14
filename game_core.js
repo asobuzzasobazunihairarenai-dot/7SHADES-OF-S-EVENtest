@@ -3793,8 +3793,9 @@ function listenRoomUpdate(roomID) {
                 if (data.players_flat) {
                     // まず collections を空にする
                     collections = {};
+                    /* 2026/03/14 修正：アイコンと名前の順序を同期 */
                     players = data.players_flat.map(pStr => {
-                        const [id, name, icon, sx, sy, colId, firstCardId] = pStr.split('|');
+                        const [id, icon, name, sx, sy, colId, firstCardId] = pStr.split('|');
                         const pId = parseInt(id);
                         const pColor = BASE_COLORS.find(c => c.id === colId);
                         
@@ -4018,12 +4019,18 @@ async function startOnlineGameHost(num) {
     // 3. デッキとプレイヤーをただの「数字/文字の配列」にする
     const deckIDs = (deck || []).map(c => c.id);
     /* 2026/03/14 修正：プレイヤーの初期ロック情報（ファーストカード）も文字列に含める */
+    /* 2026/03/14 修正：Googleアイコンのエラー防止措置を追加 */
     const playersBasic = players.map((p, idx) => {
-        // collections[p.id] から初期ロック（FIRSTカード）のIDを取得
         const firstCard = collections[p.id][p.color.id][0];
         const firstCardId = firstCard ? firstCard.id : "";
         
-        return `${p.id}|${p.name}|${p.icon}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
+        // Googleアイコン等の外部URLでエラーが出る場合は、標準アイコンに差し替えて送る
+        let safeIcon = p.icon;
+        if (!safeIcon || safeIcon.startsWith('http')) {
+            safeIcon = `images/character_00${p.id}.webp`;
+        }
+        
+        return `${p.id}|${safeIcon}|${p.name}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
     });
 
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);

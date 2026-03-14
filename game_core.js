@@ -453,6 +453,47 @@ function nextPhase(isForced = false) {
 function endTurn() { 
     if (isEndingTurn || !players || !players[turn]) return; 
     const p = players[turn]; 
+
+    /* --- オンライン同期（ターン終了の報告） --- */
+    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
+        // 自分が操作主のときだけ、Firebaseのターンを次に進める
+        if (p.id === window.MULTIPLAY.playerNumber) {
+            isEndingTurn = true; // 二重送信防止
+            const nextTurn = (turn + 1) % players.length;
+            const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+            
+            console.log(`[Online] ターン終了を報告中... 次は: ${players[nextTurn].name}`);
+            
+            roomRef.update({
+                "currentTurn": nextTurn,
+                "currentPhase": PHASE.LOCK,
+                "lastUpdate": Date.now(),
+                // 前ターンの残骸（移動データなど）を掃除して送る
+                "lastMove": firebase.firestore.FieldValue.delete(),
+                "lastCardEffect": firebase.firestore.FieldValue.delete()
+            }).then(() => {
+                addLog(`[Online] ターンを ${players[nextTurn].name} に渡しました。`);
+            }).catch(e => {
+                console.error("End Turn Error:", e);
+                isEndingTurn = false;
+            });
+            
+            // 自分の画面での後処理（ヴァーディアン等）
+            if (p.viridianUsed && hands[p.id]) {
+                hands[p.id] = hands[p.id].filter(c => {
+                    if (c.fromViridian) { discardPile.push(c); return false; }
+                    return true;
+                });
+            }
+            if(timerInterval) { clearInterval(timerInterval); timerInterval = null; } 
+            return; // Firebaseからの通知を待って次へ進むので、ここでは抜ける
+        } else {
+            // 相手の番なのにここに来た場合は、何もしない
+            return;
+        }
+    }
+
+    // --- 以下、通常戦（オフライン）のロジック ---
     if (p.viridianUsed) { 
         const toDiscard = (hands[p.id] || []).filter(c => c.fromViridian); 
         if (toDiscard.length > 0) { 
@@ -467,24 +508,11 @@ function endTurn() {
     if(timerInterval) { clearInterval(timerInterval); timerInterval = null; } 
     if (typeof checkGateInvasionForAll === 'function') checkGateInvasionForAll(); 
     isProcessingMove = false; 
-
-    /* 2026/03/15 修正：ターン終了をオンライン同期 */
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        const activeP = players[turn];
-        // 自分が操作しているプレイヤーの番が終わる時だけ、次の人を計算して Firebase へ送る
-        if (activeP && activeP.id === window.MULTIPLAY.playerNumber) {
-            const nextTurn = (turn + 1) % players.length;
-            const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-            
-            roomRef.update({
-                "currentTurn": nextTurn,
-                "currentPhase": PHASE.LOCK, // 次のプレイヤーのロックフェイズから開始
-                "lastUpdate": Date.now()
-            }).then(() => {
-                addLog(`[Online] ターン終了を同期しました。`);
-            });
-        }
-    }
+    
+    // オフライン戦ならそのまま次の人へ
+    const nextT = (turn + 1) % players.length;
+    turn = nextT;
+    startTurn();
 }
 
 /* 2026/03/14 修正：タイマー加速防止と変数エラー防止を一本化 */
@@ -547,6 +575,15 @@ function updateTimerTick() {
             // 自動処理中なのにタイマーが0になった場合の警告（スタックの兆候）
             addLog(`[DEBUG] タイムアウト警告: 自動処理フラグが残ったままです`, true);
             return;
+        }
+        
+        /* 2026/03/15 修正：オンライン戦では「自分の番」以外のタイムアウト自動処理を禁止 */
+        if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
+            const isMyTurn = (p.id === window.MULTIPLAY.playerNumber);
+            if (!isMyTurn) {
+                // 相手の番なら、自分側では何もしない（相手の処理が届くのを待つ）
+                return;
+            }
         }
         
         addLog(`[DEBUG] タイムアウト発生: ${p.name} の自動実行を要請`, true);
@@ -4024,17 +4061,21 @@ function listenRoomUpdate(roomID) {
             // 相手から届いたターン・フェイズが今の自分と違う場合のみ更新
             if (turn !== data.currentTurn || currentPhase !== data.currentPhase) {
                 const oldTurn = turn;
-                turn = data.currentTurn;
+                const newTurn = data.currentTurn;
+                
+                // 真実のデータ（Firebase）を自分の変数に同期
+                turn = newTurn;
                 currentPhase = data.currentPhase;
                 
-                // ターンが変わった（次の人になった）場合
-                if (oldTurn !== turn) {
+                if (oldTurn !== newTurn) {
                     addLog(`[Online] ターンが ${players[turn].name} に移りました。`);
+                    // 前の人のターンの残骸を掃除
+                    isEndingTurn = false;
+                    isProcessingMove = false;
                     if(timerInterval) clearInterval(timerInterval);
-                    // 受信によるターン開始なので、Firebaseへの再報告はスキップ
+                    // 次の人のターンを開始
                     startTurn(); 
                 } else {
-                    // フェイズのみ変更の場合。引数 true を渡して「再報告」を封じる
                     updateGameState(true);
                 }
             }

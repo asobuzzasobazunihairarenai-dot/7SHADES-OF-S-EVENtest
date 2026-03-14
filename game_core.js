@@ -95,12 +95,14 @@ function updateGameState() {
     if (typeof updatePhaseIndicator === 'function') updatePhaseIndicator(); 
 
     // ★追加：配置モードボタンの表示制御
-    const stuckBtn = document.getElementById('stuck-btn');
-    if (stuckBtn) {
-        // P1表示制限がON かつ 現在の手番がP1(index 0)ではない場合
-        if (isP1HandOnlyView && turn !== 0) {
-            stuckBtn.classList.add('hidden');
-        }
+    /* 2026/03/14 修正：ターンとフェイズの変更をオンライン同期 */
+    if (window.MULTIPLAY.roomID && players[turn].id === window.MULTIPLAY.playerNumber) {
+        const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+        roomRef.update({
+            "currentTurn": turn,
+            "currentPhase": currentPhase,
+            "lastUpdate": Date.now()
+        });
     }
 
     checkAutoSkip(); 
@@ -3840,6 +3842,28 @@ function listenRoomUpdate(roomID) {
                 addLog(`[Online] 全てのデータを同期し、対戦を開始しました！`);
             }
         }
+
+        /* 2026/03/14 修正：ターンとフェイズの同期を受信 */
+        if (data.currentTurn !== undefined && data.currentPhase !== undefined) {
+            // 相手から届いたターン・フェイズが今の自分と違う場合のみ更新
+            if (turn !== data.currentTurn || currentPhase !== data.currentPhase) {
+                const oldTurn = turn;
+                turn = data.currentTurn;
+                currentPhase = data.currentPhase;
+                
+                // ターンが変わった（次の人になった）場合
+                if (oldTurn !== turn) {
+                    addLog(`[Online] ターンが ${players[turn].name} に移りました。`);
+                    // ターン開始時の処理（タイマーリセットなど）を呼ぶ
+                    startTurn(); 
+                } else {
+                    // フェイズだけが変わった場合
+                    updateGameState();
+                }
+            }
+        }
+        
+        /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正（重複を削除） */
         
         /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正 */
         /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正（重複を削除） */

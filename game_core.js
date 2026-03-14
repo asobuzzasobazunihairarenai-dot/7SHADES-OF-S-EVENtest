@@ -3819,6 +3819,9 @@ function listenRoomUpdate(roomID) {
                             css: `${pColor.bg} border-2 border-white`
                         };
                     });
+                    
+                    /* 2026/03/14 追加：復元したプレイヤー情報を画面に即座に反映 */
+                    if (typeof renderStatus === 'function') renderStatus();
                 }
 
                 // 2. UIの生成（マス目を作る）
@@ -4025,8 +4028,11 @@ async function startOnlineGameHost(num) {
         const firstCardId = firstCard ? firstCard.id : "";
         
         // Googleアイコン等の外部URLでエラーが出る場合は、標準アイコンに差し替えて送る
+        /* 2026/03/14 修正：自分のアイコンは維持し、相手に送る時だけ安全なパスにする */
         let safeIcon = p.icon;
-        if (!safeIcon || safeIcon.startsWith('http')) {
+        // 外部（Google等）のURL、または未設定の場合は、そのプレイヤーのIDに基づいた標準アイコンを送る
+        if (!safeIcon || safeIcon.includes('googleusercontent') || safeIcon.includes('http')) {
+            // p.id が 1,2.. なのでそのまま character_001.. に対応
             safeIcon = `images/character_00${p.id}.webp`;
         }
         

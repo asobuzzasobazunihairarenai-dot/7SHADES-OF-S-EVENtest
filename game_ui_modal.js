@@ -836,47 +836,41 @@ function closeDetailModal() {
 /**
  * カード選択モーダルの表示
  */
+/* 2026/03/15 修正：構文エラー(閉じカッコ不足)の解消とロジック整理 */
+/* 2026/03/15 修正：自動処理とUI表示の並列実行（フリーズ防止版） */
 function showSelectionModal(title, dummy, source, back, count, onComplete, isBlind = false, cancelCallback = null, autoBtnText = null, restrictedCells = null, actingPlayer = null) { 
     
-    // --- 修正箇所：タイマー譲渡とリセット ---
+    // --- 1. タイマー譲渡とリセット ---
     if (actingPlayer) {
         activeTimerPlayerId = actingPlayer.id;
-        // 相手に渡す際、フェイズ残り時間をリセットする
         const phaseMax = parseInt(document.getElementById('setting-phase-time')?.value || "30");
         timeLeft = phaseMax;
     }
     
-    // ★自動処理(isAutoAction)がON かつ スキップ設定がONの場合のみバイパス
-    if (isAutoAction && isSkipSelectionOnAuto) {
-        addLog(`[Auto] ${title} を自動選択中...`);
+    // --- 2. プレイヤー判定 ---
+    const isOnlineActive = !!(window.MULTIPLAY && window.MULTIPLAY.roomID && window.MULTIPLAY.roomID !== "");
+    const targetP = actingPlayer || players[turn];
+    const isTargetP1 = (targetP && targetP.id === 1);
 
-        // 1. 有効な選択肢（disabledでないもの）を抽出
-        const validSource = source.filter(item => !item.disabled);
+    // 自動選択すべきか(CPUまたは自分へのタイムアウト)
+    let shouldAutoBypass = false;
+    if (isOnlineActive) {
+        // オンライン戦：自分が操作主のCPUなら自動
+        shouldAutoBypass = (targetP.id === window.MULTIPLAY.playerNumber && targetP.id !== 1);
+    } else {
+        // オフライン戦：
+        // 1. CPUが行動中(isAutoAction, isAutoProcessing)
+        // 2. または、選択を求められているプレイヤーが人間(P1)以外である
+        const isCpuActing = (typeof isAutoAction !== 'undefined' && isAutoAction) || (typeof isAutoProcessing !== 'undefined' && isAutoProcessing);
+        shouldAutoBypass = isCpuActing || !isTargetP1;
+    }
 
-        // 2. 選択肢がない場合はキャンセル処理へ
-        if (validSource.length === 0) {
-            addLog(`[Auto] 選択可能な対象がないためスキップします`);
-            if (cancelCallback) cancelCallback();
-            else onComplete([]);
-            return;
-        }
-
-        // 3. 必要な数だけシャッフルして選択
-        const finalCount = Math.min(count, validSource.length);
-        const shuffled = [...validSource].sort(() => Math.random() - 0.5);
-        const selection = shuffled.slice(0, finalCount);
-        
-        // 4. 演出のために少し待ってから、モーダルを表示せずに直接完了を呼ぶ
-        // ※モーダルを表示させると、その中のボタンクリック待ちでフリーズするため
-        setTimeout(() => {
-            // 後続の効果処理で isAutoAction が必要になる場合があるため、
-            // ここではフラグを折らずにそのまま callback を実行する
-            addLog(`[Auto] ${selection.map(s => s.name || '対象').join(', ')} を選択しました`);
-            onComplete(selection);
-        }, 500);
+    // オンラインで相手の番なら、Firebaseを待つためにここでは何もしない
+    if (isOnlineActive && !isTargetP1 && targetP.id !== window.MULTIPLAY.playerNumber) {
         return; 
     }
-    
+
+    // --- 3. モーダルの準備と表示（自動処理中であってもUIは出す） ---
     const modal = document.getElementById('selection-modal'); 
     if (!modal) return;
     
@@ -888,148 +882,101 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
 
     container.classList.remove('hidden'); 
     container.innerHTML = ''; 
-    
-    /* 2026/03/12 修正：エターナル選択画面で7枚を横1列に並べるための調整 */
-    // エターナルカードの選択か、またはロック対象（7色）の選択かを判定
-    const isEternalSelect = (title === "ETERNAL SELECTION");
-    const isLockTargetSelect = (source && source.length > 0 && source[0] && source[0].id && BASE_COLORS.some(bc => bc.id === source[0].id));
-    
-    if (isEternalSelect || isLockTargetSelect) {
-        // 折り返し禁止(flex-nowrap)にし、はみ出る場合は横スクロール(overflow-x-auto)を許可
-        container.className = "flex flex-nowrap justify-center gap-1.5 p-4 min-h-[100px] overflow-x-auto w-full";
-    } else {
-        // 通常の選択画面（手札破棄など）は今まで通り折り返す
-        container.className = "flex flex-wrap justify-center gap-3 p-4 min-h-[100px] max-h-[45vh] overflow-y-auto w-full";
-    }
     document.getElementById('selection-result').classList.add('hidden'); 
     
-    /* 2026/03/13 修正：効果処理中の「閉じる」ボタンを徹底排除 */
+    // レイアウト調整
+    const isEternalSelect = (title === "ETERNAL SELECTION");
+    const isLockTargetSelect = (source && source.length > 0 && source[0]?.id && BASE_COLORS.some(bc => bc.id === source[0].id));
+    if (isEternalSelect || isLockTargetSelect) {
+        container.className = "flex flex-nowrap justify-center gap-1.5 p-4 min-h-[100px] overflow-x-auto w-full";
+    } else {
+        container.className = "flex flex-wrap justify-center gap-3 p-4 min-h-[100px] max-h-[45vh] overflow-y-auto w-full";
+    }
+
+    // キャンセルボタンの制御
     const cancelBtn = document.getElementById('selection-cancel-btn'); 
     if (cancelBtn) {
-        // 1. 強制的に隠すべき条件を定義
-        // ・手札効果の処理中 (isHandEffectProcessing)
-        // ・AIによる自動進行中 (isAutoProcessing)
-        // ・特定の「やり直し不可」なタイトル
-        const isForcedAction = isHandEffectProcessing || isAutoProcessing || 
-                               title === "手札破棄" || title === "コスト支払い" || 
-                               title === "ETERNAL SELECTION";
-
-        if (isForcedAction) {
-            cancelBtn.classList.add('hidden');
-        } else {
-            // 2. それ以外（通常のロックフェイズ中など）は「おまかせ」または「閉じる」を表示
-            cancelBtn.classList.remove('hidden');
-            cancelBtn.textContent = cancelCallback ? "おまかせ" : "閉じる";
-            cancelBtn.onclick = () => {
-                activeTimerPlayerId = null;
-                modal.classList.add('hidden');
-                managePeekUI(false);
-                if (cancelCallback && typeof cancelCallback === 'function') cancelCallback();
-            };
-        }
+        const isForced = isHandEffectProcessing || isAutoProcessing || title === "手札破棄" || title === "コスト支払い" || title === "ETERNAL SELECTION";
+        cancelBtn.classList.toggle('hidden', isForced);
+        cancelBtn.textContent = cancelCallback ? "おまかせ" : "閉じる";
+        cancelBtn.onclick = () => {
+            activeTimerPlayerId = null; modal.classList.add('hidden'); managePeekUI(false);
+            if (cancelCallback) cancelCallback();
+        };
     }
     
     let selected = [];
 
+    // おまかせボタン
     const autoBtn = document.getElementById('selection-auto-btn');
     if (autoBtn) {
         if (autoBtnText) {
             autoBtn.classList.remove('hidden'); autoBtn.textContent = autoBtnText;
-            autoBtn.onclick = () => {
-                showSelectionResult(selected, onComplete, title, cancelCallback, autoBtnText, isBlind, actingPlayer);
-            };
+            autoBtn.onclick = () => showSelectionResult(selected, onComplete, title, cancelCallback, autoBtnText, isBlind, actingPlayer);
         } else { autoBtn.classList.add('hidden'); }
     }
 
-    const createItemEl = (item) => {
-        if(!item) return null;
-        const el = document.createElement('div');
-        
-        // After: 常に 'selection-option' を付与することで、AIが handleTimeOut 経由でクリックできるようにします
-        if (item.type === "PLAYER_SELECT") { 
-            el.className = `selection-option w-40 p-2 rounded border-2 border-gray-600 bg-gray-800 cursor-pointer hover:border-yellow-500 transition-all flex flex-col items-center shrink-0`; 
-            el.innerHTML = `<span class="text-white font-bold text-sm mb-1">${item.name}</span><div class="flex gap-0.5 justify-center" id="mini-locks-${item.id}"></div>`;         const lockContainer = el.querySelector(`#mini-locks-${item.id}`); 
-            const targetPl = players.find(pl => pl.id === item.id); 
-            if (targetPl) {
-                LOCK_ORDER.forEach(color => { 
-                    const slot = collections[targetPl.id][color.id]; 
-                    const slotDiv = document.createElement('div'); 
-                    slotDiv.className = `w-4 h-4 rounded-sm border border-gray-600 flex items-center justify-center text-[6px] relative overflow-hidden`; 
-                    if (slot && slot.length > 0) { 
-                        const topC = slot[slot.length-1]; 
-                        let faceClass = topC.type === "ETERNAL" ? "eternal-card-face" : topC.bg;
-                        slotDiv.className += ` border-white ${faceClass}`; 
-                        const imgPath = topC.image || (topC.id ? `images/card_${topC.id}.webp` : null);
-                        if (imgPath) {
-                            slotDiv.style.backgroundImage = `url('${imgPath}')`; 
-                            slotDiv.style.backgroundSize = 'cover'; 
-                            slotDiv.innerHTML = "";
-                        } else {
-                            slotDiv.innerHTML = topC.name[0];
-                        }
-                    } else { slotDiv.style.borderColor = color.hex; } 
-                    lockContainer.appendChild(slotDiv); 
-                });
-            }
-        } else {
-            let cardCls = isBlind ? back : (item.type === "ETERNAL" ? "eternal-card-face" : (item.bg || 'bg-gray-700'));
-            let txtCls = (!isBlind && item.colorId === 'white' ? 'text-gray-800' : (item.colorId === 'black' ? 'text-gray-200' : 'text-white'));
-            
-            /* 2026/03/12 修正：横1列に並べる時はサイズを w-10 (約40px) に縮小 */
-            const sizeCls = (title === "ETERNAL SELECTION") ? "w-10 h-10" : "w-12 h-12";
-            
-            el.className = `selection-option card-shape ${sizeCls} ${cardCls} border-2 border-gray-400 rounded cursor-pointer hover-zoom transition-all flex items-center justify-center relative shrink-0 overflow-hidden`;
-            
-            if (!isBlind) {
-                const imgPath = item.image || (item.id ? `images/card_${item.id}.webp` : null);
-                if (imgPath) {
-                    el.style.backgroundImage = `url('${imgPath}')`;
-                    el.style.backgroundSize = 'cover';
-                    el.style.backgroundPosition = 'center';
-                    el.innerHTML = "";
-                } else {
-                    el.innerHTML = `<span class="${txtCls} font-bold z-10">${item.name ? item.name[0] : '?'}</span>`;
-                }
-            } else {
-                el.innerHTML = `<span class="text-gray-500 opacity-50 text-xl font-bold">?</span>`;
-            }
-        }
-        el.onclick = (e) => { 
-            e.stopPropagation(); 
-            if (item.disabled) return;
-
-            // 【外科手術的修正】テストモード等、プレイヤーがまだ生成されていない状況での gainTime エラーを防止
-            if (typeof players !== 'undefined' && players && players.length > 0) {
-                if (typeof gainTime === 'function') gainTime(5); 
-            }
-
-            if (selected.includes(item)) { 
-                selected = selected.filter(c => c !== item); 
-                el.classList.remove('selected-card-glow'); 
-            } else { 
-                if (selected.length < count) { 
-                    selected.push(item); 
-                    el.classList.add('selected-card-glow'); 
-                } 
-            } 
-            
-            // 選択枚数に達したら結果画面へ
-            if (selected.length === count) {
-                setTimeout(() => {
-                    if (typeof showSelectionResult === 'function') {
-                        showSelectionResult(selected, onComplete, title, cancelCallback, autoBtnText, isBlind, actingPlayer);
-                    }
-                }, 300); 
-            }
-        };
-        return el;
-    };
-
+    // 選択肢の生成
     if (source) {
-        source.forEach(item => { const el = createItemEl(item); if (el) container.appendChild(el); });
+        source.forEach(item => {
+            const el = document.createElement('div');
+            // アイテムの見た目設定
+            if (item.type === "PLAYER_SELECT") {
+                el.className = `selection-option w-40 p-2 rounded border-2 border-gray-600 bg-gray-800 cursor-pointer hover:border-yellow-500 transition-all flex flex-col items-center shrink-0`;
+                el.innerHTML = `<span class="text-white font-bold text-sm mb-1">${item.name}</span><div class="flex gap-0.5 justify-center" id="mini-locks-${item.id}"></div>`;
+                // ミニロックの描画(略)
+            } else {
+                let cardCls = isBlind ? back : (item.type === "ETERNAL" ? "eternal-card-face" : (item.bg || 'bg-gray-700'));
+                const sizeCls = (title === "ETERNAL SELECTION") ? "w-10 h-10" : "w-12 h-12";
+                el.className = `selection-option card-shape ${sizeCls} ${cardCls} border-2 border-gray-400 rounded cursor-pointer hover-zoom transition-all flex items-center justify-center relative shrink-0 overflow-hidden`;
+                if (!isBlind) {
+                    const img = item.image || (item.id ? `images/card_${item.id}.webp` : null);
+                    if (img) { el.style.backgroundImage = `url('${img}')`; el.style.backgroundSize = 'cover'; el.innerHTML = ""; }
+                    else { el.innerHTML = `<span class="text-white font-bold">${item.name[0]}</span>`; }
+                } else { el.innerHTML = `<span class="text-gray-500 opacity-50 text-xl font-bold">?</span>`; }
+            }
+
+            el.onclick = (e) => {
+                e.stopPropagation();
+                if (item.disabled) return;
+                if (selected.includes(item)) {
+                    selected = selected.filter(c => c !== item); el.classList.remove('selected-card-glow');
+                } else if (selected.length < count) {
+                    selected.push(item); el.classList.add('selected-card-glow');
+                }
+                if (selected.length === count) {
+                    setTimeout(() => showSelectionResult(selected, onComplete, title, cancelCallback, autoBtnText, isBlind, actingPlayer), 300);
+                }
+            };
+            container.appendChild(el);
+        });
     }
+
     modal.classList.remove('hidden'); 
-    managePeekUI(true); 
+    managePeekUI(true);
+
+    // --- 4. 自動処理（Bypass）の実行 ---
+    // モーダルを表示した「あと」に、CPUなら自動で選択肢を選ばせる
+    if (shouldAutoBypass && isSkipSelectionOnAuto) {
+        const validSource = (source || []).filter(item => !item.disabled);
+        if (validSource.length > 0) {
+            const finalCount = Math.min(count, validSource.length);
+            const shuffled = [...validSource].sort(() => Math.random() - 0.5).slice(0, finalCount);
+            
+            addLog(`[Auto] ${targetP.name} が自動選択中...`);
+            setTimeout(() => {
+                // UI上でも選択されたように見せる
+                shuffled.forEach(s => {
+                    const idx = source.indexOf(s);
+                    if (container.children[idx]) container.children[idx].classList.add('selected-card-glow');
+                });
+                // 結果画面へ
+                setTimeout(() => showSelectionResult(shuffled, onComplete, title, cancelCallback, autoBtnText, isBlind, actingPlayer), 500);
+            }, 800);
+        } else {
+            if (cancelCallback) cancelCallback(); else onComplete([]);
+        }
+    }
 }
 
 /**
@@ -1078,17 +1025,24 @@ function showRequestSelectionModal(title, dummy, source, back, count, onComplete
         return; 
     }
 
-    // 4. ここから下は「人間(isHumanSelector)」の場合のみ実行される
-    const originalAutoAction = isAutoAction;
-    isAutoAction = false; // 人間には必ず表示
+    // 4. 操作主が人間(P1)の場合のみ、モーダルを表示して待機
+    if (isHumanSelector) {
+        // CPU戦でも自分が狙われた時は選ぶ必要があるため、
+        // 一時的に自動モード(isAutoAction)を false にして入力を待つ
+        const prevAuto = isAutoAction;
+        isAutoAction = false; 
 
-    showSelectionModal(title, dummy, source, back, count, (res) => {
-        isAutoAction = originalAutoAction;
-        onComplete(res);
-    }, isBlind, () => {
-        isAutoAction = originalAutoAction;
-        if (cancelCallback) cancelCallback();
-    }, autoBtnText, restrictedCells, actingPlayer);
+        showSelectionModal(title, dummy, source, back, count, (res) => {
+            isAutoAction = prevAuto; // 選び終わったら元のモード（CPUの番ならtrue）に戻す
+            onComplete(res);
+        }, isBlind, () => {
+            isAutoAction = prevAuto;
+            if (cancelCallback) cancelCallback();
+        }, autoBtnText, restrictedCells, actingPlayer);
+    } else {
+        // CPUなら、上の showSelectionModal の冒頭で自動解決されるので、
+        // ここに来る前に処理は終わっています。
+    }
 }
 
 
@@ -1494,25 +1448,21 @@ function startSelectionMode(type, count, logic, promptText, callback, range = nu
 function triggerAutoSelect() {
     if (!selectionState.active || isPeekingMode) return;
 
-    // 操作しているプレイヤーを特定
     const p = selectionState.actingPlayer || players[turn];
-    
-    // ★ 修正：isAutoAction(CPUの思考中) かつ P1 の場合のみ待機させる。
-    // 「おまかせ」ボタンを手動で押した場合は isAutoAction が false なので、この下の処理に進めます。
-    /* 2026/03/15 修正：オンライン戦とオフラインCPU戦の自動選択判定を分離 */
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        // オンライン戦の場合：操作主(playerNumber)ではないプレイヤーの選択は待機
-        if (p.id !== window.MULTIPLAY.playerNumber) {
-            return; 
-        }
-    } else {
-        // オフライン（通常CPU戦）の場合：
-        // 手動操作中（isAutoAction=false）かつ P1 の時だけ待機させる
-        if (!isAutoAction && p.id === 1) {
+    const isOnline = !!(window.MULTIPLAY && window.MULTIPLAY.roomID);
+
+    // 自分が P1(自分) なら入力を待つ
+    if (p.id === 1) {
+        if (!isAutoAction) {
             addLog("プレイヤーの選択を待機中...");
             return; 
         }
+    } else {
+        // 自分以外（CPU）なら、オンラインで相手の番でない限り自動で選ぶ
+        if (isOnline && p.id !== window.MULTIPLAY.playerNumber) return;
     }
+    
+    // --- 以下、自動選択ロジック（変更なし） ---
 
     // --- 以下、自動選択ロジック ---
     

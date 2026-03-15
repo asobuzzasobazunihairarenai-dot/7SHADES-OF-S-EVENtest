@@ -30,27 +30,17 @@ function createCardInstance(data) {
     }; 
 }
 
-/* 2026/03/14 修正：カードを引いたら Firebase の山札データも更新する */
 function drawCard() { 
     if (!deck || deck.length === 0) { 
         if (!discardPile || discardPile.length === 0) return null; 
         deck = [...discardPile].reverse(); 
         discardPile = []; 
         addLog("♻ 山札戻し。"); 
+        if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); 
     } 
     const card = deck.pop();
-
-    // オンライン戦なら、残りの山札IDリストを Firebase に送る
-    if (window.MULTIPLAY.roomID && players[turn].id === window.MULTIPLAY.playerNumber) {
-        const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-        roomRef.update({
-            "deck_flat": deck.map(c => c.id),
-            "lastUpdate": Date.now()
-        });
-    }
-
+    // 手札枚数の表示更新を確実に行うため追加
     if (typeof renderHand === 'function') renderHand(); 
-    if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); // 山札の枚数表示を更新
     return card; 
 }
 
@@ -68,11 +58,7 @@ function discardCard(card, player = null) {
     if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); 
 }
 
-/**
- * 2026/03/14 修正：オンライン同期の無限ループを完全に防止
- * @param {boolean} skipFirebaseUpdate - trueの場合、Firebaseへの再報告を行わない
- */
-function updateGameState(skipFirebaseUpdate = false) { 
+function updateGameState() { 
     if (!players || players.length === 0 || !players[turn]) return;
     const p = players[turn]; 
     isStuck = false; 
@@ -97,7 +83,10 @@ function updateGameState(skipFirebaseUpdate = false) {
         } 
     } 
 
-    // 各UIの描画
+    /**
+ * 2026/03/06 修正
+ * 「P1のみ手札表示」が有効な場合、P1以外のターンでは「配置モード」ボタンを強制的に非表示にする
+ */
     if (typeof renderBoard === 'function') renderBoard(); 
     if (typeof renderStatus === 'function') renderStatus(); 
     if (typeof renderHand === 'function') renderHand(); 
@@ -105,20 +94,12 @@ function updateGameState(skipFirebaseUpdate = false) {
     if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard(); 
     if (typeof updatePhaseIndicator === 'function') updatePhaseIndicator(); 
 
-    /* --- オンライン同期ロジック --- */
-    // skipFirebaseUpdate が false の場合のみ、Firebaseへ書き込む
-    if (!skipFirebaseUpdate && window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        const activeP = players[turn];
-        const isMyTurn = (activeP && activeP.id === window.MULTIPLAY.playerNumber);
-        
-        // 自分が操作主であり、かつ自分のターンの時だけ「真実」を報告する
-        if (isMyTurn) {
-            const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-            roomRef.update({
-                "currentTurn": turn,
-                "currentPhase": currentPhase,
-                "lastUpdate": Date.now()
-            }).catch(e => console.error("Sync Update Error:", e));
+    // ★追加：配置モードボタンの表示制御
+    const stuckBtn = document.getElementById('stuck-btn');
+    if (stuckBtn) {
+        // P1表示制限がON かつ 現在の手番がP1(index 0)ではない場合
+        if (isP1HandOnlyView && turn !== 0) {
+            stuckBtn.classList.add('hidden');
         }
     }
 
@@ -304,53 +285,61 @@ function toggleReactionSkip() {
 async function startTurn() { 
     if (!players || players.length === 0) return;
     
-    /* 2026/03/15 修正：演出待ちによるフリーズを防ぐため、フラグ掃除を最優先に */
+    // 1. 前のターンや演出から残った「通行止めフラグ」を完全に掃除
     isEndingTurn = false; 
     isProcessingMove = false; 
-    isHandEffectProcessing = false;
-    isAutoProcessing = false;
-    activeModalId = null;
-    if (typeof activeTimerPlayerId !== 'undefined') activeTimerPlayerId = null;
+    isHandEffectProcessing = false; // ← 追加
+    isAutoProcessing = false;       // ← 追加
+    
+    // 2. モーダルやタイマーの持ち主もリセット
+    activeModalId = null;            // ← 追加
+    if (typeof activeTimerPlayerId !== 'undefined') {
+        activeTimerPlayerId = null; 
+    }
 
     const p = players[turn]; 
     if(!p) return;
 
-    // 変数リセット
+    // 変数リセット（ここは即座にやってOK）
     p.baseMoveUsed = false; 
     p.viridianUsed = false; 
+    p.serenadeUsed = false; 
     p.dimensionActive = false; 
     p.lockPrevented = false; 
     p.domusNeroUsed = false; 
     p.marmegoPenalty = false; 
     p.konohanaPenalty = false;
-    
-    // 手札の封印解除
+    p.prevX = p.x; 
+    p.prevY = p.y; 
     players.forEach(pl => { if (hands[pl.id]) { hands[pl.id].forEach(c => { c.sealed = false; }); } });
-
-    // 演出（通知）を実行。
-    // オフライン戦では await を外して非同期にすることで、
-    // 演出中に次の処理（AIの思考など）の準備が進むようにします。
+    
+    // --- 修正箇所：通知が終わるまで待機 ---
     if (typeof showTurnChangeNotification === 'function') {
-        showTurnChangeNotification(p); 
+        // await を付けることで、通知が消えるまで下の処理に進まなくなります
+        await showTurnChangeNotification(p);
     }
+    // ------------------------------------
 
     currentPhase = PHASE.LOCK; 
     isStuck = false; 
     isPlacingCard = false; 
+    isHandEffectProcessing = false; 
     isPeekingMode = false; 
 
-    // 自動化判定
+    /* 2026/03/14 修正：手番開始時の自動化判定 */
     const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        isAutoAction = false;
-    } else if (isForcedCpu) {
+    if (isForcedCpu) {
+        // 観戦モードなら無条件で自動
         isAutoAction = true;
     } else {
+        // 通常対局なら、IDが 1 以外（CPU）なら自動、IDが 1（人間）なら手動
         isAutoAction = (p.id !== 1);
     }
 
-    resetTimer(); 
-    updateGameState(); 
+    
+    
+    resetTimer(); // 演出が終わってからタイマー開始
+    updateGameState(); // 演出が終わってから盤面更新・自動スキップ判定開始
 }
 
 function nextTurn() { 
@@ -444,45 +433,8 @@ function nextPhase(isForced = false) {
 function endTurn() { 
     if (isEndingTurn || !players || !players[turn]) return; 
     const p = players[turn]; 
-
-    /* --- 1. オンライン戦（マルチプレイ）のルート --- */
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        if (p.id === window.MULTIPLAY.playerNumber) {
-            isEndingTurn = true; 
-            const nextTurn = (turn + 1) % players.length;
-            const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-            
-            roomRef.update({
-                "currentTurn": nextTurn,
-                "currentPhase": PHASE.LOCK,
-                "lastUpdate": Date.now(),
-                "lastMove": firebase.firestore.FieldValue.delete(),
-                "lastCardEffect": firebase.firestore.FieldValue.delete()
-            }).then(() => {
-                addLog(`[Online] ターン終了を同期。次は ${players[nextTurn].name}`);
-            });
-            
-            // ヴァーディアン等の後処理
-            if (p.viridianUsed && hands[p.id]) {
-                hands[p.id] = hands[p.id].filter(c => {
-                    if (c.fromViridian) { discardPile.push(c); return false; }
-                    return true;
-                });
-            }
-            if(timerInterval) { clearInterval(timerInterval); timerInterval = null; } 
-            return; // Firebaseからの通知を待つため、ここで終了
-        } else {
-            return; // 自分以外の番の時は何もしない
-        }
-    }
-
-    /* --- 2. オフライン戦（CPU戦・1人テスト）のルート --- */
-    isEndingTurn = true; // 通行止め開始
-    if(timerInterval) { clearInterval(timerInterval); timerInterval = null; } 
-    
-    // ヴァーディアンの後処理
-    if (p.viridianUsed && hands[p.id]) { 
-        const toDiscard = hands[p.id].filter(c => c.fromViridian); 
+    if (p.viridianUsed) { 
+        const toDiscard = (hands[p.id] || []).filter(c => c.fromViridian); 
         if (toDiscard.length > 0) { 
             toDiscard.forEach(c => { 
                 const idx = hands[p.id].indexOf(c); 
@@ -491,62 +443,23 @@ function endTurn() {
             addLog(`${p.name}はヴァーディアンで引いたカードを捨てました。`); 
         } 
     }
-    
-    // ゲート侵攻チェック
-    if (typeof checkGateInvasionForAll === 'function') {
-        checkGateInvasionForAll(); 
-    } else {
-        // 侵攻チェックがない場合のフォールバック
-        const nextT = (turn + 1) % players.length;
-        turn = nextT;
-        startTurn();
-    }
-    
+    isEndingTurn = true; 
+    if(timerInterval) { clearInterval(timerInterval); timerInterval = null; } 
+    if (typeof checkGateInvasionForAll === 'function') checkGateInvasionForAll(); 
     isProcessingMove = false; 
 }
 
-/* 2026/03/14 修正：タイマー加速防止と変数エラー防止を一本化 */
 function resetTimer() {
-    // 1. 既存タイマーを完全に停止
-    if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null; 
-    }
+    if(timerInterval) clearInterval(timerInterval);
     
-    /* 2026/03/15 修正：人間・CPU・オンラインを判別してタイマー秒数をセット */
+    // ★修正：固定の 30 (PHASE_TIME_SEC) ではなく、設定値を使う
+    timeLeft = currentPhaseMaxTime;
+    
     const p = players[turn];
-    let maxTime = window.currentPhaseMaxTime || 15;
-
-    // 1. オンライン対戦中か判定
-    const isOnline = !!(window.MULTIPLAY && window.MULTIPLAY.roomID);
-
-    if (isOnline) {
-        // オンライン戦：誰の番であっても設定された時間（15秒等）をセット
-        // ※相手の番の時もタイマーを表示させるため
-        maxTime = window.currentPhaseMaxTime || 15;
-    } else {
-        // オフライン戦（通常CPU戦）：
-        if (p && p.id !== 1) {
-            // CPUの番なら、ロックフェイズ等は爆速（1秒）にする
-            maxTime = (currentPhase === PHASE.LOCK) ? 1 : 2;
-        } else {
-            // 人間（P1）の番なら設定通り
-            maxTime = window.currentPhaseMaxTime || 15;
-        }
-    }
-
-    timeLeft = maxTime;
-    
     if (p) {
         timeAtTurnStart = p.totalTimeLeft;
     }
-
-    // 3. タイマーを1つだけ再起動
-    timerInterval = setInterval(() => {
-        if (typeof updateTimerTick === 'function') {
-            updateTimerTick();
-        }
-    }, 1000);
+    timerInterval = setInterval(updateTimerTick, 1000);
 }
 
 /**
@@ -584,15 +497,6 @@ function updateTimerTick() {
             // 自動処理中なのにタイマーが0になった場合の警告（スタックの兆候）
             addLog(`[DEBUG] タイムアウト警告: 自動処理フラグが残ったままです`, true);
             return;
-        }
-        
-        /* 2026/03/15 修正：オンライン戦では「自分の番」以外のタイムアウト自動処理を禁止 */
-        if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-            const isMyTurn = (p.id === window.MULTIPLAY.playerNumber);
-            if (!isMyTurn) {
-                // 相手の番なら、自分側では何もしない（相手の処理が届くのを待つ）
-                return;
-            }
         }
         
         addLog(`[DEBUG] タイムアウト発生: ${p.name} の自動実行を要請`, true);
@@ -734,22 +638,18 @@ function updateTimerTick() {
 }
 
 function handleTimeOut() { 
-    if (window.MULTIPLAY.roomID) return; // オンライン時はタイムアウトで勝手に動かさない
     if (isEndingTurn || winner) return; 
 
 
     const selectionModal = document.getElementById('selection-modal');
     const arrivalModal = document.getElementById('arrival-modal');
     const stealActionModal = document.getElementById('steal-action-modal');
-    /* 2026/03/14 修正：オンライン対戦時のVIPガードを「自分」に適用 */
-    const myID = window.MULTIPLAY.playerNumber || 1;
+    // もし今表示されているのが「割込確認」で、かつ対象が P1 なら何もしない
     const detailModal = document.getElementById('detail-modal');
-    
     if (detailModal && !detailModal.classList.contains('hidden')) {
         const title = document.getElementById('detail-title')?.textContent;
-        // 「割込確認」が出ていて、それが「自分」の番なら自動処理しない（相手の番なら自動で進める）
-        if (title === "割込確認" && actingP && actingP.id === myID) {
-            return; 
+        if (title === "割込確認" && actingP && actingP.id === 1) {
+            return; // 人間の思考時間なので、自動クリックを阻止
         }
     }
 
@@ -1086,11 +986,8 @@ function autoPlace(p) {
     }
 }
 
-/* 2026/03/14 修正：オンライン対戦時は勝手にフェイズを進めない */
 function checkAutoSkip() { 
-    if (window.MULTIPLAY.roomID) return; // オンライン時は完全停止
-
-    if (winner || isAutoSkipping || isPlacingCard || (invasionQueue && invasionQueue.length > 0)) return;
+    if (winner || isAutoSkipping || isPlacingCard || (invasionQueue && invasionQueue.length > 0)) return; 
     if (!players || !players[turn]) return;
     const p = players[turn]; 
     if (currentPhase === PHASE.LOCK) { 
@@ -1238,9 +1135,6 @@ function requestLockCheck(card, cardIndex, lockedCard, p) {
  * CPU/自動処理時であっても、自分が「ちょっと待った！」を持っている場合は割り込み確認を強制表示するよう修正。
  */
 function handleHandClick(cardIndex, lockedCard = null) {
-    /* 2026/03/14 修正：自分の番以外はクリック無効 */
-    if (window.MULTIPLAY.roomID && players[turn].id !== window.MULTIPLAY.playerNumber) return;
-
     const isAI = isAutoAction || isAutoProcessing;
     if (isPeekingMode || !players || !players[turn]) return;
     const displayTurn = isP1HandOnlyView ? 0 : turn;
@@ -1273,18 +1167,6 @@ function handleHandClick(cardIndex, lockedCard = null) {
     } else if (currentPhase === PHASE.HAND || card.handEffect?.anytime || activeTimerPlayerId === 1) { 
         // （ハンドフェイズの処理は変更なし）
         const executeLogic = () => {
-            /* 2026/03/14 修正：手札使用の演出をオンライン同期 */
-            if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-                const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-                roomRef.update({
-                    "lastCardEffect": {
-                        cardId: card.id,
-                        playerName: p.name,
-                        timestamp: Date.now()
-                    }
-                });
-            }
-
             showCardModal(card, () => {
                 activeHandCard = card; 
                 executeCardEffect(card.handEffect, p, (res) => { 
@@ -1322,16 +1204,6 @@ function proceedLockLogic(card, cardIndex, lockedCard, p) {
             if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
             const tSlot = collections[p.id][targetColorId];
             tSlot.push(card);
-
-            /* 2026/03/14 修正：レインボーロックを同期 */
-            if (window.MULTIPLAY && window.MULTIPLAY.roomID && p.id === window.MULTIPLAY.playerNumber) {
-                const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-                roomRef.update({
-                    [`lock_${p.id}_${targetColorId}`]: collections[p.id][targetColorId].map(c => c.id),
-                    "lastUpdate": Date.now()
-                });
-            }
-
             if (typeof triggerLockEffect === 'function') triggerLockEffect(p.id, targetColorId);
             addLog(`${p.name}が「${card.name}」を${sel[0].name}としてロック！`);
             setTimeout(() => {
@@ -1346,23 +1218,6 @@ function proceedLockLogic(card, cardIndex, lockedCard, p) {
     const slot = collections[p.id][card.colorId];
     if(!lockedCard && hands[p.id]) hands[p.id].splice(cardIndex, 1);
     slot.push(card);
-
-    /* 2026/03/14 修正：ロック情報をオンライン同期 */
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID && p.id === window.MULTIPLAY.playerNumber) {
-        const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-        
-        // 自分の全スロットの状態をIDの配列にして送る（もっとも確実な方法）
-        const lockState = {};
-        BASE_COLORS.forEach(bc => {
-            lockState[`lock_${p.id}_${bc.id}`] = collections[p.id][bc.id].map(c => c.id);
-        });
-
-        roomRef.update({
-            ...lockState,
-            "lastUpdate": Date.now()
-        }).catch(e => console.error("Lock Sync Error:", e));
-    }
-
     if (typeof triggerLockEffect === 'function') triggerLockEffect(p.id, card.colorId);
     addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-yellow-500">🔒 LOCK</span> 「${card.name}」`);
 
@@ -1592,9 +1447,6 @@ function executePlaceCard(x, y) {
 }
 
 function handleBoardClick(x, y) { 
-    /* 2026/03/14 修正：自分の番以外はクリック無効 */
-    if (window.MULTIPLAY.roomID && players[turn].id !== window.MULTIPLAY.playerNumber) return;
-    
     if (winner || currentPhase !== PHASE.MOVE || isStuck || isPlacingCard || isProcessingMove || isPeekingMode || !players[turn]) return; 
     const p = players[turn]; 
     const dist = Math.abs(p.x - x) + Math.abs(p.y - y); 
@@ -1702,16 +1554,6 @@ function executeMove(x, y, cell, epOn) {
     } else {
         // 2026/03/06 修正：ログの視認性向上（プレイヤーカラー＋アイコン）
         addLog(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> <span class="text-gray-400">👟 移動</span> (${x}, ${y})`);
-
-        /* 2026/03/14 修正：移動同期を最優先で Firebase へ送る */
-        if (window.MULTIPLAY && window.MULTIPLAY.roomID && p.id === window.MULTIPLAY.playerNumber) {
-            const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-            roomRef.update({
-                "lastMove": { playerId: p.id, x: x, y: y, timestamp: Date.now() },
-                "lastUpdate": Date.now()
-            }).catch(e => console.error("Move Sync Error:", e));
-        }
-
         moveToCell(p, x, y, false, moveFinish); 
     }
 }
@@ -2283,12 +2125,7 @@ function checkGateInvasionForAll() {
         const overlay = document.getElementById('invasion-overlay'); 
         if(overlay) overlay.classList.remove('hidden'); 
         setTimeout(() => { if(overlay) overlay.classList.add('hidden'); processInvasionQueue(); }, 1500); 
-    } else {
-        /* 2026/03/15 修正：二重進みを防ぐため nextTurn ではなく直接 turn を進めて startTurn を呼ぶ */
-        const nextT = (turn + 1) % players.length;
-        turn = nextT;
-        startTurn();
-    }
+    } else nextTurn(); 
 }
 
 function processInvasionQueue() { if (!invasionQueue || invasionQueue.length === 0) { nextTurn(); return; } const { invader, victim } = invasionQueue.shift(); processHandSteal(invader, victim); }
@@ -3865,498 +3702,4 @@ async function initCpuOnlyGame(num) {
     // 全員を自動行動に
     isAutoAction = true;
     addLog("<span class='text-yellow-500 font-bold'>📺 P1を排除し、ALL CPU(P2-P5)で観戦を開始します</span>");
-}
-
-/**
- * 2026/03/14 追加：オンライン対戦ルームの作成
- * @param {string} roomID - 自由な文字列（例: "secret123"）
- */
-async function createOnlineRoom(roomID) {
-    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(roomID);
-    
-    const initialData = {
-        status: "waiting",
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        hostID: userProfile.uid || "guest",
-        players: [userProfile.name || "P1"],
-        gameState: {
-            turn: 0,
-            phase: "LOCK",
-            board: [] // ここに盤面データを載せていく
-        }
-    };
-
-    try {
-        await roomRef.set(initialData);
-        window.MULTIPLAY.roomID = roomID;
-        window.MULTIPLAY.playerNumber = 1;
-        window.MULTIPLAY.isHost = true;
-        
-        addLog(`[Online] ルーム「${roomID}」を作成しました。待機中です...`);
-        listenRoomUpdate(roomID); // 変化を監視開始
-    } catch (e) {
-        addLog(`[ERROR] ルーム作成失敗: ${e.message}`, true);
-    }
-}
-
-/**
- * 2026/03/14 修正：ルームの更新を監視し、自動開始させる
- */
-/* 2026/03/14 修正：盤面復元とUI切り替えを追加 */
-/* 2026/03/14 修正：監視開始時に「現在の最新データ」を一度強制的に読み込む */
-function listenRoomUpdate(roomID) {
-    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(roomID);
-
-    // 監視(onSnapshot)を開始
-    roomRef.onSnapshot((doc) => {
-        if (!doc.exists) return;
-        const data = doc.data();
-        
-        // ログを出して動いているか確認
-        console.log("[Firebase] 受信データ:", data.status, data.gameState?.status);
-
-        // --- 1. ステータスが "ready" かつ ホストなら開始 ---
-        if (data.status === "ready" && !winner) {
-            if (window.MULTIPLAY.isHost) {
-                startOnlineGameHost(2); 
-            }
-        }
-
-        // --- 2. 盤面の復元（ここがゲストにとって重要！） ---
-        /* 2026/03/14 修正：新データ形式（直下書き込み）に対応 */
-        /* 2026/03/14 修正：バラバラに届いたデータを組み立て直す */
-        /* 2026/03/14 修正：ゲスト側での変数未定義エラーを防止 */
-        if (data.status === "playing") {
-            /* 2026/03/14 修正：各種変数の実体を確実に作成してエラーを防ぐ */
-            if (!collections) collections = {}; 
-            if (!hands) hands = {}; 
-            // プレイヤー1と2の手札用の箱をあらかじめ作っておく
-            [1, 2].forEach(id => { if(!hands[id]) hands[id] = []; });
-            // ゲスト側で未定義になりやすい変数をデフォルト値で初期化
-            if (typeof window.currentPhaseMaxTime === 'undefined') window.currentPhaseMaxTime = 15;
-            if (typeof window.PHASE_TIME_ADD === 'undefined') window.PHASE_TIME_ADD = 15;
-            if (typeof isP1HandOnlyView === 'undefined') isP1HandOnlyView = false;
-
-            const homeVisible = !document.getElementById('home-screen').classList.contains('hidden');
-            
-            if (!board || board.length === 0 || homeVisible) {
-                addLog(`[Online] 盤面データを受信。復元を開始します...`);
-
-                // 1. プレイヤーの復元（文字列を | で分解して戻す）
-                /* 2026/03/14 修正：プレイヤー情報と同時にロックエリアも初期化 */
-                if (data.players_flat) {
-                    // まず collections を空にする
-                    collections = {};
-                    /* 2026/03/14 修正：アイコンと名前の順序を同期 */
-                    players = data.players_flat.map(pStr => {
-                        const [id, icon, name, sx, sy, colId, firstCardId] = pStr.split('|');
-                        const pId = parseInt(id);
-                        const pColor = BASE_COLORS.find(c => c.id === colId);
-                        
-                        // ロックエリアの枠組みを作成
-                        collections[pId] = {};
-                        BASE_COLORS.forEach(bc => collections[pId][bc.id] = []);
-
-                        // ファーストカードがあればロックエリアに入れる
-                        if (firstCardId) {
-                            const fCardData = CARD_DATABASE.find(d => d.id === parseInt(firstCardId));
-                            if (fCardData) {
-                                collections[pId][fCardData.colorId].push(createCardInstance(fCardData));
-                            }
-                        }
-
-                        return {
-                            id: pId, name, icon,
-                            x: parseInt(sx), y: parseInt(sy),
-                            startPos: { x: parseInt(sx), y: parseInt(sy) },
-                            color: pColor, pieceImage: pColor.pieceImage,
-                            css: `${pColor.bg} border-2 border-white`
-                        };
-                    });
-                    
-                    /* 2026/03/14 修正：プレイヤー情報の反映をさらに確実に実行 */
-                    // 1. まず変数を窓口（window）にセットしてエラーを防ぐ
-                    window.currentPhaseMaxTime = 15;
-                    window.PHASE_TIME_ADD = 15;
-
-                    // 2. 画面への反映を時間差で2回行い、描画漏れを防ぐ
-                    setTimeout(() => {
-                        if (typeof renderStatus === 'function') renderStatus();
-                        if (typeof updateGameState === 'function') updateGameState();
-                        console.log("[Online] UI Sync Phase 1:", players.map(p => p.name));
-                    }, 200);
-
-                    setTimeout(() => {
-                        if (typeof renderStatus === 'function') renderStatus();
-                        console.log("[Online] UI Sync Phase 2 (Final)");
-                    }, 1000); 
-                }
-
-                // 2. UIの生成（マス目を作る）
-                if (typeof generateUI === 'function') generateUI(); 
-                ['setup-overlay', 'home-screen', 'title-overlay'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.classList.add('hidden');
-                });
-
-                // 3. 盤面の復元（JSON文字列をオブジェクトに戻す）
-                if (data.board_flat) {
-                    const decodedBoard = data.board_flat.map(s => JSON.parse(s));
-                    deserializeBoard(decodedBoard);
-                }
-
-                // 4. 山札の復元
-                if (data.deck_flat) {
-                    deck = data.deck_flat.map(id => createCardInstance(CARD_DATABASE.find(c => c.id === id)));
-                }
-
-                /* 2026/03/14 修正：相手が使ったカードの演出を同期表示 */
-        if (data.lastCardEffect) {
-            const effect = data.lastCardEffect;
-            // まだ表示していない、かつ自分以外のプレイヤーの演出であれば実行
-            if (window.lastSyncedEffectTime !== effect.timestamp && effect.playerName !== players[window.MULTIPLAY.playerNumber-1].name) {
-                window.lastSyncedEffectTime = effect.timestamp;
-                
-                const effectCard = CARD_DATABASE.find(c => c.id === effect.cardId);
-                if (effectCard && typeof showCardModal === 'function') {
-                    // 相手の演出なので、コールバック（OKボタン後の処理）は空っぽにする
-                    // ※実際の処理は相手のブラウザで実行され、その結果がFirebase経由で届くため
-                    showCardModal(effectCard, () => {}, "手札効果発動！", effect.playerName, "手札から効果を発動しました");
-                }
-            }
-        }
-                
-                /* 2026/03/14 修正：ゲスト側でも開始演出（ロゴ・先手通知）を表示 */
-                /* 2026/03/14 修正：ホストからの先手情報(currentTurn)を待ってから演出を開始する */
-                updateGameState();
-
-                const startSequence = () => {
-                    if (data.currentTurn === undefined) {
-                        // まだ先手データがFirebaseに届いていなければ、0.5秒待って再トライ
-                        setTimeout(startSequence, 500);
-                        return;
-                    }
-
-                    // ホストが決めた先手を自分の turn 変数に上書き
-                    turn = data.currentTurn;
-
-                    if (typeof showOpeningLogo === 'function') {
-                        showOpeningLogo(() => {
-                            const firstPlayer = players[turn];
-                            const msg = `<div class="flex flex-col items-center gap-4 animate-bounce">
-                                <span class="text-xs text-gray-400 font-bold tracking-[0.3em] uppercase">Starting Order</span>
-                                <div class="flex items-center gap-3 bg-white/10 px-6 py-3 rounded-full border border-white/20">
-                                    <span class="text-2xl font-black text-yellow-400">1st</span>
-                                    <img src="${firstPlayer.icon}" class="w-10 h-10 rounded-full border-2 border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)]">
-                                    <span class="text-xl font-bold text-white">${firstPlayer.name}</span>
-                                </div>
-                            </div>`;
-                            
-                            if (typeof showMessageOverlay === 'function') {
-                                showMessageOverlay(msg, 2000, () => {
-                                    addLog(`[Online] 先手は ${firstPlayer.name} です。`);
-                                    startTurn(); 
-                                });
-                            } else {
-                                startTurn();
-                            }
-                        });
-                    }
-                };
-
-                // 演出シーケンスを実行
-                startSequence();
-                addLog(`[Online] 対戦を開始しました！先手は ${players[turn].name} です。`);
-            }
-        }
-
-        /* 2026/03/14 修正：ターンとフェイズの同期を受信 */
-        if (data.currentTurn !== undefined && data.currentPhase !== undefined) {
-            // 相手から届いたターン・フェイズが今の自分と違う場合のみ更新
-            if (turn !== data.currentTurn || currentPhase !== data.currentPhase) {
-                const oldTurn = turn;
-                const newTurn = data.currentTurn;
-                
-                // 真実のデータ（Firebase）を自分の変数に同期
-                turn = newTurn;
-                currentPhase = data.currentPhase;
-                
-                if (oldTurn !== newTurn) {
-                    addLog(`[Online] ターンが ${players[turn].name} に移りました。`);
-                    // 前の人のターンの残骸を掃除
-                    isEndingTurn = false;
-                    isProcessingMove = false;
-                    if(timerInterval) clearInterval(timerInterval);
-                    // 次の人のターンを開始
-                    startTurn(); 
-                } else {
-                    updateGameState(true);
-                }
-            }
-        }
-        
-        /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正（重複を削除） */
-        
-        /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正 */
-        /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正（重複を削除） */
-        if (data.lastMove) {
-            const move = data.lastMove;
-            if (players && players.length > 0) {
-                const movingP = players.find(pl => pl.id === move.playerId);
-                if (movingP && move.playerId !== window.MULTIPLAY.playerNumber && movingP.lastSyncedTimestamp !== move.timestamp) {
-                    movingP.lastSyncedTimestamp = move.timestamp;
-                    addLog(`[Online] ${movingP.name} の移動を受信`);
-                    moveToCell(movingP, move.x, move.y, false, () => {
-                        updateGameState();
-                    });
-                }
-            }
-        }
-
-        /* 2026/03/14 修正：相手の手札枚数の同期を受信 */
-        /* 2026/03/14 修正：相手のロックエリアの同期を受信 */
-        /* 2026/03/15 修正：相手の手札変更（ロックや使用）をリアルタイムに受信して反映 */
-        players.forEach(p => {
-            if (p.id !== window.MULTIPLAY.playerNumber) {
-                // 1. 相手のロックエリアが更新されたら自分の画面も書き換える
-                BASE_COLORS.forEach(bc => {
-                    const remoteLockIDs = data[`lock_${p.id}_${bc.id}`];
-                    if (remoteLockIDs && Array.isArray(remoteLockIDs)) {
-                        const localSlot = collections[p.id][bc.id];
-                        if (localSlot.length !== remoteLockIDs.length) {
-                            collections[p.id][bc.id] = remoteLockIDs.map(id => 
-                                createCardInstance(CARD_DATABASE.find(c => c.id === id))
-                            );
-                            if (typeof renderStatus === 'function') renderStatus();
-                        }
-                    }
-                });
-
-                // 2. 相手の手札枚数の同期（念押し）
-                const remoteCount = data[`handCount_${p.id}`];
-                if (remoteCount !== undefined && (!hands[p.id] || hands[p.id].length !== remoteCount)) {
-                    hands[p.id] = new Array(remoteCount).fill({ name: "Unknown", colorId: "white" });
-                    if (typeof renderStatus === 'function') renderStatus();
-                }
-            }
-        });
-
-        /* 2026/03/14 修正：山札の同期を受信 */
-        if (data.deck_flat && deck) {
-            // 自分の手元の枚数と Firebase の枚数が違う場合のみ更新
-            if (deck.length !== data.deck_flat.length) {
-                // 届いたIDリストに基づいて山札を再構築
-                deck = data.deck_flat.map(id => createCardInstance(CARD_DATABASE.find(c => c.id === id)));
-                if (typeof renderDeckAndDiscard === 'function') renderDeckAndDiscard();
-                console.log(`[Online] 山札を同期しました。残り: ${deck.length}枚`);
-            }
-        }
-
-    });
-}
-
-
-
-/**
- * 2026/03/14 追加：オンラインメニュー表示
- */
-function showOnlineMenu() {
-    document.getElementById('online-menu-overlay').classList.remove('hidden');
-}
-
-/**
- * 部屋を作るボタン
- */
-async function handleCreateRoom() {
-    const id = document.getElementById('online-room-input').value;
-    if (!id) { alert("ルームIDを入力してください"); return; }
-    
-    // 前のステップで作った createOnlineRoom を呼び出し
-    await createOnlineRoom(id);
-    document.getElementById('online-menu-overlay').classList.add('hidden');
-    addLog(`[System] 通信待機中... ID: ${id}`);
-}
-
-/**
- * 部屋に入るボタン（TODO: 入室ロジックは次のステップで！）
- */
-/**
- * 2026/03/14 修正：ゲストが入室し、Firebaseを更新してホストに合図を送る
- */
-async function handleJoinRoom() {
-    const id = document.getElementById('online-room-input').value;
-    if (!id) { alert("ルームIDを入力してください"); return; }
-
-    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(id);
-    
-    try {
-        const doc = await roomRef.get();
-        if (!doc.exists) {
-            alert("ルームが見つかりません。IDを確認してください。");
-            return;
-        }
-
-        const data = doc.data();
-        if (data.players && data.players.length >= 2) {
-            alert("このルームは既に満員です。");
-            return;
-        }
-
-        // 1. 自分の名前を入室リストに追加し、ステータスを "ready" に変える
-        /* 2026/03/14 修正：自分の最新プロフィールをホストへ通知 */
-        const guestName = userProfile.name || "GuestPlayer";
-        const guestIcon = (userProfile.icon && !userProfile.icon.includes('googleusercontent')) ? userProfile.icon : `images/character_002.webp`;
-
-        await roomRef.update({
-            "players": firebase.firestore.FieldValue.arrayUnion(guestName),
-            "status": "ready",
-            // P2の情報を直接書き込む（ホストがこれを読み取ります）
-            "guestInfo": `${guestName}|${guestIcon}`
-        });
-
-        // 2. 自分のマルチプレイ設定を保存
-        window.MULTIPLAY.roomID = id;
-        window.MULTIPLAY.playerNumber = 2; // ゲストは2番
-        window.MULTIPLAY.isHost = false;
-
-        document.getElementById('online-menu-overlay').classList.add('hidden');
-        addLog(`[Online] ルーム「${id}」に入室成功！開始を待っています...`);
-
-        // 3. 監視を開始
-        listenRoomUpdate(id);
-
-    } catch (e) {
-        addLog(`[ERROR] 入室に失敗しました: ${e.message}`, true);
-        console.error(e);
-    }
-}
-
-/**
- * 2026/03/14 追加：既存のルームへ入室する (Guest)
- */
-async function handleJoinRoom() {
-    const id = document.getElementById('online-room-input').value;
-    if (!id) { alert("ルームIDを入力してください"); return; }
-
-    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(id);
-    const doc = await roomRef.get();
-
-    if (!doc.exists) {
-        alert("ルームが見つかりません。IDを確認してください。");
-        return;
-    }
-
-    const data = doc.data();
-    if (data.players.length >= 2) {
-        alert("このルームは既に満員です。");
-        return;
-    }
-
-    // 自分の情報を追加して更新
-    try {
-        await roomRef.update({
-            players: firebase.firestore.FieldValue.arrayUnion(userProfile.name || "GuestPlayer"),
-            status: "ready" // 二人揃ったのでステータスを更新
-        });
-
-        window.MULTIPLAY.roomID = id;
-        window.MULTIPLAY.playerNumber = 2; // Guestは2番
-        window.MULTIPLAY.isHost = false;
-
-        document.getElementById('online-menu-overlay').classList.add('hidden');
-        addLog(`[Online] ルーム「${id}」に入室しました！`);
-        
-        listenRoomUpdate(id); // 監視開始
-    } catch (e) {
-        addLog(`[ERROR] 入室失敗: ${e.message}`, true);
-    }
-}
-
-/**
- * 2026/03/14 追加：ホストによるオンライン戦の開始
- */
-/**
- * 2026/03/14 修正：ホストが盤面を作成し、Firebaseへ「真実」を書き込む
- */
-/* 2026/03/14 修正：画面の非表示処理を追加 */
-/* 2026/03/14 修正：Firebaseエラーを回避するため、データを徹底的に分解して送信 */
-async function startOnlineGameHost(num) {
-    const homeScreen = document.getElementById('home-screen');
-    if(homeScreen) homeScreen.classList.add('hidden');
-    const setupOverlay = document.getElementById('setup-overlay');
-    if(setupOverlay) setupOverlay.classList.add('hidden');
-
-    // 1. 手元で初期化
-    await initGameInternal(num);
-    
-    // 2. 盤面を1次元の「文字」に変換（もっとも安全な方法）
-    const boardStrings = serializeBoard(board).map(cell => JSON.stringify(cell));
-    
-    // 3. デッキとプレイヤーをただの「数字/文字の配列」にする
-    const deckIDs = (deck || []).map(c => c.id);
-    /* 2026/03/14 修正：プレイヤーの初期ロック情報（ファーストカード）も文字列に含める */
-    /* 2026/03/14 修正：Googleアイコンのエラー防止措置を追加 */
-    /* 2026/03/14 修正：ホスト自身の最新情報を確実に送信 */
-    const playersBasic = players.map((p, idx) => {
-        const firstCard = collections[p.id][p.color.id][0];
-        const firstCardId = firstCard ? firstCard.id : "";
-        
-        // P1（ホスト自身）の場合は、userProfile の最新の名前を使う
-        const actualName = (p.id === 1) ? (userProfile.name || p.name) : p.name;
-        
-        let safeIcon = p.icon;
-        if (!safeIcon || safeIcon.includes('googleusercontent') || safeIcon.includes('http')) {
-            safeIcon = `images/character_00${p.id}.webp`;
-        }
-        
-        return `${p.id}|${safeIcon}|${actualName}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
-    });
-
-    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-    
-    try {
-        // 全てを「配列の配列」にせず、バラバラの項目として保存
-        /* 2026/03/14 修正：決定した先手（turn）も同期データに含める */
-        await roomRef.update({
-            "status": "playing",
-            "currentTurn": turn, // ホストがランダムに決めた先手番号
-            "board_flat": boardStrings,     // 文字列の配列
-            "deck_flat": deckIDs,           // 数値の配列
-            "players_flat": playersBasic,   // 文字列の配列
-            "lastUpdate": Date.now()
-        });
-        addLog(`[Online] 盤面を同期しました。`);
-    } catch (e) {
-        console.error("Firebase送信エラー:", e);
-        addLog(`[ERROR] 同期失敗: ${e.message}`, true);
-    }
-}
-
-/**
- * 2026/03/14 追加：受信した数字データから実際のカードを復元する
- */
-/* 2026/03/14 修正：1次元で届いた盤面データを 7x7 に復元する */
-function deserializeBoard(flatBoard) {
-    if (!flatBoard || !Array.isArray(flatBoard)) return;
-    
-    // 空の7x7配列を作成
-    const newBoard = Array.from({ length: 7 }, () => Array(7).fill(null));
-
-    flatBoard.forEach(miniCell => {
-        const cardData = miniCell.cardID ? CARD_DATABASE.find(d => d.id === miniCell.cardID) : null;
-        newBoard[miniCell.y][miniCell.x] = {
-            x: miniCell.x,
-            y: miniCell.y,
-            color: cardData ? createCardInstance(cardData) : null,
-            revealed: miniCell.revealed,
-            empty: miniCell.empty,
-            stack: (miniCell.stackIDs || []).map(id => {
-                const data = CARD_DATABASE.find(c => c.id === id);
-                return data ? createCardInstance(data) : null;
-            }).filter(c => c !== null)
-        };
-    });
-
-    board = newBoard;
-    renderBoard();
 }

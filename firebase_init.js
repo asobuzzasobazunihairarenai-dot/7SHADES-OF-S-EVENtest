@@ -148,3 +148,11 @@ async function loadProfileFromCloud() {
         console.error("Load Cloud Data Error:", error);
     }
 }
+
+/* 2026/03/14 追加：マルチプレイ用グローバル状態 */
+window.MULTIPLAY = {
+    roomID: null,
+    playerNumber: null, // 1 or 2 (or 3, 4)
+    isHost: false,
+    db: firebase.firestore() // 審判への窓口
+};

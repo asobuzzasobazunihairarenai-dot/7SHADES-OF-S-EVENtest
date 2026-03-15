@@ -554,12 +554,8 @@ function renderHand() {
             canPlay = typeof canPlayHandEffect === 'function' ? canPlayHandEffect(card, p) : true;
         } else if (currentPhase === PHASE.LOCK) {
             const isSpecialColor = ['white', 'black', 'rainbow'].includes(card.colorId);
-            
-            // 2026/03/14 修正：collections[p.id] がない場合に備えて空配列を保証
-            const pColl = collections[p.id] || {};
-            const slotCards = pColl[card.colorId] || [];
-            
-            const hasCurse = slotCards.length > 0 ? slotCards.some(c => c.id === 34) : false;
+            const slotCards = collections[p.id] ? collections[p.id][card.colorId] : [];
+            const hasCurse = slotCards.some(c => c.id === 34);
             const isAlreadyLocked = !isSpecialColor && slotCards.length > 0 && !(hasCurse && slotCards.length < 3);
 
             if (card.type === "ETERNAL" || isSpecialColor || isAlreadyLocked) {
@@ -610,49 +606,26 @@ function renderHand() {
         if (typeof attachHoverEvents === 'function') attachHoverEvents(cardDiv, card);
         handEl.appendChild(cardDiv);
     });
-
-    /* 2026/03/14 修正：自分の手札枚数をオンライン同期 */
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        // 自分が操作しているプレイヤーのIDを特定
-        const myID = window.MULTIPLAY.playerNumber;
-        const myHandCount = (hands[myID] || []).length;
-        
-        const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-        // "handCount_1" または "handCount_2" という名前で枚数だけを保存
-        roomRef.update({
-            [`handCount_${myID}`]: myHandCount,
-            "lastUpdate": Date.now()
-        });
-    }
 }
 
 function renderStatus() { 
     if(!players) return;
     players.forEach(p => { 
-        const container = document.getElementById(`p${p.id}-status`);
-        const isMyTurn = (turn === players.indexOf(p)); 
+        const container = document.getElementById(`p${p.id}-status`), isMyTurn = (turn === players.indexOf(p)); 
+        const isHuman = (p.id === 1); 
 
         if (container) {
-            if (isMyTurn) container.classList.add("player-active-box"); 
-            else container.classList.remove("player-active-box"); 
+            if (isMyTurn) container.classList.add("player-active-box"); else container.classList.remove("player-active-box"); 
         }
         
-        /* 2026/03/14 追加：プレイヤー名とアイコンを同期反映 */
-        const nameEl = document.getElementById(`p${p.id}-name`);
-        if (nameEl) {
-            // Firebaseから届いた名前に書き換える
-            nameEl.textContent = p.name || `Player ${p.id}`;
-        }
-
         const rightsEl = document.getElementById(`p${p.id}-rights`);
         if (rightsEl) {
             rightsEl.innerHTML = '';
-            rightsEl.className = "flex items-center gap-1 mt-0.5"; 
+            rightsEl.className = "flex items-center gap-1 mt-0.5"; // レイアウト調整用クラス
 
-            // 1. プロフィール画像の反映
+            // 1. プロフィール画像の追加
             const profImg = document.createElement('img');
-            // Firebaseから届いたアイコンパスを使用（なければデフォルト）
-            const iconPath = p.icon || `images/character_00${p.id}.webp`;
+            const iconPath = p.icon || `images/character_00${p.id + 1}.webp`;
             profImg.src = iconPath;
             profImg.className = "w-6 h-6 rounded-full border border-gray-500 shadow-sm object-cover";
             rightsEl.appendChild(profImg);
@@ -661,8 +634,7 @@ function renderStatus() {
             const handInfo = document.createElement('div');
             //ステータスエリアの手札枚数のフォントサイズ
             handInfo.className = "flex items-center text-[12px] font-bold text-gray-300 mr-1";
-            // 2. 手札枚数の反映（同期された枚数を使う）
-            const handCount = (hands[p.id] || []).length;
+            const handCount = hands[p.id] ? hands[p.id].length : 0;
             handInfo.innerHTML = `
              <div class="w-4 h-4 mr-1 border border-gray-500 rounded-[2px] overflow-hidden shadow-sm opacity-80" 
              style="background-image: url('images/normal_card_back.webp'); background-size: cover; background-position: center;">
@@ -900,24 +872,12 @@ function renderDeckAndDiscard() {
     }
 }
 
-/**
- * 2026/03/14 修正：オンライン戦の操作権限に対応したフェイズ表示
- */
-/**
- * 2026/03/14 修正：オンライン戦の操作権限に対応（エラー防止版）
- */
 function updatePhaseIndicator() { 
     if(!players || !players[turn]) return;
-    const p = players[turn];
-    const textEl = document.getElementById('instruction-text');
-    const skipBtn = document.getElementById('skip-btn');
-    const stuckBtn = document.getElementById('stuck-btn'); 
-    const actionsContainer = document.getElementById('floating-actions');
-    const rxBtn = document.getElementById('reaction-skip-btn');
-    
+    const p = players[turn], textEl = document.getElementById('instruction-text'), skipBtn = document.getElementById('skip-btn'), stuckBtn = document.getElementById('stuck-btn'); 
+    const actionsContainer = document.getElementById('floating-actions'), rxBtn = document.getElementById('reaction-skip-btn');
     if(!textEl) return;
 
-    // 1. フェイズ表示の更新
     document.querySelectorAll('.phase-step').forEach(el => el.classList.remove('active', 'passed')); 
     if (currentPhase === PHASE.LOCK) document.getElementById('phase-lock').classList.add('active'); 
     else if (currentPhase === PHASE.HAND) { document.getElementById('phase-lock').classList.add('passed'); document.getElementById('phase-hand').classList.add('active'); } 
@@ -925,52 +885,27 @@ function updatePhaseIndicator() {
     
     if(actionsContainer) actionsContainer.classList.remove('hidden');
 
-    /* --- 【重要】操作権限の判定（変数名を一本化） --- */
-    let isForbiddenAction = false;
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        // オンライン戦：今の手番(p.id)が自分の番号と違えば禁止
-        isForbiddenAction = (p.id !== window.MULTIPLAY.playerNumber);
-    } else {
-        // 通常戦（CPU戦含む）：既存のP1固定フラグがあればそれに従う
-        isForbiddenAction = (typeof isP1HandOnlyView !== 'undefined' && isP1HandOnlyView && turn !== 0);
+    // After: 
+    // スキップボタンの非表示条件に「P1固定表示中 かつ P1以外のターン」を追加
+    const isForbiddenNonP1Action = isP1HandOnlyView && turn !== 0;
+    if(skipBtn) {
+        skipBtn.classList.toggle('hidden', selectionState.active || currentPhase === PHASE.MOVE || isForbiddenNonP1Action); 
     }
 
-    // 2. スキップボタンの表示制御
-    if(skipBtn) {
-        const shouldHide = selectionState.active || currentPhase === PHASE.MOVE || isForbiddenAction;
-        skipBtn.classList.toggle('hidden', shouldHide); 
-        if(currentPhase !== PHASE.MOVE) {
-            skipBtn.textContent = currentPhase === PHASE.LOCK ? "ロックしない" : "ムーブへ"; 
-        }
-    }
+    if(skipBtn && currentPhase !== PHASE.MOVE) skipBtn.textContent = currentPhase === PHASE.LOCK ? "ロックしない" : "ムーブへ"; 
     
-    // 3. 配置ボタンの表示制御
-    if(stuckBtn) {
-        const canPlace = (currentPhase === PHASE.MOVE && isStuck && !isPlacingCard && !p.baseMoveUsed);
-        stuckBtn.classList.toggle('hidden', selectionState.active || !canPlace || isForbiddenAction); 
-    }
+    // (以下、stuckBtn や textEl の処理は変更なし)
+    if(stuckBtn) stuckBtn.classList.toggle('hidden', selectionState.active || !(currentPhase === PHASE.MOVE && isStuck && !isPlacingCard && !p.baseMoveUsed)); 
     
-    // 4. 反応スルーボタン
     const anyAnytimeCard = players.some(pl => hands[pl.id] && hands[pl.id].some(c => c.handEffect?.anytime));
     if (rxBtn) {
-        if (anyAnytimeCard && !selectionState.active && !isForbiddenAction) { 
-            rxBtn.classList.remove('hidden'); 
-            rxBtn.textContent = `反応スルー: ${p.reactionSkip ? 'ON' : 'OFF'}`; 
-        } else { 
-            rxBtn.classList.add('hidden'); 
-        }
+        if (anyAnytimeCard && !selectionState.active) { rxBtn.classList.remove('hidden'); rxBtn.textContent = `反応スルー: ${p.reactionSkip ? 'ON' : 'OFF'}`; } else { rxBtn.classList.add('hidden'); }
     }
     
-    // 5. ガイドテキストの更新
-    if (winner) textEl.textContent = "勝者決定"; 
-    else if (isPlacingCard) textEl.textContent = "配置：場所タップ"; 
-    else if (selectionState.active) textEl.innerHTML = `<span class="text-yellow-400 font-bold animate-pulse">${selectionState.prompt}</span>`; 
-    else if (p.extraMoves > 0 && currentPhase === PHASE.MOVE && p.baseMoveUsed) textEl.innerHTML = `<span class="text-red-400 font-bold animate-pulse">追加移動権利：場所タップ</span>`;
-    else {
-        const actionName = currentPhase === PHASE.LOCK ? 'ロック可' : currentPhase === PHASE.HAND ? '手札使用' : '移動';
-        const colorClass = (p.color && p.color.bg) ? p.color.bg.replace('bg-', 'text-') : 'text-white';
-        textEl.innerHTML = `<span class="${colorClass}">${p.name}</span>: ${actionName}`;
-    }
+    if (winner) textEl.textContent = "勝者決定"; else if (isPlacingCard) textEl.textContent = "配置：場所タップ"; 
+    else if (selectionState.active) textEl.innerHTML = `<span class=\"text-yellow-400 font-bold animate-pulse\">${selectionState.prompt}</span>`; 
+    else if (p.extraMoves > 0 && currentPhase === PHASE.MOVE && p.baseMoveUsed) textEl.innerHTML = `<span class=\"text-red-400 font-bold animate-pulse\">追加移動権利：場所タップ</span>`;
+    else textEl.innerHTML = `<span class=\"${p.color.bg.replace('bg-', 'text-')}\">${p.name}</span>: ${currentPhase === PHASE.LOCK ? 'ロック可' : currentPhase === PHASE.HAND ? '手札使用' : '移動'}`;
 }
 
 function updateTimerVisual() {

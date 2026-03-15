@@ -1499,19 +1499,9 @@ function triggerAutoSelect() {
     
     // ★ 修正：isAutoAction(CPUの思考中) かつ P1 の場合のみ待機させる。
     // 「おまかせ」ボタンを手動で押した場合は isAutoAction が false なので、この下の処理に進めます。
-    /* 2026/03/15 修正：オンライン戦とオフラインCPU戦の自動選択判定を分離 */
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        // オンライン戦の場合：操作主(playerNumber)ではないプレイヤーの選択は待機
-        if (p.id !== window.MULTIPLAY.playerNumber) {
-            return; 
-        }
-    } else {
-        // オフライン（通常CPU戦）の場合：
-        // 手動操作中（isAutoAction=false）かつ P1 の時だけ待機させる
-        if (!isAutoAction && p.id === 1) {
-            addLog("プレイヤーの選択を待機中...");
-            return; 
-        }
+    if (isAutoAction && p.id === 1) {
+        addLog("プレイヤーの選択を待機中...");
+        return; 
     }
 
     // --- 以下、自動選択ロジック ---
@@ -2132,11 +2122,9 @@ function executeSelectionLogic(logic, selection, callback) {
 
                     const target = board[pos.y][pos.x];
                     if (!target.empty) {
-                        // 2026/03/14 修正：手札配列の存在を保証してから追加
+                        // 盤面での「表か裏か」の状態を、一時的にカードデータへ持たせる
                         const cardWithState = { ...target.color, revealed: target.revealed };
                         acquiredCards.push(cardWithState);
-
-                        if (!hands[p.id]) hands[p.id] = [];
                         hands[p.id].push(target.color);
                         if (target.stack && target.stack.length > 0) {
                             const topStack = target.stack.shift();

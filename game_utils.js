@@ -669,23 +669,3 @@ function emergencyStop(reason) {
 
     // ※ alert("...") は削除、またはコメントアウトしてください
 }
-
-/**
- * 2026/03/14 追加：盤面データを送信用の軽量形式に変換
- */
-function serializeBoard(boardData) {
-    const flatBoard = [];
-    boardData.forEach(row => {
-        row.forEach(cell => {
-            flatBoard.push({
-                x: cell.x,
-                y: cell.y,
-                cardID: cell.empty ? null : (cell.color.id),
-                revealed: cell.revealed,
-                empty: cell.empty,
-                stackIDs: (cell.stack || []).map(c => c.id)
-            });
-        });
-    });
-    return flatBoard;
-}

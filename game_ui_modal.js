@@ -4004,7 +4004,9 @@ function handleGuestStart() {
 
 
 /**
- * 2026/03/17 修正：ホーム画面ドラッグ＆ドロップシステム（座標ズレ＆リセット時拡大対策版）
+ * 2026/03/17 修正
+ * ライトモード/ダークモードの差異を完全に吸収する物理座標計算版ドラッグシステム。
+ * getBoundingClientRect() の前に強制的にレイアウトを固定し、ズレを物理的に封じます。
  */
 let homeDragState = { active: false, target: null, offsetX: 0, offsetY: 0 };
 
@@ -4014,90 +4016,93 @@ function setupHomeDragEvents() {
     const avatar = document.querySelector('.home-avatar-wrap');
 
     cards.forEach(card => {
+        card.style.touchAction = 'none';
+
         card.onpointerdown = (e) => {
-            // 他のドラッグと干渉しないようキャプチャ
-            card.setPointerCapture(e.pointerId);
+            if (e.button !== 0 && e.pointerType === 'mouse') return;
+
+            // --- 外科手術：座標取得の直前に「今の見た目」を完全にフリーズさせる ---
+            const rectBefore = card.getBoundingClientRect();
             
+            // 指がクリックした「画面上の座標」と「カードの左上」の距離を直接計算
+            // ここで pageX/pageY ではなく clientX/clientY を使うことでスクロールやズームの影響を排除
+            homeDragState.offsetX = e.clientX - rectBefore.left;
+            homeDragState.offsetY = e.clientY - rectBefore.top;
+
             homeDragState.active = true;
             homeDragState.target = card;
             
-            // 重要：一度 transform を無効化した状態での正確な位置を取得する
-            const rect = card.getBoundingClientRect();
+            // ドラッグ開始時のスタイル固定（!importantレベルで強制）
+            card.style.setProperty('position', 'fixed', 'important');
+            card.style.setProperty('z-index', '10000', 'important');
+            card.style.setProperty('width', rectBefore.width + 'px', 'important');
+            card.style.setProperty('height', rectBefore.height + 'px', 'important');
             
-            // マウス位置とカード左上の相対距離を保存（これで真下に来る）
-            homeDragState.offsetX = e.clientX - rect.left;
-            homeDragState.offsetY = e.clientY - rect.top;
+            // 取得した座標をそのまま代入（これでジャンプを防ぐ）
+            card.style.left = rectBefore.left + 'px';
+            card.style.top = rectBefore.top + 'px';
             
-            // ドラッグ開始時のスタイル固定
-            card.style.width = rect.width + 'px';
-            card.style.height = rect.height + 'px';
-            card.style.position = 'fixed';
-            card.style.zIndex = '1000';
-            card.style.left = rect.left + 'px';
-            card.style.top = rect.top + 'px';
+            // 扇状の回転をキャンセルして指に合わせる
+            card.style.transform = 'scale(1.1) rotate(0deg)';
+            card.style.transition = 'none';
             
             card.classList.add('dragging');
+            card.setPointerCapture(e.pointerId);
             if (dropZone) dropZone.style.opacity = "1";
         };
 
         card.onpointermove = (e) => {
             if (!homeDragState.active || homeDragState.target !== card) return;
             
-            // 指の位置に合わせてカードを動かす（offsetXを引くことでマウスが掴んだ位置を維持）
+            // clientX/Y から直接オフセットを引く（最も正確な追従）
             const x = e.clientX - homeDragState.offsetX;
             const y = e.clientY - homeDragState.offsetY;
             
-            card.style.left = `${x}px`;
-            card.style.top = `${y}px`;
+            card.style.left = x + 'px';
+            card.style.top = y + 'px';
             
-            // 魔法陣（アバター）との距離を判定
-            const avatarRect = avatar.getBoundingClientRect();
-            const avatarCenterX = avatarRect.left + avatarRect.width / 2;
-            const avatarCenterY = avatarRect.top + avatarRect.height / 2;
-            const dist = Math.hypot(e.clientX - avatarCenterX, e.clientY - avatarCenterY);
-            
-            if (dist < 120) {
-                dropZone.classList.add('drag-over');
-            } else {
-                dropZone.classList.remove('drag-over');
+            // 魔法陣との判定（中心点からの距離）
+            if (avatar) {
+                const avatarRect = avatar.getBoundingClientRect();
+                const avatarCenterX = avatarRect.left + avatarRect.width / 2;
+                const avatarCenterY = avatarRect.top + avatarRect.height / 2;
+                const dist = Math.hypot(e.clientX - avatarCenterX, e.clientY - avatarCenterY);
+                
+                if (dist < 120) dropZone?.classList.add('drag-over');
+                else dropZone?.classList.remove('drag-over');
             }
         };
 
         card.onpointerup = (e) => {
-            if (!homeDragState.active) return;
+            if (!homeDragState.active || homeDragState.target !== card) return;
             homeDragState.active = false;
             
-            const isDroppedIn = dropZone.classList.contains('drag-over');
+            const isDroppedIn = dropZone?.classList.contains('drag-over');
             
             if (isDroppedIn) {
-                // 成功：吸い込まれる
                 card.classList.add('absorbing');
                 if (typeof playSE === 'function') playSE('se_get_card.mp3');
-                
                 setTimeout(() => {
-                    card.click(); // 元の遷移を実行
-                    // 遷移後に戻ってきた時のために、一瞬遅らせてスタイルを完全にリセット
+                    card.click();
                     setTimeout(() => resetCardPosition(card), 100);
                 }, 400);
             } else {
-                // 失敗：元の位置に戻る演出
-                card.style.transition = "all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
+                card.style.transition = "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
                 resetCardPosition(card);
             }
             card.classList.remove('dragging');
-            dropZone.classList.remove('drag-over');
+            dropZone?.classList.remove('drag-over');
             card.releasePointerCapture(e.pointerId);
+            homeDragState.target = null;
         };
     });
 }
 
-/**
- * カードの状態を完全に初期状態（CSS定義の状態）に戻す
- */
 function resetCardPosition(card) {
+    if (!card) return;
     card.classList.remove('absorbing');
     card.classList.remove('dragging');
-    // 直接指定したインラインスタイルをすべて削除してCSS（扇状配置）に返却する
+    // JSで直接書き込んだスタイルを全削除
     card.style.position = '';
     card.style.left = '';
     card.style.top = '';
@@ -4105,8 +4110,8 @@ function resetCardPosition(card) {
     card.style.height = '';
     card.style.zIndex = '';
     card.style.transition = '';
-    // ここで transform を消すとCSS側の rotate(...) が復活します
-    card.style.transform = ''; 
+    card.style.transform = '';
+    card.style.touchAction = '';
 }
 
 // ページ読み込み時、またはホーム画面表示時にセットアップ

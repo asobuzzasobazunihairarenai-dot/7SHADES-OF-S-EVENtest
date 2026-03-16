@@ -34,8 +34,13 @@
 }
 
 /* --- 追加箇所：テスト設定パネルなどの背景をライトモード時に白くする --- */
-.light-mode .bg-gray-800,
-.light-mode .bg-gray-700 {
+/**
+ * 2026/03/17 修正
+ * ドラッグ中のカードに対してライトモードの強制色ルールが干渉しないよう、
+ * :not(.dragging) を追加。
+ */
+.light-mode .bg-gray-800:not(.dragging),
+.light-mode .bg-gray-700:not(.dragging) {
     background-color: var(--bg-app) !important;
     color: var(--text-main) !important;
 }
@@ -1872,6 +1877,11 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     padding: 10px;
     box-shadow: 0 10px 20px rgba(0,0,0,0.3);
     transform-origin: bottom center;
+}
+
+/* ドラッグ中および吸い込み中、座標固定中はアニメーションを完全にオフにする */
+.menu-card.dragging {
+    transition: none !important;
 }
 
 /* 正方形に合わせて扇の広がりを微調整 */

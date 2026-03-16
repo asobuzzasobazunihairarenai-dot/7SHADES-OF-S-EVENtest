@@ -56,11 +56,13 @@ function showPlayerSelection() {
 /**
  * セットアップ画面（プレイ人数選択）の表示
  */
+/**
+ * 2026/03/17 修正
+ * ゲームリセット時、タイトル画面ではなく、新しく実装した「ホーム画面」に戻るように修正。
+ */
 function showSetup() {
-    window.FORCED_CPU_MODE = false; // フラグ解除
-    // ※ window.isProfileSet = false; は実行しない（名前設定を維持するため）
+    window.FORCED_CPU_MODE = false; 
 
-    // BGMの停止処理
     if (window.gameBGM) {
         window.gameBGM.pause();
         window.gameBGM.currentTime = 0;
@@ -69,21 +71,30 @@ function showSetup() {
 
     if (typeof cleanupGame === 'function') cleanupGame();
 
-    const titleEl = document.getElementById('title-overlay');
-    const setupEl = document.getElementById('setup-overlay');
-    const winnerOverlay = document.getElementById('winner-overlay');
-    const profileModal = document.getElementById('profile-setup-modal');
-    
-    // 画面の初期化：タイトル画面のみ表示し、他を隠す
-    if (titleEl) titleEl.classList.remove('hidden');
-    if (setupEl) setupEl.classList.add('hidden');
-    if (winnerOverlay) winnerOverlay.classList.add('hidden');
-    if (profileModal) profileModal.classList.add('hidden');
+    // --- 外科手術：新ホーム画面を表示し、他の全オーバーレイを隠す ---
+    const overlays = {
+        'home-screen': false,   // false = remove 'hidden'
+        'title-overlay': true,  // true = add 'hidden'
+        'setup-overlay': true,
+        'cpu-setup-overlay': true,
+        'winner-overlay': true,
+        'profile-setup-modal': true
+    };
 
-    // 既存のUI初期化処理（そのまま継続）
-    if (document.getElementById('my-lock-container')) document.getElementById('my-lock-container').classList.add('hidden');
-    if (document.getElementById('hand-area-container')) document.getElementById('hand-area-container').classList.add('hidden');
-    // ...以降のコードは既存のものを維持してください...
+    Object.entries(overlays).forEach(([id, shouldHide]) => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (shouldHide) {
+                el.classList.add('hidden');
+                el.style.display = 'none';
+            } else {
+                el.classList.remove('hidden');
+                el.style.display = 'flex'; // ホーム画面は flex で表示
+            }
+        }
+    });
+
+    // 以降のボード初期化処理などはそのまま維持
 
     const boardEl = document.getElementById('board-grid');
     if (boardEl) boardEl.innerHTML = '';
@@ -609,10 +620,20 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
     
     modal.style.zIndex = "150";
 
+    /**
+ * 2026/03/17 修正
+ * 割り込み処理等の影響でキャンセルボタンが非表示のまま残る不具合を解消するため、
+ * モーダル表示時に明示的に hidden クラスの状態を再設定するよう強化。
+ */
     const cancelBtn = document.getElementById('detail-cancel-btn'); 
     if(cancelBtn) {
         cancelBtn.textContent = "キャンセル"; 
-        cancelBtn.classList.toggle('hidden', hideCancel); 
+        // 外科手術：hideCancelが指定されていない限り、確実に表示されるようにする
+        if (hideCancel) {
+            cancelBtn.classList.add('hidden');
+        } else {
+            cancelBtn.classList.remove('hidden');
+        }
         cancelBtn.onclick = closeDetailModal; 
     }
     document.getElementById('detail-title').textContent = title; 
@@ -840,7 +861,25 @@ function closeDetailModal() {
  * 2026/03/17 修正
  * CPU戦において、CPUが操作主である場合に人間用の選択モーダルが表示されないよう判定を強化。
  */
+/**
+ * 2026/03/17 修正
+ * 選択完了時、もし手札効果のフラグが残っていたら安全のためにリセットし、
+ * 次のモーダルでキャンセルボタンが消えるのを防止。
+ */
 function showSelectionModal(title, dummy, source, back, count, onComplete, isBlind = false, cancelCallback = null, autoBtnText = null, restrictedCells = null, actingPlayer = null) { 
+
+    // 元のコールバックをラップして、終了時にフラグを掃除する
+    const originalOnComplete = onComplete;
+    const safeOnComplete = (selectedCards) => {
+        // 選択が終わった＝そのカードの効果の山場は越えたと判断し、
+        // 他のモーダルに影響が出ないようフラグを倒す
+        if (title !== "手札破棄" && title !== "コスト支払い") {
+            isHandEffectProcessing = false;
+        }
+        if (originalOnComplete) originalOnComplete(selectedCards);
+    };
+    
+    // 以降、関数の引数の onComplete を safeOnComplete に差し替えて処理... 
     
     // --- 外科手術：操作主がCPU(IDが1以外)なら、モーダルを出さずに自動選択へ飛ばす ---
     const selector = actingPlayer || players[turn];
@@ -1591,8 +1630,14 @@ function triggerAutoSelect(isManualClick = false) {
 
                 // 2. プレイヤー位置関連・特殊保護ロジック
                 const isSelfOn = (p.x === pos.x && p.y === pos.y);
-                const isGainLogic = (selectionState.logic === 'add_all_to_hand' || selectionState.logic === 'add_to_hand');
-                const isDestroyLogic = (selectionState.logic === 'destroy_all' || selectionState.logic === 'destroy_top');
+                /** 2026/03/17 修正
+                 * AIのスコア計算対象に「民の道」の新しいロジック名を追加し、NaNエラーを防止。
+                 */
+                const L = selectionState.logic;
+                const isGainLogic = (L === 'add_all_to_hand' || L === 'add_to_hand');
+                const isDestroyLogic = (L === 'destroy_all' || L === 'destroy_top');
+                // 移動系ロジック（民の道など）の判定を追加
+                const isMoveLogic = (L === 'civil_path_select_cards' || L === 'civil_path_select_dest' || L === 'civil_path_step1_dummy' || L === 'civil_path_step2_dummy');
 
                 // ★【追加】ゲート侵攻の踏み台保護ロジック
                 const isEnemyGate = enemyGatePos.some(eg => eg.x === pos.x && eg.y === pos.y);
@@ -1796,12 +1841,39 @@ function handleSelection(x, y) {
     selectionState.current++; 
     renderBoard(); 
     
-    if (selectionState.current >= selectionState.count) {
+    /**
+ * 2026/03/17 修正
+ * 空きマスが指定数(count)より少ない場合でも、選択可能な全マスを選んだ時点で
+ * 自動的に確定処理へ進むよう修正（民の道の建設などの詰まりを解消）。
+ */
+    // 1. 現在の選択数と目標数をチェック
+    const isTargetReached = selectionState.current >= selectionState.count;
+
+    // 2. 「これ以上選べるマスがあるか」をチェック
+    let hasMoreSelectable = false;
+    for (let iy = 0; iy < GRID_SIZE; iy++) {
+        for (let ix = 0; ix < GRID_SIZE; ix++) {
+            // まだ選んでいない、かつ選択可能なマスが1つでもあれば true
+            const alreadySelected = selectionState.selected.some(s => s.x === ix && s.y === iy);
+            if (!alreadySelected && isCellSelectable(ix, iy)) {
+                hasMoreSelectable = true;
+                break;
+            }
+        }
+        if (hasMoreSelectable) break;
+    }
+
+    // 「目標達成」または「これ以上選べるマスがない」なら確定
+    if (isTargetReached || !hasMoreSelectable) {
         const sel = [...selectionState.selected];
         const L = selectionState.logic, cb = selectionState.callback, actingP = selectionState.actingPlayer; 
+        
         cancelSelection(true); 
         selectionState.actingPlayer = actingP; 
-        if (typeof executeSelectionLogic === 'function') executeSelectionLogic(L, sel, cb);
+        
+        if (typeof executeSelectionLogic === 'function') {
+            executeSelectionLogic(L, sel, cb);
+        }
     }
 }
 
@@ -3826,15 +3898,24 @@ document.addEventListener('DOMContentLoaded', () => {
  * 2026/03/06 修正
  * ホーム画面からタイトルオーバーレイ（START GAME画面）に戻る処理。
  */
+/**
+ * 2026/03/17 修正
+ * リセット処理で強制非表示(display:none)になったタイトル画面を
+ * 確実に再表示できるよう、スタイルプロパティを直接操作して復旧する。
+ */
 function backToTitle() {
     const homeScreen = document.getElementById('home-screen');
     const titleOverlay = document.getElementById('title-overlay');
     
     if (homeScreen && titleOverlay) {
-        // ホーム画面を隠す
+        // 1. ホーム画面を確実に隠す
         homeScreen.classList.add('hidden');
-        // タイトル画面を表示する
+        homeScreen.style.display = 'none';
+
+        // 2. タイトル画面を確実に表示する
+        // 外科手術：classListだけでなく、直接 style.display を空に（または flex に）戻す
         titleOverlay.classList.remove('hidden');
+        titleOverlay.style.display = 'flex'; 
         
         // 念のため、初期化フラグなどもリセットが必要であればここで行います
         window.isProfileSet = false; 

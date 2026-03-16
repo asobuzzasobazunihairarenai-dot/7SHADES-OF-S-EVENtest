@@ -1057,9 +1057,19 @@ function updateProfileButtonVisual() {
         img.src = targetSrc;
     });
 
-    // 3. ホーム画面の名前表示
+    /** 2026/03/17 修正：ホーム画面の名前、ランク、および称号を同期 **/
     if (homeName && userProfile.name) {
         homeName.textContent = userProfile.name;
+    }
+
+    const homeTitle = document.getElementById('home-user-title');
+    if (homeTitle && userProfile.selectedTitle) {
+        homeTitle.textContent = `称号: ${userProfile.selectedTitle}`;
+    }
+
+    const homeRank = document.getElementById('home-rank-num');
+    if (homeRank) {
+        homeRank.textContent = userProfile.rank || 1;
     }
 
     // 4. ログへの反映（任意：必要なら）

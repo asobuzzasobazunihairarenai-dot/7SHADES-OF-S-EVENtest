@@ -300,9 +300,20 @@ function canPlayHandEffect(card, p) {
                     targetCell.stack = [];
                 });
 
+                /** 2026/03/17 修正
+                 * 1. 存在しない変数名 onSuccess による ReferenceError を修正。
+                 * 2. callback が存在する場合のみ実行するように安全策を講じる。
+                 */
                 addLog(`${p.name} が民の道を建設し、カードを再配置しました。`);
                 renderBoard();
-                onSuccess();
+                
+                // 外科手術：このスコープで利用可能な callback (selDests の親から引き継いだもの) を呼び出す
+                // 手札効果の場合、通常は引数の末尾にある callback 等を適切に参照する必要があります
+                if (typeof callback === 'function') {
+                    callback();
+                } else if (typeof onSuccess === 'function') {
+                    onSuccess();
+                }
 
             }, 0, null, true, p, false, null, "おまかせ", null, p); 
             // ↑ ここの判定用ID 'civil_path_select_dest' を game_ui_modal.js 側で「全空マスOK」にする必要があります
@@ -2449,7 +2460,10 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                     hands[victim.id].splice(handIdx, 1);
                 }
 
-                /** 2026/03/09 修正：呪われた履歴を統計に記録 **/
+                /** 2026/03/17 修正
+                 * 呪いの処理完了後に勝手にフェイズが移行（ハンドフェイズのスキップ）しないよう
+                 * onSuccess の呼び出し方を調整。
+                 */
                 collections[victim.id][targetCol.id].push(contextCard);
                 addLog(`${victim.name}の${targetCol.name}が呪われた！`);
 
@@ -2457,7 +2471,13 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 matchStats.wasCursed[victim.id] = true;
                 
                 renderStatus();
-                if (onSuccess) onSuccess({ preventGain: true }); 
+
+                // 外科手術：onSuccess を呼ぶ前に、この処理が「ロックフェイズ中の割り込み」であることを考慮
+                if (onSuccess) {
+                    // preventPhaseNext フラグ（もしあれば）を立てるか、
+                    // 単純に「獲得処理だけを止める」指示を出して、フェイズ移行は本体(game_core)の判断に任せる
+                    onSuccess({ preventGain: true, stayInPhase: true }); 
+                } 
             }, false, null, null, null, victim); // 被害者(victim)を actingPlayer に指定
         } else {
             addLog(`空きスロットがないため、呪いは${victim.name}の手札に入った。`);

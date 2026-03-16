@@ -210,45 +210,49 @@
     </div>
 </div>
 
-<div id="home-screen" class="hidden absolute inset-0 z-50 flex flex-col items-center justify-center overlay rounded-xl bg-gray-950 p-4">
-    <div class="w-full max-w-xs space-y-4">
-        <div class="flex items-center gap-3 mb-6 bg-gray-800/50 p-3 rounded-2xl border border-gray-700">
-            <img class="profile-button-icon-img w-12 h-12 rounded-full border-2 border-yellow-500 object-cover" src="images/piece_001.png">
-            <div>
-                <div class="text-xs font-bold text-gray-400 uppercase tracking-tighter">Welcome back</div>
-                <div id="home-user-name" class="text-lg font-black text-white leading-none">Player 1</div>
+<div id="home-screen" class="hidden absolute inset-0 z-50 overlay rounded-xl p-4">
+    <div class="magic-circle"></div>
+
+    <div class="w-full h-full flex flex-col items-center relative z-10">
+        
+        <div class="home-avatar-wrap mt-8" onclick="showUserProfileModal()">
+            <img class="profile-button-icon-img w-20 h-20 rounded-full border-4 border-yellow-500 shadow-2xl object-cover" src="images/piece_001.png">
+            <div class="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-yellow-500 text-gray-900 text-[10px] font-black px-3 py-0.5 rounded-full shadow-lg">
+                RANK <span id="home-rank-num">1</span>
+            </div>
+        </div>
+        
+        <div class="text-center mb-2">
+            <div id="home-user-name" class="text-xl font-black text-white tracking-tighter drop-shadow-md">Player 1</div>
+            <div id="home-user-title" class="text-[10px] text-yellow-500 font-bold tracking-[0.1em] italic drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] mt-1">
+                称号: 駆け出しの旅人
+            </div>
+            <div class="text-[8px] text-gray-500 font-bold tracking-[0.3em] uppercase opacity-60 mt-1">Master of Shades</div>
+        </div>
+
+        <div class="fan-menu-container">
+            <div class="menu-card card-cpu" onclick="showCpuBattleSelection()">
+                <span class="menu-card-icon">⚔️</span>
+                <span class="menu-card-label text-gray-800">CPU<br>BATTLE</span>
+            </div>
+            <div class="menu-card card-online" onclick="showOnlineMenu()">
+                <span class="menu-card-icon">🌐</span>
+                <span class="menu-card-label text-gray-800">ONLINE<br>MATCH</span>
+            </div>
+            <div class="menu-card card-practice" onclick="startPracticeGame()">
+                <span class="menu-card-icon">🔰</span>
+                <span class="menu-card-label text-gray-800">PRACTICE<br>EASY</span>
+            </div>
+            <div class="menu-card card-rules" onclick="showRules()">
+                <span class="menu-card-icon">📜</span>
+                <span class="menu-card-label text-gray-800">GAME<br>RULES</span>
             </div>
         </div>
 
-        <div class="grid grid-cols-1 gap-2">
-            <button onclick="showCpuBattleSelection()" class="w-full py-4 bg-gray-700 hover:bg-gray-600 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2">
-                <span>🤖</span> CPU戦
-            </button>
-            
-            <button onclick="showOnlineMenu()" class="w-full py-4 bg-yellow-600 hover:bg-yellow-500 text-black font-black rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 border-2 border-white">
-                <span>⚔️</span> オンライン対戦
-            </button>
-            <button onclick="startPracticeGame()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 text-sm">
-                <span>🔰</span> 練習 <span class="text-[9px] opacity-70">2P / EASY</span>
-            </button>
+        <div class="mt-auto w-full grid grid-cols-2 gap-3 mb-4">
+            <button onclick="showSettings()" class="py-2.5 bg-white/5 hover:bg-white/10 text-white rounded-lg border border-white/20 transition-all text-[10px] font-bold backdrop-blur-sm">設定 / OPTION</button>
+            <button onclick="backToTitle()" class="py-2.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 rounded-lg border border-red-900/30 transition-all text-[10px] font-bold backdrop-blur-sm">タイトルへ戻る</button>
         </div>
-
-        <div class="grid grid-cols-2 gap-2">
-            <button onclick="showUserProfileModal()" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">プロフィール</button>
-            <button onclick="showSettings()" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">設定</button>
-            <button onclick="showRules()" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">ルール確認</button>
-            <button onclick="alert('チュートリアルは準備中です')" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">チュートリアル</button>
-        </div>
-
-        <button onclick="alert('最新のお知らせはありません')" class="w-full py-2 text-gray-500 hover:text-gray-300 text-[10px] font-bold tracking-widest uppercase transition-all">
-            — Notifications —
-        </button>
-
-        <button onclick="backToTitle()" class="w-full py-2 mt-4 text-red-500/70 hover:text-red-500 text-[10px] font-bold tracking-widest uppercase transition-all border-t border-gray-800 pt-4">
-            BACK TO TITLE
-        </button>
-
-
     </div>
 </div>
 

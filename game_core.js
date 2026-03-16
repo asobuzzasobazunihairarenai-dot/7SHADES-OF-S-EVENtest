@@ -2480,6 +2480,20 @@ async function initGameInternal(num, isTest = false) {
     if (toggle) toggle.checked = isLightMode;
 
     const preservedTestCards = isTest ? [...(testSelectedCards || [])] : null;
+
+    /**
+     * 2026/03/17 修正
+     * ゲーム開始時に新ホーム画面を含む全てのメニューUIを強制的に非表示にする。
+     */
+    const menuUI = ['home-screen', 'title-overlay', 'setup-overlay', 'cpu-setup-overlay', 'test-mode-modal', 'profile-setup-modal'];
+    menuUI.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.classList.add('hidden');
+            // クラスだけでなく直接スタイルでも非表示をダメ押し
+            el.style.display = 'none'; 
+        }
+    });
      
     /** 2026/03/04 修正：cleanupGameによるリセット直後にHTMLから全設定を再ロードする **/
     cleanupGame(); 
@@ -3821,10 +3835,12 @@ function updateProfileAfterGame(winnerId) {
         // console.log(`[MVP Sync] ${topCardName} (Total: ${maxUsageVal}回)`);
     }
     
-    /* 2026/03/13 修正：対局終了時にクラウド同期を実行（二刀流の完成） */
+    /* 2026/03/17 修正：未定義の変数 overallMaxCount を maxUsageVal に修正し、リファレンスエラーを解消 */
     // 5. ローカルに保存
     saveUserProfile();
-    console.log(`[Stats Update] MVP: ${userProfile.stats.mvpCard}, Total: ${overallMaxCount}回`);
+    
+    // 特定された最高使用回数(maxUsageVal)を使用してログを出力
+    console.log(`[Stats Update] MVP: ${userProfile.stats.mvpCard}, Total: ${maxUsageVal}回`);
 
     // 6. クラウドに同期（ログイン済みの場合のみ内部で実行されます）
     if (typeof syncProfileToCloud === 'function') {

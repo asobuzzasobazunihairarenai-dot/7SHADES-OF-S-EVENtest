@@ -46,62 +46,74 @@ auth.onAuthStateChanged(user => {
 });
 
 /* Googleログイン処理 */
+/**
+ * 2026/03/17 修正
+ * すでに自動ログインが完了している場合に signInWithPopup を重ねて実行しないようガードを追加。
+ * また、ポップアップがブロックされる環境への対策としてエラー判定を緩和。
+ */
 async function loginWithGoogle() {
+    // 外科手術：すでにログイン済み（auth.currentUserが存在する）なら、認証をスキップしてホームへ
+    if (auth.currentUser) {
+        addLog("すでにログインしています。ホーム画面へ移動します...");
+        finalizeLoginUI(auth.currentUser);
+        return;
+    }
+
     const provider = new firebase.auth.GoogleAuthProvider();
     let loginSuccess = false; 
 
     try {
+        // ポップアップを試行
         const result = await auth.signInWithPopup(provider);
         const user = result.user;
-
-        // 1. Googleの基本情報を反映
-        userProfile.name = user.displayName || userProfile.name;
-        if (user.photoURL) {
-            userProfile.icon = user.photoURL;
-        }
-        userProfile.isLoggedIn = true;
-        userProfile.uid = user.uid;
-
-        // 2. ★追加：クラウド（Firestore）から過去の戦績をロード
-        addLog(`データを同期中...`);
-        if (typeof loadProfileFromCloud === 'function') {
-            await loadProfileFromCloud(); // ここで過去の勝利数やランクが userProfile に上書きされます
-        }
-
-        // 3. ローカル保存とUI更新
-        saveUserProfile();
-        if (typeof updateProfileButtonVisual === 'function') {
-            updateProfileButtonVisual(); 
-        }
-        
-        // 4. 全ての同期が完了してから「成功」とする
-        loginSuccess = true; 
-        
-        // 5. 画面遷移
-        const titleOverlay = document.getElementById('title-overlay');
-        const setupOverlay = document.getElementById('setup-overlay');
-        const homeScreen = document.getElementById('home-screen');
-
-        if (titleOverlay) titleOverlay.classList.add('hidden');
-        if (setupOverlay) setupOverlay.classList.add('hidden'); 
-        
-        if (homeScreen) {
-            homeScreen.classList.remove('hidden');
-            const nameDisplay = document.getElementById('home-user-name');
-            if (nameDisplay) nameDisplay.textContent = userProfile.name;
-        }
-
-        addLog(`${userProfile.name} としてログイン。おかえりなさい！`); 
+        await finalizeLoginUI(user);
         
     } catch (error) {
         console.error("Login Error Details:", error);
+        
+        // すでにログイン監視(onAuthStateChanged)側で成功している場合はエラーを無視
+        if (userProfile.isLoggedIn) return;
 
-        if (loginSuccess) return;
-
-        if (error.code !== 'auth/popup-closed-by-user' && error.code !== 'auth/cancelled-popup-request') {
-            alert("ログイン処理中に通知がありました。反映状況を確認してください。");
+        // ポップアップが閉じられた・ブロックされた場合の処理
+        if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+            addLog("ログインが中断されました。再度お試しください。");
+        } else {
+            alert("ログインに失敗しました。通信環境やブラウザのポップアップ設定を確認してください。");
         }
     }
+}
+
+/**
+ * ログイン成功後の共通処理（内部用）
+ */
+async function finalizeLoginUI(user) {
+    userProfile.name = user.displayName || userProfile.name;
+    if (user.photoURL) userProfile.icon = user.photoURL;
+    userProfile.isLoggedIn = true;
+    userProfile.uid = user.uid;
+
+    if (typeof loadProfileFromCloud === 'function') {
+        await loadProfileFromCloud();
+    }
+
+    saveUserProfile();
+    if (typeof updateProfileButtonVisual === 'function') updateProfileButtonVisual(); 
+    
+    // 画面遷移
+    const titleOverlay = document.getElementById('title-overlay');
+    const homeScreen = document.getElementById('home-screen');
+    
+    if (titleOverlay) {
+        titleOverlay.classList.add('hidden');
+        titleOverlay.style.display = 'none';
+    }
+    if (homeScreen) {
+        homeScreen.classList.remove('hidden');
+        homeScreen.style.display = 'flex';
+        const nameDisplay = document.getElementById('home-user-name');
+        if (nameDisplay) nameDisplay.textContent = userProfile.name;
+    }
+    addLog(`${userProfile.name} としてログインしました。`);
 }
 
 /**

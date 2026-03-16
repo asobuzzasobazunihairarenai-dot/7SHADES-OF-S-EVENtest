@@ -1767,6 +1767,8 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     border-color: rgba(255,255,255,0.5) !important;
 }
 
+
+
 /**
  * 2026/03/17 修正：ホーム画面のファンタジー・リデザイン
  * 魔法陣の回転、扇状レイアウト、水彩調カードメニューのスタイルを定義。
@@ -1878,18 +1880,32 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 .card-practice { transform: rotate(10deg)  translateX(40px)   translateY(5px);  z-index: 30; }
 .card-rules    { transform: rotate(30deg)  translateX(110px)  translateY(-10px); z-index: 10; }
 
-.menu-card:hover {
-    transform: translateY(-20px) scale(1.1) !important;
-    z-index: 50 !important;
+/**
+ * 2026/03/17 修正：ホバー時のワープ現象を修正。
+ * 各カードの基本配置(transform)を維持しつつ、浮き上がるように個別に定義。
+ */
+
+/* CPU戦カード */
+.card-cpu { transform: rotate(-30deg) translateX(-110px) translateY(-10px); z-index: 10; }
+.card-cpu:hover:not(.dragging) { transform: rotate(-30deg) translateX(-110px) translateY(-30px) scale(1.1) !important; z-index: 50 !important; }
+
+/* オンラインカード */
+.card-online { transform: rotate(-10deg) translateX(-40px) translateY(5px); z-index: 20; }
+.card-online:hover:not(.dragging) { transform: rotate(-10deg) translateX(-40px) translateY(-15px) scale(1.1) !important; z-index: 50 !important; }
+
+/* 練習カード */
+.card-practice { transform: rotate(10deg) translateX(40px) translateY(5px); z-index: 30; }
+.card-practice:hover:not(.dragging) { transform: rotate(10deg) translateX(40px) translateY(-15px) scale(1.1) !important; z-index: 50 !important; }
+
+/* ルールカード */
+.card-rules { transform: rotate(30deg) translateX(110px) translateY(-10px); z-index: 10; }
+.card-rules:hover:not(.dragging) { transform: rotate(30deg) translateX(110px) translateY(-30px) scale(1.1) !important; z-index: 50 !important; }
+
+/* 共通のホバースタイル（transform以外） */
+.menu-card:hover:not(.dragging) {
     border-color: #fbbf24;
     box-shadow: 0 15px 30px rgba(234, 179, 8, 0.4);
 }
-
-/* 扇状に開くための各カードの角度設定 */
-.card-cpu { transform: rotate(-25deg) translateX(-100px); z-index: 10; }
-.card-online { transform: rotate(-10deg) translateX(-35px); z-index: 20; }
-.card-practice { transform: rotate(10deg) translateX(35px); z-index: 30; }
-.card-rules { transform: rotate(25deg) translateX(100px); z-index: 10; }
 
 /* カード内のアイコンとテキスト */
 .menu-card-icon { font-size: 24px; margin-bottom: 8px; }
@@ -1909,4 +1925,34 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     border: 2px solid rgba(234, 179, 8, 0.5);
     border-radius: 50%;
     animation: pulse-ring 3s infinite;
+}
+
+/**
+ * 2026/03/17 修正：ドラッグ＆ドロップ操作用の演出設定
+ */
+
+/* ドラッグ中のカードの状態 */
+.menu-card.dragging {
+    opacity: 0.8;
+    transform: scale(1.1) rotate(0deg) !important; /* 角度をリセットして指に合わせる */
+    z-index: 1000 !important;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+    pointer-events: none; /* ドラッグ中は背後の魔法陣判定を邪魔しない */
+    transition: transform 0.05s linear !important; /* 指への追従性を高める */
+}
+
+/* 魔法陣の「受け入れ準備」状態 */
+.magic-circle.drag-over {
+    filter: drop-shadow(0 0 30px rgba(234, 179, 8, 1));
+    transform: translate(-50%, -50%) scale(1.2) rotate(var(--current-rotate, 0deg));
+    opacity: 1;
+}
+
+/* 吸い込まれるアニメーション */
+@keyframes card-absorb {
+    0% { transform: scale(1.1); opacity: 1; }
+    100% { transform: scale(0); opacity: 0; filter: brightness(3); }
+}
+.menu-card.absorbing {
+    animation: card-absorb 0.4s ease-in forwards;
 }

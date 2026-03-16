@@ -4000,3 +4000,117 @@ function handleGuestStart() {
         cancelBtn.textContent = "Googleログインへ";
     }
 }
+
+
+
+/**
+ * 2026/03/17 修正：ホーム画面ドラッグ＆ドロップシステム（座標ズレ＆リセット時拡大対策版）
+ */
+let homeDragState = { active: false, target: null, offsetX: 0, offsetY: 0 };
+
+function setupHomeDragEvents() {
+    const cards = document.querySelectorAll('.menu-card');
+    const dropZone = document.querySelector('.magic-circle');
+    const avatar = document.querySelector('.home-avatar-wrap');
+
+    cards.forEach(card => {
+        card.onpointerdown = (e) => {
+            // 他のドラッグと干渉しないようキャプチャ
+            card.setPointerCapture(e.pointerId);
+            
+            homeDragState.active = true;
+            homeDragState.target = card;
+            
+            // 重要：一度 transform を無効化した状態での正確な位置を取得する
+            const rect = card.getBoundingClientRect();
+            
+            // マウス位置とカード左上の相対距離を保存（これで真下に来る）
+            homeDragState.offsetX = e.clientX - rect.left;
+            homeDragState.offsetY = e.clientY - rect.top;
+            
+            // ドラッグ開始時のスタイル固定
+            card.style.width = rect.width + 'px';
+            card.style.height = rect.height + 'px';
+            card.style.position = 'fixed';
+            card.style.zIndex = '1000';
+            card.style.left = rect.left + 'px';
+            card.style.top = rect.top + 'px';
+            
+            card.classList.add('dragging');
+            if (dropZone) dropZone.style.opacity = "1";
+        };
+
+        card.onpointermove = (e) => {
+            if (!homeDragState.active || homeDragState.target !== card) return;
+            
+            // 指の位置に合わせてカードを動かす（offsetXを引くことでマウスが掴んだ位置を維持）
+            const x = e.clientX - homeDragState.offsetX;
+            const y = e.clientY - homeDragState.offsetY;
+            
+            card.style.left = `${x}px`;
+            card.style.top = `${y}px`;
+            
+            // 魔法陣（アバター）との距離を判定
+            const avatarRect = avatar.getBoundingClientRect();
+            const avatarCenterX = avatarRect.left + avatarRect.width / 2;
+            const avatarCenterY = avatarRect.top + avatarRect.height / 2;
+            const dist = Math.hypot(e.clientX - avatarCenterX, e.clientY - avatarCenterY);
+            
+            if (dist < 120) {
+                dropZone.classList.add('drag-over');
+            } else {
+                dropZone.classList.remove('drag-over');
+            }
+        };
+
+        card.onpointerup = (e) => {
+            if (!homeDragState.active) return;
+            homeDragState.active = false;
+            
+            const isDroppedIn = dropZone.classList.contains('drag-over');
+            
+            if (isDroppedIn) {
+                // 成功：吸い込まれる
+                card.classList.add('absorbing');
+                if (typeof playSE === 'function') playSE('se_get_card.mp3');
+                
+                setTimeout(() => {
+                    card.click(); // 元の遷移を実行
+                    // 遷移後に戻ってきた時のために、一瞬遅らせてスタイルを完全にリセット
+                    setTimeout(() => resetCardPosition(card), 100);
+                }, 400);
+            } else {
+                // 失敗：元の位置に戻る演出
+                card.style.transition = "all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
+                resetCardPosition(card);
+            }
+            card.classList.remove('dragging');
+            dropZone.classList.remove('drag-over');
+            card.releasePointerCapture(e.pointerId);
+        };
+    });
+}
+
+/**
+ * カードの状態を完全に初期状態（CSS定義の状態）に戻す
+ */
+function resetCardPosition(card) {
+    card.classList.remove('absorbing');
+    card.classList.remove('dragging');
+    // 直接指定したインラインスタイルをすべて削除してCSS（扇状配置）に返却する
+    card.style.position = '';
+    card.style.left = '';
+    card.style.top = '';
+    card.style.width = '';
+    card.style.height = '';
+    card.style.zIndex = '';
+    card.style.transition = '';
+    // ここで transform を消すとCSS側の rotate(...) が復活します
+    card.style.transform = ''; 
+}
+
+// ページ読み込み時、またはホーム画面表示時にセットアップ
+document.addEventListener('DOMContentLoaded', () => {
+    // 既存の showSetup や finalizeLoginUI の末尾でもこれを呼ぶようにします
+    setupHomeDragEvents();
+});

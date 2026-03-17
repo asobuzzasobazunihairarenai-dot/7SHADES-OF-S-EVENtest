@@ -1965,6 +1965,11 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     padding: 10px;
     box-shadow: 0 10px 20px rgba(0,0,0,0.3);
     transform-origin: bottom center;
+/* 外科手術：スマホでの「画像として保存」「テキスト選択」を禁止 */
+    -webkit-touch-callout: none !important; /* iOSの長押しメニュー禁止 */
+    -webkit-user-select: none !important;   /* テキスト選択禁止 */
+    user-select: none !important;
+    touch-action: none !important;          /* ブラウザのスクロールを完全に止めてドラッグに集中させる */
 }
 
 /* ドラッグ中および吸い込み中、座標固定中はアニメーションを完全にオフにする */
@@ -2130,35 +2135,56 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 /**
  * 2026/03/17 修正：ホーム画面・魔力爆散（ノヴァ）エフェクト
  */
-/**
- * 2026/03/17 修正：ホーム画面・魔力演出セット
- */
-/* 1. 吸い込まれた瞬間の爆発 */
 .magic-nova {
     position: absolute;
-    top: 50%; left: 50%;
+    top: 50%;
+    left: 50%;
     transform: translate(-50%, -50%);
-    width: 10px; height: 10px;
+    width: 10px;
+    height: 10px;
     background: white;
     border-radius: 50%;
     pointer-events: none;
-    z-index: 1000;
+    z-index: 10;
     box-shadow: 0 0 20px 10px white, 0 0 40px 20px rgba(234, 179, 8, 0.8);
+    opacity: 0;
 }
+
 .animate-nova {
     animation: nova-burst 0.6s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
 }
+
 @keyframes nova-burst {
     0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
     100% { transform: translate(-50%, -50%) scale(40); opacity: 0; }
 }
 
-/* 2. ドラッグ中に出る粒子 */
+
+/**
+ * 2026/03/17 修正：属性共鳴パーティクル
+ */
 .card-particle {
     position: fixed;
-    width: 6px; height: 6px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     pointer-events: none;
-    z-index: 10001;
+    z-index: 9999;
     filter: blur(1px);
+}
+
+/**
+ * 2026/03/17 修正
+ * ゲーム中の確認モーダルを、ホーム画面やセットアップ画面よりも
+ * 確実に前面（最前面）に表示させるための設定。
+ */
+#detail-modal {
+    z-index: 10000 !important; /* ホーム画面(z-50)やドラッグ中カード(10000)と同等以上に */
+    background-color: rgba(0, 0, 0, 0.7) !important;
+    backdrop-filter: blur(4px);
+}
+
+/* モーダル内の中身も確実に表示 */
+#detail-modal > div {
+    z-index: 10001 !important;
 }

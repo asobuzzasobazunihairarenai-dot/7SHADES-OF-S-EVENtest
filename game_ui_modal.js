@@ -822,18 +822,34 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
         view.classList.add('hidden');
     }
 
-    modal.classList.remove('hidden'); 
-    managePeekUI(true);
+    /**
+     * 2026/03/17 修正
+     * モーダルが非表示設定(display:none)のまま残るのを防ぎ、
+     * 確実に最前面に表示させます。
+     */
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex'; // 強制表示
+    modal.style.zIndex = "10000";  // 盤面より確実に上へ
+    
+    // 盤面確認ボタンを出すためのフラグ管理
+    if (typeof managePeekUI === 'function') managePeekUI(true);
 }
 
+/**
+ * 2026/03/17 修正
+ * モーダルを閉じる際、displayスタイルも物理的に消去して
+ * 盤面のクリックを邪魔しないようにします。
+ */
 function closeDetailModal() { 
     const modal = document.getElementById('detail-modal');
     if (modal) {
         modal.classList.add('hidden');
-        // 外科手術：閉じる瞬間にクローンされたカード要素をすべて除去
+        modal.style.display = 'none'; // 物理的消去
+        // 外科手術：クローン要素の除去
         const clones = modal.querySelectorAll('.modal-large-card');
         clones.forEach(el => el.remove());
     }
+    // ...以降の処理（skip-all-btnの削除など）はそのまま維持
     
     // ★ 2026/03/07 外科手術：追加した「スルーボタン」を確実に削除する
     const skipBtn = document.getElementById('detail-skip-all-btn');
@@ -4137,16 +4153,26 @@ function setupHomeDragEvents() {
         card.style.touchAction = 'none';
 
         card.onpointerdown = (e) => {
+            // --- 外科手術：スマホの標準動作を徹底的に封じる ---
+            if (e.pointerType === 'touch') {
+                e.preventDefault(); // システムの長押し・拡大メニューを阻止
+            }
+            // ----------------------------------------------
+
             if (e.button !== 0 && e.pointerType === 'mouse') return;
+            
+            // 指が離れた瞬間に他のイベントが混ざらないよう、ターゲットを明示的にキャプチャ
+            card.setPointerCapture(e.pointerId);
+
             homeDragState.startX = e.clientX;
             homeDragState.startY = e.clientY;
             homeDragState.active = true;
             homeDragState.draggingStarted = false;
             homeDragState.target = card;
+
             const rect = card.getBoundingClientRect();
             homeDragState.offsetX = e.clientX - rect.left;
             homeDragState.offsetY = e.clientY - rect.top;
-            card.setPointerCapture(e.pointerId);
         };
 
         card.onpointermove = (e) => {

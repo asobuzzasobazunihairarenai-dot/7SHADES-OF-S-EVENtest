@@ -231,9 +231,9 @@
         
         <div class="home-avatar-wrap mt-8" onclick="showUserProfileModal()">
             <img class="profile-button-icon-img w-20 h-20 rounded-full border-4 border-yellow-500 shadow-2xl object-cover" src="images/piece_001.png">
-            <div class="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-yellow-500 text-gray-900 text-[10px] font-black px-3 py-0.5 rounded-full shadow-lg">
-                RANK <span id="home-rank-num">1</span>
-            </div>
+            <div class="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-yellow-500 text-gray-900 text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-lg whitespace-nowrap flex items-center gap-0.5">
+              <span>RANK</span><span id="home-rank-num">1</span>
+          </div>
         </div>
         
         <div class="text-center mb-2">
@@ -245,22 +245,22 @@
         </div>
 
         <div class="fan-menu-container">
-            <div class="menu-card card-cpu" onclick="showCpuBattleSelection()" style="touch-action: none;">
-                <span class="menu-card-icon">⚔️</span>
-                <span class="menu-card-label text-gray-800">CPU<br>BATTLE</span>
-            </div>
-            <div class="menu-card card-online" onclick="showOnlineMenu()">
-                <span class="menu-card-icon">🌐</span>
-                <span class="menu-card-label text-gray-800">ONLINE<br>MATCH</span>
-            </div>
-            <div class="menu-card card-practice" onclick="startPracticeGame()">
-                <span class="menu-card-icon">🔰</span>
-                <span class="menu-card-label text-gray-800">PRACTICE<br>EASY</span>
-            </div>
-            <div class="menu-card card-rules" onclick="showRules()">
-                <span class="menu-card-icon">📜</span>
-                <span class="menu-card-label text-gray-800">GAME<br>RULES</span>
-            </div>
+            <div class="menu-card card-cpu" style="touch-action: none;">
+    <span class="menu-card-icon">⚔️</span>
+    <span class="menu-card-label text-gray-800">CPU<br>BATTLE</span>
+</div>
+<div class="menu-card card-online">
+    <span class="menu-card-icon">🌐</span>
+    <span class="menu-card-label text-gray-800">ONLINE<br>MATCH</span>
+</div>
+<div class="menu-card card-practice">
+    <span class="menu-card-icon">🔰</span>
+    <span class="menu-card-label text-gray-800">PRACTICE<br>EASY</span>
+</div>
+<div class="menu-card card-rules">
+    <span class="menu-card-icon">📜</span>
+    <span class="menu-card-label text-gray-800">GAME<br>RULES</span>
+</div>
         </div>
 
         <div class="mt-auto w-full grid grid-cols-2 gap-3 mb-4">

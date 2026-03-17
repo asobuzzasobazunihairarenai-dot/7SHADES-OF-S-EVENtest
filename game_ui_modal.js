@@ -3866,11 +3866,33 @@ function startCpuGame(num) {
 /**
  * CPU選択画面からホームに戻る
  */
+/**
+ * 2026/03/17 修正
+ * CPU対戦人数選択画面からホーム画面へ戻る際の表示競合を解消。
+ * display スタイルを直接操作して、確実に画面を切り替えます。
+ */
 function backToHomeFromCpu() {
     const cpuSetup = document.getElementById('cpu-setup-overlay');
     const home = document.getElementById('home-screen');
-    if (cpuSetup) cpuSetup.classList.add('hidden');
-    if (home) home.classList.remove('hidden');
+
+    // 1. CPU人数選択画面を「物理的」に消す
+    if (cpuSetup) {
+        cpuSetup.classList.add('hidden');
+        cpuSetup.style.display = 'none'; // 強制的に消去
+    }
+
+    // 2. ホーム画面を「物理的」に再表示する
+    if (home) {
+        home.classList.remove('hidden');
+        home.style.display = 'flex'; // ホーム画面の基本レイアウト(flex)を強制適用
+        
+        // 念のため、ドラッグイベントなどの再セットアップ
+        if (typeof setupHomeDragEvents === 'function') {
+            setupHomeDragEvents();
+        }
+        
+        addLog("ホーム画面に戻りました。");
+    }
 }
 
 /**
@@ -4095,11 +4117,19 @@ let homeDragState = { active: false, draggingStarted: false, target: null, offse
 /**
  * 2026/03/17 修正：ドラッグ＆ドロップ（位置ズレ＆遷移不具合 最終修正版）
  */
+/**
+ * 2026/03/17 修正：ドラッグ＆ドロップ（判定厳密化 ＋ 演出保証版）
+ */
+/**
+ * 2026/03/17 修正：ホーム画面演出・完全統合版
+ * 1. ドラッグ中に属性カラーの粒子(Particle)を放出
+ * 2. 吸い込み完了時に魔力爆散(Nova)を実行
+ * 3. 演出完了を待ってから確実に画面遷移
+ */
 function setupHomeDragEvents() {
     const cards = document.querySelectorAll('.menu-card');
-    const dropCircle = document.querySelector('.magic-circle'); // 光らせる対象
-    const container = document.querySelector('.magic-circle-container'); // 判定基準
-    const avatar = document.querySelector('.home-avatar-wrap');
+    const dropCircle = document.querySelector('.magic-circle');
+    const container = document.querySelector('.magic-circle-container');
     const guideLine = document.getElementById('drag-guide-line');
     const guidePath = guideLine?.querySelector('.guide-path');
 
@@ -4113,56 +4143,49 @@ function setupHomeDragEvents() {
             homeDragState.active = true;
             homeDragState.draggingStarted = false;
             homeDragState.target = card;
-            
-            const rectNow = card.getBoundingClientRect();
-            homeDragState.offsetX = e.clientX - rectNow.left;
-            homeDragState.offsetY = e.clientY - rectNow.top;
+            const rect = card.getBoundingClientRect();
+            homeDragState.offsetX = e.clientX - rect.left;
+            homeDragState.offsetY = e.clientY - rect.top;
             card.setPointerCapture(e.pointerId);
         };
 
         card.onpointermove = (e) => {
             if (!homeDragState.active || homeDragState.target !== card) return;
-
             const moveDist = Math.hypot(e.clientX - homeDragState.startX, e.clientY - homeDragState.startY);
             
             if (!homeDragState.draggingStarted && moveDist > 10) {
                 homeDragState.draggingStarted = true;
-                const rect = card.getBoundingClientRect();
-                card.style.setProperty('position', 'fixed', 'important');
-                card.style.setProperty('z-index', '10000', 'important');
-                card.style.setProperty('width', rect.width + 'px', 'important');
-                card.style.setProperty('height', rect.height + 'px', 'important');
-                card.style.transform = 'scale(1.1) rotate(0deg)';
-                card.style.transition = 'none';
                 card.classList.add('dragging');
-                
-                // 魔法陣(画像)を光らせる
+                card.style.position = 'fixed';
+                card.style.zIndex = '10000';
                 if (dropCircle) dropCircle.classList.add('resonance');
                 if (guideLine) guideLine.style.opacity = "1";
                 if (typeof updateOrbsGathering === 'function') updateOrbsGathering(true);
             }
 
             if (homeDragState.draggingStarted) {
-                const cardX = e.clientX - homeDragState.offsetX;
-                const cardY = e.clientY - homeDragState.offsetY;
-                card.style.left = cardX + 'px';
-                card.style.top = cardY + 'px';
+                card.style.left = (e.clientX - homeDragState.offsetX) + 'px';
+                card.style.top = (e.clientY - homeDragState.offsetY) + 'px';
+
+                // --- 追加演出：属性パーティクル放出 ---
+                const classStr = card.className.toLowerCase();
+                let pColor = '#ffffff';
+                if (classStr.includes('card-cpu')) pColor = '#ef4444';
+                else if (classStr.includes('card-online')) pColor = '#3b82f6';
+                else if (classStr.includes('card-practice')) pColor = '#22c55e';
+                else if (classStr.includes('card-rules')) pColor = '#eab308';
                 
+                if (Math.random() > 0.6) createCardParticle(e.clientX, e.clientY, pColor);
+
                 if (container && guidePath) {
                     const rect = container.getBoundingClientRect();
                     const targetX = rect.left + rect.width / 2;
                     const targetY = rect.top + rect.height / 2;
+                    const curX = (e.clientX - homeDragState.offsetX) + (card.offsetWidth / 2);
+                    const curY = (e.clientY - homeDragState.offsetY) + (card.offsetHeight / 2);
+                    guidePath.setAttribute('d', `M ${curX} ${curY} Q ${(curX + targetX) / 2} ${(curY + targetY) / 2} ${targetX} ${targetY}`);
                     
-                    const currentX = cardX + (card.offsetWidth / 2);
-                    const currentY = cardY + (card.offsetHeight / 2);
-
-                    // 導線更新
-                    const cpY = (currentY + targetY) / 2;
-                    guidePath.setAttribute('d', `M ${currentX} ${currentY} Q ${(currentX + targetX) / 2} ${cpY} ${targetX} ${targetY}`);
-
-                    // 魔法陣の中心との距離判定
-                    const dist = Math.hypot(e.clientX - targetX, e.clientY - targetY);
-                    if (dist < 150) container.classList.add('drag-over');
+                    if (Math.hypot(e.clientX - targetX, e.clientY - targetY) < 120) container.classList.add('drag-over');
                     else container.classList.remove('drag-over');
                 }
             }
@@ -4170,72 +4193,76 @@ function setupHomeDragEvents() {
 
         card.onpointerup = (e) => {
             if (!homeDragState.active || homeDragState.target !== card) return;
-            
-            const wasDragging = homeDragState.draggingStarted;
             homeDragState.active = false;
-            homeDragState.draggingStarted = false;
-            
-            const isDroppedIn = container?.classList.contains('drag-over');
+            card.releasePointerCapture(e.pointerId);
 
-            // 演出解除
+            const rect = container.getBoundingClientRect();
+            const finalDist = Math.hypot(e.clientX - (rect.left + rect.width / 2), e.clientY - (rect.top + rect.height / 2));
+            
+            // ドラッグモード中かつ魔法陣の近くなら「成功」
+            const isSuccess = homeDragState.draggingStarted && finalDist < 120;
+
+            // 演出解除の準備
+            const triggerTransition = () => {
+                const classStr = card.className.toLowerCase();
+                if (classStr.includes('card-cpu')) showCpuBattleSelection();
+                else if (classStr.includes('card-online')) showOnlineMenu();
+                else if (classStr.includes('card-practice')) startPracticeGame();
+                else if (classStr.includes('card-rules')) showRules();
+                resetCardPosition(card);
+            };
+
+            if (isSuccess) {
+                // 1. カードを固定して吸い込みアニメ開始
+                card.classList.add('absorbing');
+                if (typeof playSE === 'function') playSE('se_get_card.mp3');
+
+                // 2. 0.3秒後に爆発(Nova)を実行
+                setTimeout(() => {
+                    triggerMagicNova();
+                    if (typeof playSE === 'function') playSE('se_arrival_trigger.mp3');
+                }, 300);
+
+                // 3. 0.8秒後（爆発が広がりきった頃）にようやく遷移！
+                setTimeout(triggerTransition, 800); 
+
+            } else if (homeDragState.draggingStarted) {
+                // 失敗：ドラッグしてたけど外した場合は戻るだけ
+                resetCardPosition(card);
+            } else {
+                // ドラッグしてない（ただのタップ）の場合も少しだけ待って遷移
+                // ※一瞬の「手応え演出」が欲しければここにも Nova を入れても良い
+                setTimeout(triggerTransition, 50);
+            }
+
+            // 全体の後片付け
             if (dropCircle) dropCircle.classList.remove('resonance');
             if (container) container.classList.remove('drag-over');
             if (guideLine) guideLine.style.opacity = "0";
             if (typeof updateOrbsGathering === 'function') updateOrbsGathering(false);
-            
-            if (wasDragging) {
-                if (isDroppedIn) {
-                    card.classList.add('absorbing');
-                    if (typeof playSE === 'function') playSE('se_get_card.mp3');
-
-                    setTimeout(() => {
-                        // 【デバッグログ】放り込まれたカードの情報をコンソールに出力
-                        console.log("Card Dropped! ClassList:", card.className);
-
-                        // クラス名を文字列として取得し、小文字に変換して判定（確実性をアップ）
-                        const classStr = card.className.toLowerCase();
-
-                        if (classStr.includes('card-cpu')) {
-                            console.log("-> Triggering CPU Battle Selection");
-                            if (typeof showCpuBattleSelection === 'function') {
-                                showCpuBattleSelection();
-                            } else {
-                                console.error("Function showCpuBattleSelection is NOT defined!");
-                            }
-                        } 
-                        else if (classStr.includes('card-online')) {
-                            console.log("-> Triggering Online Menu");
-                            showOnlineMenu();
-                        } 
-                        else if (classStr.includes('card-practice')) {
-                            console.log("-> Triggering Practice Game");
-                            startPracticeGame();
-                        } 
-                        else if (classStr.includes('card-rules')) {
-                            console.log("-> Triggering Rules Modal");
-                            showRules();
-                        } 
-                        else {
-                            console.warn("-> No matching class found for transition. Attempting default click.");
-                            card.click();
-                        }
-                        
-                        setTimeout(() => resetCardPosition(card), 100);
-                    }, 400);
-                } else {
-                    card.style.transition = "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
-                    resetCardPosition(card);
-                }
-            } else {
-                // ドラッグせずにタップしただけの時
-                card.click();
-            }
-
             card.classList.remove('dragging');
-            card.releasePointerCapture(e.pointerId);
-            homeDragState.target = null;
         };
     });
+}
+
+// 演出補助用関数
+function createCardParticle(x, y, color) {
+    const p = document.createElement('div');
+    p.className = 'card-particle';
+    p.style.left = x + 'px'; p.style.top = y + 'px';
+    p.style.backgroundColor = color;
+    p.style.boxShadow = `0 0 8px ${color}`;
+    document.body.appendChild(p);
+    p.animate([{ transform: 'scale(1) translateY(0)', opacity: 0.8 }, { transform: 'scale(0) translateY(-50px)', opacity: 0 }], { duration: 800, easing: 'ease-out' }).onfinish = () => p.remove();
+}
+
+function triggerMagicNova() {
+    const container = document.querySelector('.magic-circle-container');
+    if (!container) return;
+    const nova = document.createElement('div');
+    nova.className = 'magic-nova animate-nova';
+    container.appendChild(nova);
+    setTimeout(() => nova.remove(), 600);
 }
 
 function resetCardPosition(card) {
@@ -4259,6 +4286,53 @@ document.addEventListener('DOMContentLoaded', () => {
     // 既存の showSetup や finalizeLoginUI の末尾でもこれを呼ぶようにします
     setupHomeDragEvents();
 });
+
+
+/**
+ * 2026/03/17 新規追加：魔力爆散（ノヴァ）の発生
+ */
+function triggerMagicNova() {
+    const container = document.querySelector('.magic-circle-container');
+    if (!container) return;
+
+    // 古いノヴァがあれば削除
+    const oldNova = container.querySelector('.magic-nova');
+    if (oldNova) oldNova.remove();
+
+    const nova = document.createElement('div');
+    nova.className = 'magic-nova animate-nova';
+    container.appendChild(nova);
+
+    // アニメーション終了後に削除
+    setTimeout(() => nova.remove(), 600);
+}
+
+
+
+/**
+ * 2026/03/17 新規追加：属性パーティクルの生成
+ */
+function createCardParticle(x, y, color) {
+    const p = document.createElement('div');
+    p.className = 'card-particle';
+    p.style.left = x + 'px';
+    p.style.top = y + 'px';
+    p.style.backgroundColor = color;
+    p.style.boxShadow = `0 0 8px ${color}`;
+    document.body.appendChild(p);
+
+    const destX = x + (Math.random() * 40 - 20);
+    const destY = y - (40 + Math.random() * 40);
+
+    p.animate([
+        { transform: 'scale(1) translateY(0)', opacity: 0.8 },
+        { transform: 'scale(0) translateY(-50px)', opacity: 0 }
+    ], {
+        duration: 800,
+        easing: 'ease-out'
+    }).onfinish = () => p.remove();
+}
+
 
 
 /**
@@ -4322,6 +4396,7 @@ function animateOrb(orb) {
         }
     };
 }
+
 
 // カードを掴んだ時にオーブを中央に集める連動処理
 function updateOrbsGathering(isGathering) {

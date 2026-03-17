@@ -3730,19 +3730,42 @@ function showPostGameLevelModal(data, onFinish) {
 /**
  * ホーム画面からCPU戦の人数選択を表示する
  */
+/**
+ * 2026/03/17 修正
+ * ホーム画面が display: flex で強制表示されている場合でも、
+ * 確実に隠して CPU対戦設定画面を最前面に出すように強化。
+ */
 function showCpuBattleSelection() {
     const home = document.getElementById('home-screen');
     const cpuSetup = document.getElementById('cpu-setup-overlay');
-    if (home) home.classList.add('hidden');
+
+    console.log("Attempting to show CPU Battle Selection...");
+
+    // 1. ホーム画面を「物理的」かつ「完全に」隠す
+    if (home) {
+        home.classList.add('hidden');
+        home.style.display = 'none'; // これが重要！上書きされた flex を無効化する
+    }
+
+    // 2. CPU人数選択画面を「物理的」に表示する
     if (cpuSetup) {
         cpuSetup.classList.remove('hidden');
+        cpuSetup.style.display = 'flex'; // flex で確実に最前面へ
+        cpuSetup.style.zIndex = '100';    // 重なり順も念押しで高く
+        
         // ★追加：開始時は常に「通常モード」にリセット
-        setCpuBoostMode(false);
+        if (typeof setCpuBoostMode === 'function') {
+            setCpuBoostMode(false);
+        }
         
         // CPU戦なのでNORMALモードをデフォルトに設定
         autoMode = 'NORMAL';
         const modeSelect = document.getElementById('setting-auto-mode');
         if (modeSelect) modeSelect.value = 'NORMAL';
+        
+        addLog("CPU対戦設定を開きました。");
+    } else {
+        console.error("cpu-setup-overlay element NOT FOUND!");
     }
 }
 
@@ -4166,17 +4189,38 @@ function setupHomeDragEvents() {
                     if (typeof playSE === 'function') playSE('se_get_card.mp3');
 
                     setTimeout(() => {
-                        // クラス名で遷移先を判定（最も確実な方法）
-                        if (card.classList.contains('card-cpu')) {
-                            showCpuBattleSelection();
-                        } else if (card.classList.contains('card-online')) {
+                        // 【デバッグログ】放り込まれたカードの情報をコンソールに出力
+                        console.log("Card Dropped! ClassList:", card.className);
+
+                        // クラス名を文字列として取得し、小文字に変換して判定（確実性をアップ）
+                        const classStr = card.className.toLowerCase();
+
+                        if (classStr.includes('card-cpu')) {
+                            console.log("-> Triggering CPU Battle Selection");
+                            if (typeof showCpuBattleSelection === 'function') {
+                                showCpuBattleSelection();
+                            } else {
+                                console.error("Function showCpuBattleSelection is NOT defined!");
+                            }
+                        } 
+                        else if (classStr.includes('card-online')) {
+                            console.log("-> Triggering Online Menu");
                             showOnlineMenu();
-                        } else if (card.classList.contains('card-practice')) {
+                        } 
+                        else if (classStr.includes('card-practice')) {
+                            console.log("-> Triggering Practice Game");
                             startPracticeGame();
-                        } else if (card.classList.contains('card-rules')) {
+                        } 
+                        else if (classStr.includes('card-rules')) {
+                            console.log("-> Triggering Rules Modal");
                             showRules();
+                        } 
+                        else {
+                            console.warn("-> No matching class found for transition. Attempting default click.");
+                            card.click();
                         }
-                        resetCardPosition(card);
+                        
+                        setTimeout(() => resetCardPosition(card), 100);
                     }, 400);
                 } else {
                     card.style.transition = "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)";

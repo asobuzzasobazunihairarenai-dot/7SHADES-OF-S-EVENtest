@@ -787,39 +787,46 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
      * cloneNode によるイベント消失と二重起動バグを回避するため、
      * 要素を複製せず、直接スタイルと内容を更新する方式へ変更。
      */
-    if (card) {
-        view.classList.add('modal-large-card');
-        view.classList.remove('hidden');
+    /**
+     * 2026/03/17 修正
+     * card または view が存在しない場合にエラー(TypeError)が出るのを防ぐガード処理を追加。
+     */
+    if (view) {
+        if (card) {
+            view.classList.add('modal-large-card');
+            view.classList.remove('hidden');
 
-        const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
+            const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
 
-        if (imgPath) {
-            view.style.backgroundImage = `url('${imgPath}')`;
-            view.style.backgroundSize = 'cover';
-            view.style.backgroundPosition = 'center';
-            if (charEl) charEl.textContent = "";
-            if (nameEl) nameEl.classList.add('hidden');
-            if (arrivalEl) arrivalEl.classList.add('hidden');
-            if (handEl) handEl.classList.add('hidden');
+            if (imgPath) {
+                view.style.backgroundImage = `url('${imgPath}')`;
+                view.style.backgroundSize = 'cover';
+                view.style.backgroundPosition = 'center';
+                if (charEl) charEl.textContent = "";
+                if (nameEl) nameEl.classList.add('hidden');
+                if (arrivalEl) arrivalEl.classList.add('hidden');
+                if (handEl) handEl.classList.add('hidden');
+            } else {
+                view.style.backgroundImage = 'none';
+                if (charEl) charEl.textContent = card.name ? card.name[0] : '?';
+                if (nameEl) {
+                    nameEl.textContent = card.name || "";
+                    nameEl.classList.remove('hidden');
+                }
+                if (arrivalEl) {
+                    arrivalEl.classList.remove('hidden');
+                    arrivalEl.innerHTML = `<span class="text-yellow-500 font-bold">【到達】</span>${card.arrival || "(なし)"}`;
+                }
+                if (handEl) {
+                    handEl.classList.remove('hidden');
+                    handEl.innerHTML = `<span class="text-blue-400 font-bold">【手札】</span>${card.hand || "(なし)"}`;
+                }
+            }
+            if (typeof attachHoverEvents === 'function') attachHoverEvents(view, card, true);
         } else {
-            view.style.backgroundImage = 'none';
-            if (charEl) charEl.textContent = card.name ? card.name[0] : '?';
-            if (nameEl) {
-                nameEl.textContent = card.name || "";
-                nameEl.classList.remove('hidden');
-            }
-            if (arrivalEl) {
-                arrivalEl.classList.remove('hidden');
-                arrivalEl.innerHTML = `<span class="text-yellow-500 font-bold">【到達】</span>${card.arrival || "(なし)"}`;
-            }
-            if (handEl) {
-                handEl.classList.remove('hidden');
-                handEl.innerHTML = `<span class="text-blue-400 font-bold">【手札】</span>${card.hand || "(なし)"}`;
-            }
+            // カード情報がない場合は枠自体を隠す
+            view.classList.add('hidden');
         }
-        if (typeof attachHoverEvents === 'function') attachHoverEvents(view, card, true);
-    } else {
-        view.classList.add('hidden');
     }
 
     /**
@@ -3946,19 +3953,55 @@ function confirmResetStats() {
 /**
  * 実際のデータ削除とリロードを実行
  */
+/**
+ * 2026/03/17 修正
+ * 戦歴リセット時に総ゲーム数やMVPカードが残る不具合を解消。
+ * ローカルストレージ内の全関連データを一掃し、メモリ上の変数も初期化します。
+ */
 function executeResetStats() {
-    // 1. まず window 内の gainTime 関数を無効化してエラーを封じる（外科手術的処置）
+    // 1. エラー防止（タイマー関連の干渉を遮断）
     window.gainTime = () => {}; 
 
-    // 2. データを削除
-    localStorage.removeItem('shades_seven_profile');
-    localStorage.removeItem('shades_light_mode'); // 設定も一応消す
-    
-    addLog("すべてのデータを初期化しました。");
+    // 2. ローカルストレージから「全関連キー」を個別に削除
+    // 想定されるすべての保存キーをリストアップして消去します
+    const keysToDelete = [
+        'shades_seven_profile',
+        'shades_seven_stats',       // 統計が別送りの場合用
+        'shades_seven_dev_configs', // 開発設定
+        'shades_seven_ai_scores',   // AI設定
+        'shades_light_mode'         // ライトモード設定
+    ];
+    keysToDelete.forEach(key => localStorage.removeItem(key));
 
-    // 3. ブラウザを強制的にリロード（キャッシュを無視）
-    // エラーが出る前に即座にページを破棄します
-    window.location.reload();
+    // 3. メモリ上のグローバル変数を初期状態に強制リセット
+    // これにより、リロードまでの短い時間にデータが再保存されるのを防ぎます
+    if (typeof userProfile !== 'undefined') {
+        window.userProfile = {
+            name: "P1",
+            rank: 1,
+            rankPoint: 0,
+            level: 1,
+            totalWins: 0,
+            stats: {
+                totalGames: 0,
+                mvpCard: null,
+                cardUsageCount: {},
+                colorUsage: {}
+            },
+            unlockedTitles: ["駆け出しの旅人"],
+            selectedTitle: "駆け出しの旅人",
+            usedCardIds: [],
+            usedIconPaths: []
+        };
+    }
+
+    addLog("すべてのデータを物理的に一掃しました。再起動します。");
+
+    // 4. ブラウザを強制リロード
+    // キャッシュを無視してサーバーから最新の状態を読み込ませます
+    setTimeout(() => {
+        window.location.href = window.location.pathname + "?reset=" + Date.now();
+    }, 100);
 }
 
 // ページ読み込み完了時や初期化時にアイコンを最新にする
@@ -4201,7 +4244,15 @@ function setupHomeDragEvents() {
                 else if (classStr.includes('card-practice')) pColor = '#22c55e';
                 else if (classStr.includes('card-rules')) pColor = '#eab308';
                 
-                if (Math.random() > 0.6) createCardParticle(e.clientX, e.clientY, pColor);
+                // --- 外科手術：属性パーティクルを大量放出 ---
+                // 確率の壁を撤廃し、動くたびに3〜5個の粒子をランダムな位置に生成
+                const particleCount = 3 + Math.floor(Math.random() * 3); 
+                for (let i = 0; i < particleCount; i++) {
+                    // 指の直下だけでなく、カードの範囲内に少し散らして発生させる
+                    const offsetX = (Math.random() * 60 - 30);
+                    const offsetY = (Math.random() * 60 - 30);
+                    createCardParticle(e.clientX + offsetX, e.clientY + offsetY, pColor);
+                }
 
                 if (container && guidePath) {
                     const rect = container.getBoundingClientRect();
@@ -4272,14 +4323,31 @@ function setupHomeDragEvents() {
 }
 
 // 演出補助用関数
+/**
+ * 2026/03/17 修正
+ * パーティクルの動きを「噴き出し」風に強化。
+ */
 function createCardParticle(x, y, color) {
     const p = document.createElement('div');
     p.className = 'card-particle';
-    p.style.left = x + 'px'; p.style.top = y + 'px';
+    p.style.left = x + 'px';
+    p.style.top = y + 'px';
     p.style.backgroundColor = color;
-    p.style.boxShadow = `0 0 8px ${color}`;
+    p.style.boxShadow = `0 0 10px ${color}, 0 0 20px ${color}`; // 輝きを強化
     document.body.appendChild(p);
-    p.animate([{ transform: 'scale(1) translateY(0)', opacity: 0.8 }, { transform: 'scale(0) translateY(-50px)', opacity: 0 }], { duration: 800, easing: 'ease-out' }).onfinish = () => p.remove();
+
+    // 四方八方へランダムに飛び散る距離を設定
+    const destX = (Math.random() * 100 - 50);
+    const destY = (Math.random() * 100 - 50);
+    const rotation = Math.random() * 360;
+
+    p.animate([
+        { transform: 'translate(0, 0) scale(1.5)', opacity: 1 },
+        { transform: `translate(${destX}px, ${destY}px) scale(0) rotate(${rotation}deg)`, opacity: 0 }
+    ], {
+        duration: 600 + Math.random() * 400, // 粒子ごとに消える時間を変える
+        easing: 'cubic-bezier(0.1, 0.8, 0.3, 1)' // 勢いよく飛び出してスッと止まる
+    }).onfinish = () => p.remove();
 }
 
 function triggerMagicNova() {

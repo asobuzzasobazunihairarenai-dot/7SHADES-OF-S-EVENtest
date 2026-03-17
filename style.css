@@ -1794,41 +1794,119 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
  * 2026/03/17 修正：画像不要版の魔法陣CSS。
  * 画像がない場合でも、円形の多重レイヤーと影で魔法陣らしさを演出します。
  */
-.magic-circle {
+/**
+ * 2026/03/17 修正：魔法陣を画像版にアップデート
+ */
+/* 魔法陣コンテナ（中心点を固定） */
+/**
+ * 2026/03/17 修正：魔法陣の完全中央固定版
+ * 親コンテナの基準点を「魔法陣のド真ん中」に固定し、ズレを排除します。
+ */
+
+/* 1. 全てを包む親：ここを画面の指定位置（40%）に配置 */
+.magic-circle-container {
     position: absolute;
-    top: 40%;
+    top: 40%; 
     left: 50%;
-    width: 320px;
-    height: 320px;
-    /* 画像を廃止し、CSSで多重円を描画 */
-    background: transparent;
-    border: 2px solid rgba(234, 179, 8, 0.4);
-    border-radius: 50%;
+    /* コンテナ自体の中心を top/left に合わせる（超重要） */
+    transform: translate(-50%, -50%);
+    width: 400px;  /* 外枠のサイズ */
+    height: 400px;
     pointer-events: none;
     z-index: 0;
-    animation: magic-circle-rotate 25s linear infinite;
-    filter: drop-shadow(0 0 15px rgba(234, 179, 8, 0.3));
+    /* 内部の要素を中央に重ねる設定 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-/* 魔法陣の内側の線（装飾） */
-.magic-circle::before {
+/* 2. 前面の魔法陣（画像）：余計な top/left を持たせず「その場」で回転 */
+.magic-circle {
+    position: absolute; /* 親(container)の中央に重ねる */
+    width: 320px;       /* あなたの画像サイズ */
+    height: 320px;
+    background-image: url('images/magic_circle.webp');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    /* 中心軸で回転させる。translate(-50%, -50%)は親がやっているので不要 */
+    animation: magic-circle-rotate 40s linear infinite;
+    filter: drop-shadow(0 0 20px rgba(234, 179, 8, 0.4));
+    z-index: 2;
+    border: none !important;
+}
+
+/* 3. 背面の魔法陣（逆回転）：これも親の中央に固定 */
+/**
+ * 2026/03/17 修正
+ * 背後の魔法陣を太くし、多重の光彩(glow)を付けて回転を強調。
+ */
+.magic-circle-back {
+    position: absolute;
+    width: 330px; 
+    height: 330px;
+    /* 線を太く(4px)し、二重線(double)にして存在感をアップ */
+    border: 4px double rgba(234, 179, 8, 0.5);
+    border-radius: 50%;
+    /* 外側と内側に光を漏らす */
+    box-shadow: 0 0 15px rgba(234, 179, 8, 0.3), inset 0 0 10px rgba(234, 179, 8, 0.2);
+    animation: magic-circle-rotate 20s linear infinite reverse; /* 速度を少し上げました */
+    z-index: 1;
+}
+
+/* 魔法陣の円周に「節（ノード）」のような光を追加して回転をより見えやすくする */
+.magic-circle-back::before {
     content: '';
     position: absolute;
-    inset: 10px;
-    border: 1px double rgba(234, 179, 8, 0.2);
+    inset: -5px;
     border-radius: 50%;
+    /* 4箇所の点（マナ・ノード）を描画 */
+    background: radial-gradient(circle at 50% 0%, #fff 2px, transparent 4px),
+                radial-gradient(circle at 50% 100%, #fff 2px, transparent 4px),
+                radial-gradient(circle at 0% 50%, #fff 2px, transparent 4px),
+                radial-gradient(circle at 100% 50%, #fff 2px, transparent 4px);
+    opacity: 0.8;
 }
 
-.magic-circle::after {
-    content: '✧ 7 SHADES OF S:EVEN ✧';
+/* 4. オーブのコンテナ：ここも親の中央に重ねる */
+#mana-orbs-container {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: rgba(234, 179, 8, 0.1);
-    font-size: 8px;
-    white-space: nowrap;
-    letter-spacing: 0.5em;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 3;
+}
+
+/* 回転アニメーションの再定義（位置を変えず、向きだけ変えるように修正） */
+@keyframes magic-circle-rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* マナ・オーブ（7色の光）の共通スタイル */
+.mana-orb {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    filter: blur(2px);
+    box-shadow: 0 0 10px currentColor, 0 0 20px currentColor;
+    opacity: 0.6;
+    z-index: 3;
+}
+
+/* 共鳴時のオーブの動き（後でJSから制御） */
+.mana-orb.gathering {
+    transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 1;
+    filter: blur(1px);
+}
+
+/* 以前追加した疑似要素 (::before / ::after) の装飾も、画像に重なると邪魔なので無効化します */
+.magic-circle::before,
+.magic-circle::after {
+    display: none !important;
 }
 
 /* 2. ホーム画面のコンテナ調整 */
@@ -1850,13 +1928,19 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 }
 
 /* 4. 扇状カードメニューの基本構造 */
+/**
+ * 2026/03/17 修正
+ * カードメニューを画面下部に固定し、中央にドラッグ用のスペースを確保。
+ */
 .fan-menu-container {
-    position: relative;
+    position: absolute; /* relativeから変更 */
+    bottom: 80px;       /* 画面の下から40pxの位置に固定 */
+    left: 0;
     width: 100%;
-    height: 300px;
-    margin-top: 4rem;
+    height: 150px;      /* 高さを抑えてクリック判定を安定化 */
     display: flex;
     justify-content: center;
+    z-index: 100;
 }
 
 /**
@@ -1885,10 +1969,25 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 }
 
 /* 正方形に合わせて扇の広がりを微調整 */
-.card-cpu      { transform: rotate(-30deg) translateX(-110px) translateY(-10px); z-index: 10; }
-.card-online   { transform: rotate(-10deg) translateX(-40px)  translateY(5px);  z-index: 20; }
-.card-practice { transform: rotate(10deg)  translateX(40px)   translateY(5px);  z-index: 30; }
-.card-rules    { transform: rotate(30deg)  translateX(110px)  translateY(-10px); z-index: 10; }
+/**
+ * 2026/03/17 修正：手元に引き寄せた扇状レイアウト
+ */
+
+/* CPU戦カード */
+.card-cpu { transform: rotate(-20deg) translateX(-120px) translateY(10px); z-index: 10; }
+.card-cpu:hover:not(.dragging) { transform: rotate(-15deg) translateX(-120px) translateY(-20px) scale(1.1) !important; z-index: 50 !important; }
+
+/* オンラインカード */
+.card-online { transform: rotate(-7deg) translateX(-45px) translateY(0px); z-index: 20; }
+.card-online:hover:not(.dragging) { transform: rotate(-5deg) translateX(-45px) translateY(-30px) scale(1.1) !important; z-index: 50 !important; }
+
+/* 練習カード */
+.card-practice { transform: rotate(7deg) translateX(45px) translateY(0px); z-index: 30; }
+.card-practice:hover:not(.dragging) { transform: rotate(5deg) translateX(45px) translateY(-30px) scale(1.1) !important; z-index: 50 !important; }
+
+/* ルールカード */
+.card-rules { transform: rotate(20deg) translateX(120px) translateY(10px); z-index: 10; }
+.card-rules:hover:not(.dragging) { transform: rotate(15deg) translateX(120px) translateY(-20px) scale(1.1) !important; z-index: 50 !important; }
 
 /**
  * 2026/03/17 修正：ホバー時のワープ現象を修正。
@@ -1965,4 +2064,53 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 }
 .menu-card.absorbing {
     animation: card-absorb 0.4s ease-in forwards;
+}
+
+/**
+ * 2026/03/17 修正：ホーム画面ドラッグ演出（共鳴＆導線）
+ */
+
+/* 魔法陣の共鳴（脈動）アニメーション */
+/**
+ * 2026/03/17 修正
+ * 共鳴アニメーションから transform を除去し、位置ズレを完全に防ぎます。
+ */
+@keyframes magic-resonance-glow {
+    0% { filter: drop-shadow(0 0 20px rgba(234, 179, 8, 0.4)); opacity: 0.7; }
+    50% { filter: drop-shadow(0 0 40px rgba(234, 179, 8, 0.9)); opacity: 1; }
+    100% { filter: drop-shadow(0 0 20px rgba(234, 179, 8, 0.4)); opacity: 0.7; }
+}
+
+/* クラス名を変更し、親コンテナではなく「画像自体」に付与されるように想定 */
+.magic-circle.resonance {
+    /* rotateは既に magic-circle-rotate がやっているので、光の脈動だけ追加 */
+    animation: magic-circle-rotate 40s linear infinite, magic-resonance-glow 1.5s ease-in-out infinite !important;
+    opacity: 1 !important;
+}
+
+/* 光の導線（SVGライン） */
+#drag-guide-line {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 999; /* カードよりは下、魔法陣よりは上 */
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.guide-path {
+    fill: none;
+    stroke: url(#guide-gradient);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dasharray: 10, 10;
+    animation: line-flow 1s linear infinite;
+}
+
+@keyframes line-flow {
+    from { stroke-dashoffset: 20; }
+    to { stroke-dashoffset: 0; }
 }

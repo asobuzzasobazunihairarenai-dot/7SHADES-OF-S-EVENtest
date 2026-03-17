@@ -4145,10 +4145,6 @@ function setupHomeDragEvents() {
             }
         };
 
-        /**
-         * 2026/03/17 修正
-         * PCブラウザでの遷移不具合を解消。onclick属性に頼らず、JSから直接関数を叩きます。
-         */
         card.onpointerup = (e) => {
             if (!homeDragState.active || homeDragState.target !== card) return;
             
@@ -4169,27 +4165,17 @@ function setupHomeDragEvents() {
                     card.classList.add('absorbing');
                     if (typeof playSE === 'function') playSE('se_get_card.mp3');
 
-                    // --- 外科手術：吸い込み完了後、直接画面を切り替える ---
                     setTimeout(() => {
-                        // 1. 各カードのクラス名をチェックして、対応するグローバル関数を直接呼び出す
+                        // クラス名で遷移先を判定（最も確実な方法）
                         if (card.classList.contains('card-cpu')) {
-                            console.log("Navigating to: CPU Battle");
-                            if (typeof showCpuBattleSelection === 'function') showCpuBattleSelection();
-                        } 
-                        else if (card.classList.contains('card-online')) {
-                            console.log("Navigating to: Online Match");
-                            if (typeof showOnlineMenu === 'function') showOnlineMenu();
-                        } 
-                        else if (card.classList.contains('card-practice')) {
-                            console.log("Navigating to: Practice Game");
-                            if (typeof startPracticeGame === 'function') startPracticeGame();
-                        } 
-                        else if (card.classList.contains('card-rules')) {
-                            console.log("Navigating to: Rules");
-                            if (typeof showRules === 'function') showRules();
+                            showCpuBattleSelection();
+                        } else if (card.classList.contains('card-online')) {
+                            showOnlineMenu();
+                        } else if (card.classList.contains('card-practice')) {
+                            startPracticeGame();
+                        } else if (card.classList.contains('card-rules')) {
+                            showRules();
                         }
-
-                        // 2. 最後にカードを元の場所（不可視状態）へ戻す
                         resetCardPosition(card);
                     }, 400);
                 } else {
@@ -4197,12 +4183,8 @@ function setupHomeDragEvents() {
                     resetCardPosition(card);
                 }
             } else {
-                // ドラッグせずにただクリック（タップ）しただけの場合の救済措置
-                // ここでも直接関数を呼ぶように分岐
-                if (card.classList.contains('card-cpu')) showCpuBattleSelection();
-                else if (card.classList.contains('card-online')) showOnlineMenu();
-                else if (card.classList.contains('card-practice')) startPracticeGame();
-                else if (card.classList.contains('card-rules')) showRules();
+                // ドラッグせずにタップしただけの時
+                card.click();
             }
 
             card.classList.remove('dragging');

@@ -8,7 +8,6 @@
 -->
  
 <!DOCTYPE html>
-
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -17,7 +16,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <link rel="icon" href="data:,"> <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head>
 <body class="bg-gray-800 text-gray-100 min-h-screen flex flex-col items-center justify-center">
 
@@ -114,7 +113,7 @@
         <div id="floating-actions" class="fab-container">
              <button id="reaction-skip-btn" onclick="toggleReactionSkip()" class="fab-btn hidden text-[10px] bg-indigo-700 hover:bg-indigo-600 px-3 py-2 rounded-full text-white border border-indigo-400 font-bold shadow-lg">反応スルー: OFF</button>
              <button id="cancel-selection-btn" onclick="cancelSelection()" class="fab-btn hidden text-xs bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded-full text-white border border-gray-400 font-bold shadow-lg">選択キャンセル</button>
-             <button id="auto-select-btn" onclick="triggerAutoSelect(true)" class="fab-btn hidden text-xs bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-full text-black border-2 border-white font-bold shadow-lg">おまかせ</button>
+             <button id="auto-select-btn" onclick="triggerAutoSelect()" class="fab-btn hidden text-xs bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-full text-black border-2 border-white font-bold shadow-lg">おまかせ</button>
              <button id="stuck-btn" onclick="startPlaceCardMode()" class="fab-btn hidden text-xs bg-red-600 hover:bg-red-500 px-4 py-2 rounded-full text-white border border-red-400 font-bold shadow-lg">配置モード</button>
              <button id="skip-btn" onclick="nextPhase()" class="fab-btn hidden text-xs bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-white border border-gray-500 font-bold shadow-lg">スキップ</button>
         </div>
@@ -151,19 +150,11 @@
            <div class="text-center animate-fade-in-down flex flex-col items-center">
              <img src="images/logo.webp" alt="7 SHADES OF S:EVEN" class="w-72 md:w-80 mb-4 drop-shadow-[0_0_15px_rgba(234,179,8,0.6)]">
         
-             <p class="text-[10px] text-gray-400 font-mono mb-8">Ver 2026.0316.12.2</p>
-
-<div class="w-full flex flex-col items-center gap-6">
-    <button id="login-start-btn" onclick="loginWithGoogle()" class="w-3/4 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-lg transition-all shadow-lg border border-white/30 active:scale-95 flex items-center justify-center gap-2 text-sm backdrop-blur-sm">
-        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-4 h-4">
-        Googleアカウントでログイン
-    </button>
-
-    <button id="guest-start-btn" onclick="handleGuestStart()" class="text-gray-500 hover:text-gray-300 text-[10px] font-bold tracking-widest uppercase transition-all underline underline-offset-8 decoration-gray-700 hover:decoration-gray-400">
-        ログインせずに開始 (GUEST)
-    </button>
-</div>
-
+             <p class="text-[10px] text-gray-400 font-mono mb-12">Ver 2026.0310.13.1</p>
+        
+             <button onclick="openProfileSetup()" class="w-full py-4 bg-yellow-600 hover:bg-yellow-500 text-white font-black rounded-xl transition-all shadow-lg active:scale-95">
+               START GAME
+            </button>
              </div>
              <button onclick="showPlayerSelection()" class="absolute bottom-4 left-4 text-[9px] text-gray-600 hover:text-gray-400 underline transition-colors">Dev Mode / Debug Menu</button>
         </div>
@@ -197,76 +188,44 @@
         <button onclick="openTestMode()" class="bg-red-800 hover:bg-red-700 text-white font-bold py-3 rounded-lg shadow-lg flex justify-center px-6 mt-4 border border-red-500">
             <span>🧪 テストモード</span>
         </button>
-
-
-        <button onclick="initCpuOnlyGame(4)" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 rounded-lg shadow-lg flex justify-between px-6 border-2 border-dashed border-gray-400">
-            <span>4人 CPU (観戦)</span> <span>🤖🤖🤖🤖</span>
-        </button>
-
-        <button onclick="backToTitle()" class="w-full py-2 mt-4 text-gray-500 hover:text-gray-300 text-[10px] font-bold tracking-widest uppercase transition-all border-t border-gray-800 pt-4">
-            BACK TO TITLE
-        </button>
-
     </div>
 </div>
 
-<svg id="drag-guide-line">
-    <defs>
-        <linearGradient id="guide-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="rgba(234, 179, 8, 0)" />
-            <stop offset="50%" stop-color="rgba(234, 179, 8, 0.8)" />
-            <stop offset="100%" stop-color="rgba(234, 179, 8, 1)" />
-        </linearGradient>
-    </defs>
-    <path class="guide-path" d="" />
-</svg>
-
-
-
-<div id="home-screen" class="hidden absolute inset-0 z-50 overlay rounded-xl p-4">
-    <div class="magic-circle-container">
-    <div class="magic-circle-back"></div> <div class="magic-circle"></div>      <div id="mana-orbs-container"></div>  </div>
-
-    <div class="w-full h-full flex flex-col items-center relative z-10">
-        
-        <div class="home-avatar-wrap mt-8" onclick="showUserProfileModal()">
-            <img class="profile-button-icon-img w-20 h-20 rounded-full border-4 border-yellow-500 shadow-2xl object-cover" src="images/piece_001.png">
-            <div class="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-yellow-500 text-gray-900 text-[10px] font-black px-3 py-0.5 rounded-full shadow-lg">
-                RANK <span id="home-rank-num">1</span>
-            </div>
-        </div>
-        
-        <div class="text-center mb-2">
-            <div id="home-user-name" class="text-xl font-black text-white tracking-tighter drop-shadow-md">Player 1</div>
-            <div id="home-user-title" class="text-[10px] text-yellow-500 font-bold tracking-[0.1em] italic drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] mt-1">
-                称号: 駆け出しの旅人
-            </div>
-            <div class="text-[8px] text-gray-500 font-bold tracking-[0.3em] uppercase opacity-60 mt-1">Master of Shades</div>
-        </div>
-
-        <div class="fan-menu-container">
-            <div class="menu-card card-cpu" onclick="showCpuBattleSelection()" style="touch-action: none;">
-                <span class="menu-card-icon">⚔️</span>
-                <span class="menu-card-label text-gray-800">CPU<br>BATTLE</span>
-            </div>
-            <div class="menu-card card-online" onclick="showOnlineMenu()">
-                <span class="menu-card-icon">🌐</span>
-                <span class="menu-card-label text-gray-800">ONLINE<br>MATCH</span>
-            </div>
-            <div class="menu-card card-practice" onclick="startPracticeGame()">
-                <span class="menu-card-icon">🔰</span>
-                <span class="menu-card-label text-gray-800">PRACTICE<br>EASY</span>
-            </div>
-            <div class="menu-card card-rules" onclick="showRules()">
-                <span class="menu-card-icon">📜</span>
-                <span class="menu-card-label text-gray-800">GAME<br>RULES</span>
+<div id="home-screen" class="hidden absolute inset-0 z-50 flex flex-col items-center justify-center overlay rounded-xl bg-gray-950 p-4">
+    <div class="w-full max-w-xs space-y-4">
+        <div class="flex items-center gap-3 mb-6 bg-gray-800/50 p-3 rounded-2xl border border-gray-700">
+            <img class="profile-button-icon-img w-12 h-12 rounded-full border-2 border-yellow-500 object-cover" src="images/piece_001.png">
+            <div>
+                <div class="text-xs font-bold text-gray-400 uppercase tracking-tighter">Welcome back</div>
+                <div id="home-user-name" class="text-lg font-black text-white leading-none">Player 1</div>
             </div>
         </div>
 
-        <div class="mt-auto w-full grid grid-cols-2 gap-3 mb-4">
-            <button onclick="showSettings()" class="py-2.5 bg-white/5 hover:bg-white/10 text-white rounded-lg border border-white/20 transition-all text-[10px] font-bold backdrop-blur-sm">設定 / OPTION</button>
-            <button onclick="backToTitle()" class="py-2.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 rounded-lg border border-red-900/30 transition-all text-[10px] font-bold backdrop-blur-sm">タイトルへ戻る</button>
+        <div class="grid grid-cols-1 gap-2">
+            <button onclick="showCpuBattleSelection()" class="w-full py-4 bg-yellow-600 hover:bg-yellow-500 text-black font-black rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2">
+                <span>⚔️</span> 対戦開始 <span class="text-[10px] bg-black/20 px-2 py-0.5 rounded">NORMAL</span>
+            </button>
+            <button onclick="startPracticeGame()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 text-sm">
+                <span>🔰</span> 練習 <span class="text-[9px] opacity-70">2P / EASY</span>
+            </button>
         </div>
+
+        <div class="grid grid-cols-2 gap-2">
+            <button onclick="showUserProfileModal()" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">プロフィール</button>
+            <button onclick="showSettings()" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">設定</button>
+            <button onclick="showRules()" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">ルール確認</button>
+            <button onclick="alert('チュートリアルは準備中です')" class="py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl border border-gray-700 transition-all text-xs font-bold">チュートリアル</button>
+        </div>
+
+        <button onclick="alert('最新のお知らせはありません')" class="w-full py-2 text-gray-500 hover:text-gray-300 text-[10px] font-bold tracking-widest uppercase transition-all">
+            — Notifications —
+        </button>
+
+        <button onclick="backToTitle()" class="w-full py-2 mt-4 text-red-500/70 hover:text-red-500 text-[10px] font-bold tracking-widest uppercase transition-all border-t border-gray-800 pt-4">
+            BACK TO TITLE
+        </button>
+
+
     </div>
 </div>
 
@@ -339,18 +298,7 @@
             <span class="text-xs text-gray-300">ライトモード (Beta)</span>
             <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" id="light-mode-toggle" class="sr-only peer" onchange="toggleLightMode(this.checked)">
-                <div class="w-9 h-5 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-            </label>
-        </div>
-
-        <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-700">
-            <div class="flex flex-col">
-                <span class="text-xs text-gray-300">CPUスキップ</span>
-                <span class="text-[8px] text-gray-500">OFFでCPUの挙動を確認できます</span>
-            </div>
-            <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" id="setting-cpu-skip" class="sr-only peer" checked>
-                <div class="w-9 h-5 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-600"></div>
+                <div class="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
             </label>
         </div>
 
@@ -367,10 +315,6 @@
         <button onclick="showFullDeckListModal()" class="w-full py-2 mb-4 bg-yellow-600 hover:bg-yellow-500 text-black rounded font-bold shadow-lg">全山札構成を確認する</button>
 
 <button onclick="confirmResetStats()" class="w-full py-2 mb-4 bg-red-900/60 hover:bg-red-800 text-red-200 rounded font-bold border border-red-700 shadow-lg text-xs">戦歴・プロフィールをリセット</button>
-
-<button onclick="location.reload(true)" class="w-full py-2 mb-4 bg-gray-700 hover:bg-gray-600 text-green-400 rounded font-bold border border-gray-500 shadow-lg text-xs">
-    🔄 アプリを最新の状態に更新
-</button>
 
 <button onclick="closeSettings()" class="w-full py-2 bg-blue-600 text-white rounded font-bold">設定を閉じる</button>
     </div>
@@ -494,29 +438,20 @@
 
     <input type="checkbox" id="light-mode-toggle" class="sr-only peer" onchange="toggleLightMode(this.checked)" checked>
 
-
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-
-    <script src="firebase_init.js?v=20260316_6"></script>
-
-<!-- アップロードするときは個々の日付を更新 -->
-
     <!-- 1. データの読み込み (定数・カードDB) -->
-    <script src="data_cards.js?v=20260316_6"></script>
+    <script src="data_cards.js"></script>
     <!-- 2. 全変数の定義 (最初に読み込み) -->
-    <script src="game_state.js?v=20260316_6"></script>
+    <script src="game_state.js"></script>
     <!-- 3. 共通ユーティリティ (ログ・トースト・エフェクト) -->
-    <script src="game_utils.js?v=20260316_6"></script>
+    <script src="game_utils.js"></script>
     <!-- 4. 画面描画処理 (レンダリング) -->
-    <script src="game_ui_render.js?v=20260316_6"></script>
+    <script src="game_ui_render.js"></script>
     <!-- 5. モーダル・選択処理 (UIインタラクション) -->
-    <script src="game_ui_modal.js?v=20260316_6"></script>
+    <script src="game_ui_modal.js"></script>
     <!-- 6. カード効果ロジック (アクション実行) -->
-    <script src="game_effects.js?v=20260316_6"></script>
+    <script src="game_effects.js"></script>
     <!-- 7. メインロジック (ゲーム進行・セットアップ) -->
-    <script src="game_core.js?v=20260316_6"></script>
+    <script src="game_core.js"></script>
     
     <!-- デバッグコンソール -->
     <script src="debug_console.js"></script>
@@ -598,22 +533,12 @@
                 </div>
 
                 <div class="flex items-center justify-between">
-                    <span class="text-[10px] text-red-400 font-bold">開発用ログ表示 (常に)</span>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" id="setting-dev-log-always" class="sr-only peer">
-                        <div class="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-600"></div>
-                    </label>
-                </div>
-
-                <div class="flex items-center justify-between">
     <span class="text-[10px] text-gray-400">無色カード（白・黒）不使用</span>
     <label class="relative inline-flex items-center cursor-pointer">
         <input type="checkbox" id="setting-no-colorless" class="sr-only peer">
         <div class="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gray-400"></div>
     </label>
 </div>
-
-
 
                 <div class="flex items-center justify-between border-t border-gray-700 pt-2 mt-1">
                     <div class="flex flex-col">
@@ -706,30 +631,7 @@
 
 
 
-<div id="online-menu-overlay" class="fixed inset-0 z-[700] bg-black/90 backdrop-blur-md flex items-center justify-center hidden">
-    <div class="bg-gray-800 border-2 border-yellow-500 p-6 rounded-2xl w-80 shadow-2xl">
-        <h2 class="text-xl font-black text-yellow-500 mb-4 text-center italic">ONLINE MATCH</h2>
-        
-        <div class="space-y-4">
-            <div class="p-3 bg-gray-900 rounded-lg">
-                <p class="text-[10px] text-gray-400 mb-1 font-bold uppercase">Room ID</p>
-                <input type="text" id="online-room-input" placeholder="好きな合言葉を入力" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:border-yellow-500 outline-none">
-            </div>
-            
-            <button onclick="handleCreateRoom()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95">
-                部屋を作る (Host)
-            </button>
-            
-            <button onclick="handleJoinRoom()" class="w-full py-3 bg-green-600 hover:bg-green-500 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95">
-                部屋に入る (Guest)
-            </button>
-            
-            <button onclick="document.getElementById('online-menu-overlay').classList.add('hidden')" class="w-full py-2 text-gray-400 text-xs font-bold uppercase tracking-widest">
-                CANCEL
-            </button>
-        </div>
-    </div>
-</div>
+
 
 </body>
 </html>

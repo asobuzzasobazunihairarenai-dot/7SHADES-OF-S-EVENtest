@@ -42,46 +42,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 /** 2026/03/04 修正：デバッグモード移行時にホーム画面を隠す **/
-/**
- * 2026/03/17 修正
- * Dev Mode 移行時に「表示されない」または「ホーム画面が優先される」不具合を解消。
- * 強制非表示設定を解除し、開発画面を最前面に表示させます。
- */
 function showPlayerSelection() {
     const titleEl = document.getElementById('title-overlay');
     const setupEl = document.getElementById('setup-overlay');
-    const homeEl = document.getElementById('home-screen');
-    const cpuEl = document.getElementById('cpu-setup-overlay'); // CPU設定も念のため
-
-    // 1. 他の画面を物理的に徹底排除
-    [titleEl, homeEl, cpuEl].forEach(el => {
-        if (el) {
-            el.classList.add('hidden');
-            el.style.display = 'none'; // 完全に消す
-        }
-    });
-
-    // 2. 開発用人数選択画面(setup-overlay)を「見える状態」へ復活させる
-    if (setupEl) {
-        setupEl.classList.remove('hidden');
-        // 外科手術：display: none が残っていたら flex(またはblock) で上書き
-        setupEl.style.display = 'flex'; 
-        setupEl.style.zIndex = '100'; // 確実にホームより前へ
-        addLog("開発用セットアップ画面を表示します。");
-    }
+    const homeEl = document.getElementById('home-screen'); // 追加
+    
+    if (titleEl) titleEl.classList.add('hidden');
+    if (homeEl) homeEl.classList.add('hidden'); // 追加
+    if (setupEl) setupEl.classList.remove('hidden');
 }
 
 
 /**
  * セットアップ画面（プレイ人数選択）の表示
  */
-/**
- * 2026/03/17 修正
- * ゲームリセット時、タイトル画面ではなく、新しく実装した「ホーム画面」に戻るように修正。
- */
 function showSetup() {
-    window.FORCED_CPU_MODE = false; 
+    window.FORCED_CPU_MODE = false; // フラグ解除
+    // ※ window.isProfileSet = false; は実行しない（名前設定を維持するため）
 
+    // BGMの停止処理
     if (window.gameBGM) {
         window.gameBGM.pause();
         window.gameBGM.currentTime = 0;
@@ -90,30 +69,21 @@ function showSetup() {
 
     if (typeof cleanupGame === 'function') cleanupGame();
 
-    // --- 外科手術：新ホーム画面を表示し、他の全オーバーレイを隠す ---
-    const overlays = {
-        'home-screen': false,   // false = remove 'hidden'
-        'title-overlay': true,  // true = add 'hidden'
-        'setup-overlay': true,
-        'cpu-setup-overlay': true,
-        'winner-overlay': true,
-        'profile-setup-modal': true
-    };
+    const titleEl = document.getElementById('title-overlay');
+    const setupEl = document.getElementById('setup-overlay');
+    const winnerOverlay = document.getElementById('winner-overlay');
+    const profileModal = document.getElementById('profile-setup-modal');
+    
+    // 画面の初期化：タイトル画面のみ表示し、他を隠す
+    if (titleEl) titleEl.classList.remove('hidden');
+    if (setupEl) setupEl.classList.add('hidden');
+    if (winnerOverlay) winnerOverlay.classList.add('hidden');
+    if (profileModal) profileModal.classList.add('hidden');
 
-    Object.entries(overlays).forEach(([id, shouldHide]) => {
-        const el = document.getElementById(id);
-        if (el) {
-            if (shouldHide) {
-                el.classList.add('hidden');
-                el.style.display = 'none';
-            } else {
-                el.classList.remove('hidden');
-                el.style.display = 'flex'; // ホーム画面は flex で表示
-            }
-        }
-    });
-
-    // 以降のボード初期化処理などはそのまま維持
+    // 既存のUI初期化処理（そのまま継続）
+    if (document.getElementById('my-lock-container')) document.getElementById('my-lock-container').classList.add('hidden');
+    if (document.getElementById('hand-area-container')) document.getElementById('hand-area-container').classList.add('hidden');
+    // ...以降のコードは既存のものを維持してください...
 
     const boardEl = document.getElementById('board-grid');
     if (boardEl) boardEl.innerHTML = '';
@@ -603,8 +573,7 @@ function closeDiscardPile() {
 /**
  * 詳細確認モーダルの表示
  */
-/* 2026/03/12 修正：第7引数 actingP を追加。CPUなら自動で「実行」するように拡張 */
-function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, actingP = null) { 
+function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false) { 
     
     // ★追加：自動処理(isAutoAction)がON かつ スキップ設定がONの場合、かつ実行アクション(onOk)がある場合
     if (isAutoAction && isSkipSelectionOnAuto && onOk) {
@@ -636,38 +605,13 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
 
     const modal = document.getElementById('detail-modal');
     if (!modal) return;
-
-    /**
-     * 2026/03/17 修正
-     * 前回の表示時に作成された「クローン要素（残骸）」を削除し、
-     * ボタンが反応しなくなる、あるいは二重に重なる不具合を完全に解消します。
-     */
-    const oldClones = modal.querySelectorAll('.modal-large-card');
-    oldClones.forEach(el => el.remove());
     
-    // 元の非表示になっているテンプレート要素を再取得または表示準備
-    const originalView = document.getElementById('detail-card-view');
-    if (originalView) {
-        // クローンによって hidden クラスが外れっぱなしになるのを防ぐ
-        originalView.classList.add('hidden');
-    }
-
     modal.style.zIndex = "150";
 
-    /**
- * 2026/03/17 修正
- * 割り込み処理等の影響でキャンセルボタンが非表示のまま残る不具合を解消するため、
- * モーダル表示時に明示的に hidden クラスの状態を再設定するよう強化。
- */
     const cancelBtn = document.getElementById('detail-cancel-btn'); 
     if(cancelBtn) {
         cancelBtn.textContent = "キャンセル"; 
-        // 外科手術：hideCancelが指定されていない限り、確実に表示されるようにする
-        if (hideCancel) {
-            cancelBtn.classList.add('hidden');
-        } else {
-            cancelBtn.classList.remove('hidden');
-        }
+        cancelBtn.classList.toggle('hidden', hideCancel); 
         cancelBtn.onclick = closeDetailModal; 
     }
     document.getElementById('detail-title').textContent = title; 
@@ -767,9 +711,7 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
         okBtn.onclick = null; 
     }
 
-    /* 2026/03/12 修正：actingPがCPUなら自動で次へ */
-    const isCpuActing = actingP && actingP.id !== 1;
-    if ((isAutoAction || isCpuActing) && !okBtn.disabled) {
+    if (isAutoAction && !okBtn.disabled) {
         setTimeout(() => {
             if (okBtn) okBtn.click();
         }, 500);
@@ -782,42 +724,68 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
     const arrivalEl = document.getElementById('detail-arrival-text');
     const handEl = document.getElementById('detail-hand-text');
 
-    /**
-     * 2026/03/17 修正
-     * cloneNode によるイベント消失と二重起動バグを回避するため、
-     * 要素を複製せず、直接スタイルと内容を更新する方式へ変更。
-     */
     if (card) {
+        // カードの表示サイズを大きくする
         view.classList.add('modal-large-card');
-        view.classList.remove('hidden');
+        view.classList.remove('w-24', 'h-24'); // もし既存の小さいサイズクラスがあれば除去
+
+        const newView = view.cloneNode(true);
+        view.parentNode.replaceChild(newView, view);
+        newView.classList.remove('hidden');
+
+        // クローンされたコンテナ内から各要素を再取得
+        const newCharEl = newView.querySelector('#detail-card-char');
+        const newNameEl = newView.querySelector('#detail-card-name');
+        const newArrivalEl = newView.querySelector('#detail-arrival-text');
+        const newHandEl = newView.querySelector('#detail-hand-text');
 
         const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
 
         if (imgPath) {
-            view.style.backgroundImage = `url('${imgPath}')`;
-            view.style.backgroundSize = 'cover';
-            view.style.backgroundPosition = 'center';
-            if (charEl) charEl.textContent = "";
-            if (nameEl) nameEl.classList.add('hidden');
-            if (arrivalEl) arrivalEl.classList.add('hidden');
-            if (handEl) handEl.classList.add('hidden');
+            // 画像がある場合：背景を設定し、コンテナ内のテキスト要素をすべて隠す
+            newView.style.backgroundImage = `url('${imgPath}')`;
+            newView.style.backgroundSize = 'cover';
+            newView.style.backgroundPosition = 'center';
+
+            if (newCharEl) newCharEl.textContent = "";
+            if (newNameEl) newNameEl.classList.add('hidden');
+            // 【重要】画像の上に乗らないようテキストエリアを隠す
+            if (newArrivalEl) newArrivalEl.classList.add('hidden');
+            if (newHandEl) newHandEl.classList.add('hidden');
         } else {
-            view.style.backgroundImage = 'none';
-            if (charEl) charEl.textContent = card.name ? card.name[0] : '?';
-            if (nameEl) {
-                nameEl.textContent = card.name || "";
-                nameEl.classList.remove('hidden');
+            // 画像がない場合：背景をクリアし、テキストを表示する
+            newView.style.backgroundImage = 'none';
+            if (newCharEl) newCharEl.textContent = card.name ? card.name[0] : '?';
+            if (newNameEl) {
+                newNameEl.textContent = card.name || "";
+                newNameEl.classList.remove('hidden');
             }
-            if (arrivalEl) {
-                arrivalEl.classList.remove('hidden');
-                arrivalEl.innerHTML = `<span class="text-yellow-500 font-bold">【到達】</span>${card.arrival || "(なし)"}`;
+            // テキストエリアを表示して内容を更新
+            if (newArrivalEl) {
+                newArrivalEl.classList.remove('hidden');
+                newArrivalEl.innerHTML = `<span class="text-yellow-500 font-bold">【到達】</span>${card.arrival || "(なし)"}`;
             }
-            if (handEl) {
-                handEl.classList.remove('hidden');
-                handEl.innerHTML = `<span class="text-blue-400 font-bold">【手札】</span>${card.hand || "(なし)"}`;
+            if (newHandEl) {
+                newHandEl.classList.remove('hidden');
+                newHandEl.innerHTML = `<span class="text-blue-400 font-bold">【手札】</span>${card.hand || "(なし)"}`;
             }
         }
-        if (typeof attachHoverEvents === 'function') attachHoverEvents(view, card, true);
+
+        // モーダル下部の独立したテキストエリア（もしHTML構造上、外側にもある場合）も更新
+        // ※念のため、画像コンテナ外の要素も更新しておきます
+        const externalArrival = document.getElementById('detail-arrival-text');
+        const externalHand = document.getElementById('detail-hand-text');
+        // コンテナの外にある場合のみここが機能します
+        if (externalArrival && externalArrival.parentNode !== newView) {
+             externalArrival.innerHTML = `<span class="text-yellow-500 font-bold">【到達】</span>${card.arrival || "(なし)"}`;
+        }
+        if (externalHand && externalHand.parentNode !== newView) {
+             externalHand.innerHTML = `<span class="text-blue-400 font-bold">【手札】</span>${card.hand || "(なし)"}`;
+        }
+
+        if (typeof attachHoverEvents === 'function') {
+            attachHoverEvents(newView, card, true);
+        }
     } else {
         view.classList.add('hidden');
     }
@@ -828,12 +796,7 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
 
 function closeDetailModal() { 
     const modal = document.getElementById('detail-modal');
-    if (modal) {
-        modal.classList.add('hidden');
-        // 外科手術：閉じる瞬間にクローンされたカード要素をすべて除去
-        const clones = modal.querySelectorAll('.modal-large-card');
-        clones.forEach(el => el.remove());
-    }
+    if (modal) modal.classList.add('hidden');
     
     // ★ 2026/03/07 外科手術：追加した「スルーボタン」を確実に削除する
     const skipBtn = document.getElementById('detail-skip-all-btn');
@@ -870,49 +833,9 @@ function closeDetailModal() {
 /**
  * カード選択モーダルの表示
  */
-/**
- * 2026/03/17 修正
- * CPU戦において、CPUが操作主である場合に人間用の選択モーダルが表示されないよう判定を強化。
- */
-/**
- * 2026/03/17 修正
- * 選択完了時、もし手札効果のフラグが残っていたら安全のためにリセットし、
- * 次のモーダルでキャンセルボタンが消えるのを防止。
- */
 function showSelectionModal(title, dummy, source, back, count, onComplete, isBlind = false, cancelCallback = null, autoBtnText = null, restrictedCells = null, actingPlayer = null) { 
-
-    // 元のコールバックをラップして、終了時にフラグを掃除する
-    const originalOnComplete = onComplete;
-    const safeOnComplete = (selectedCards) => {
-        // 選択が終わった＝そのカードの効果の山場は越えたと判断し、
-        // 他のモーダルに影響が出ないようフラグを倒す
-        if (title !== "手札破棄" && title !== "コスト支払い") {
-            isHandEffectProcessing = false;
-        }
-        if (originalOnComplete) originalOnComplete(selectedCards);
-    };
     
-    // 以降、関数の引数の onComplete を safeOnComplete に差し替えて処理... 
-    
-    // --- 外科手術：操作主がCPU(IDが1以外)なら、モーダルを出さずに自動選択へ飛ばす ---
-    const selector = actingPlayer || players[turn];
-    const isHumanSelector = (selector && selector.id === 1);
-
-    if (!isHumanSelector) {
-        addLog(`[Auto] ${selector.name} が ${title} を選択中...`);
-        const validSource = source.filter(item => !item.disabled);
-        const finalCount = Math.min(count, validSource.length);
-        const shuffled = [...validSource].sort(() => Math.random() - 0.5);
-        const selection = shuffled.slice(0, finalCount);
-        
-        setTimeout(() => {
-            addLog(`[Auto] ${selector.name} が ${selection.map(s => s.name || '対象').join(', ')} を選択しました`);
-            onComplete(selection);
-        }, 500);
-        return; 
-    }
-
-    // --- 既存のタイマー処理 ---
+    // --- 修正箇所：タイマー譲渡とリセット ---
     if (actingPlayer) {
         activeTimerPlayerId = actingPlayer.id;
         // 相手に渡す際、フェイズ残り時間をリセットする
@@ -963,35 +886,17 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
     container.classList.remove('hidden'); 
     container.innerHTML = ''; 
     
-    /* 2026/03/12 修正：エターナル選択画面で7枚を横1列に並べるための調整 */
-    // エターナルカードの選択か、またはロック対象（7色）の選択かを判定
-    const isEternalSelect = (title === "ETERNAL SELECTION");
     const isLockTargetSelect = (source && source.length > 0 && source[0] && source[0].id && BASE_COLORS.some(bc => bc.id === source[0].id));
-    
-    if (isEternalSelect || isLockTargetSelect) {
-        // 折り返し禁止(flex-nowrap)にし、はみ出る場合は横スクロール(overflow-x-auto)を許可
-        container.className = "flex flex-nowrap justify-center gap-1.5 p-4 min-h-[100px] overflow-x-auto w-full";
-    } else {
-        // 通常の選択画面（手札破棄など）は今まで通り折り返す
-        container.className = "flex flex-wrap justify-center gap-3 p-4 min-h-[100px] max-h-[45vh] overflow-y-auto w-full";
-    }
+    container.className = isLockTargetSelect ? "flex flex-nowrap justify-center gap-2 p-4 min-h-[100px] overflow-x-auto w-full" : "flex flex-wrap justify-center gap-3 p-4 min-h-[100px] max-h-[45vh] overflow-y-auto w-full";
     document.getElementById('selection-result').classList.add('hidden'); 
     
-    /* 2026/03/13 修正：効果処理中の「閉じる」ボタンを徹底排除 */
     const cancelBtn = document.getElementById('selection-cancel-btn'); 
     if (cancelBtn) {
-        // 1. 強制的に隠すべき条件を定義
-        // ・手札効果の処理中 (isHandEffectProcessing)
-        // ・AIによる自動進行中 (isAutoProcessing)
-        // ・特定の「やり直し不可」なタイトル
-        const isForcedAction = isHandEffectProcessing || isAutoProcessing || 
-                               title === "手札破棄" || title === "コスト支払い" || 
-                               title === "ETERNAL SELECTION";
-
-        if (isForcedAction) {
+        // ★ 2026/03/08 外科手術的修正：特定のタイトル時は強制的にボタンを隠す
+        // 「手札破棄」と「コスト支払い」の時は、キャンセルもおまかせもさせない
+        if (title === "手札破棄" || title === "コスト支払い") {
             cancelBtn.classList.add('hidden');
         } else {
-            // 2. それ以外（通常のロックフェイズ中など）は「おまかせ」または「閉じる」を表示
             cancelBtn.classList.remove('hidden');
             cancelBtn.textContent = cancelCallback ? "おまかせ" : "閉じる";
             cancelBtn.onclick = () => {
@@ -1049,10 +954,8 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
             let cardCls = isBlind ? back : (item.type === "ETERNAL" ? "eternal-card-face" : (item.bg || 'bg-gray-700'));
             let txtCls = (!isBlind && item.colorId === 'white' ? 'text-gray-800' : (item.colorId === 'black' ? 'text-gray-200' : 'text-white'));
             
-            /* 2026/03/12 修正：横1列に並べる時はサイズを w-10 (約40px) に縮小 */
-            const sizeCls = (title === "ETERNAL SELECTION") ? "w-10 h-10" : "w-12 h-12";
-            
-            el.className = `selection-option card-shape ${sizeCls} ${cardCls} border-2 border-gray-400 rounded cursor-pointer hover-zoom transition-all flex items-center justify-center relative shrink-0 overflow-hidden`;
+            // After: カード要素にも確実に selection-option を付与
+            el.className = `selection-option card-shape w-12 h-12 ${cardCls} border-2 border-gray-400 rounded cursor-pointer hover-zoom transition-all flex items-center justify-center relative shrink-0 overflow-hidden`;
             
             if (!isBlind) {
                 const imgPath = item.image || (item.id ? `images/card_${item.id}.webp` : null);
@@ -1144,18 +1047,9 @@ function showRequestSelectionModal(title, dummy, source, back, count, onComplete
         const shuffled = [...validSource].sort(() => Math.random() - 0.5);
         const selection = shuffled.slice(0, finalCount);
         
-        /**
- * 2026/03/17 修正
- * CPUが自動選択を完了した際、管理していたタイマーIDをリセットするように修正。
- * これにより、呪いの押し付け等の処理後にタイムアウトログが連打される不具合を解消。
- */
         // 演出のために少し待ってから完了
         setTimeout(() => {
             addLog(`[Auto] ${selector.name} は ${selection.map(s => s.name || '対象').join(', ')} を選択しました`);
-            
-            // --- 外科手術：完了前にタイマーの占有を解除する ---
-            activeTimerPlayerId = null; 
-            
             onComplete(selection);
         }, 600);
         return; 
@@ -1184,25 +1078,9 @@ function showSelectionResult(cards, onComplete, effectName, cancelCallback = nul
     area.classList.remove('hidden'); 
     document.getElementById('selection-container').classList.add('hidden');
     
-    /* 2026/03/12 修正：ボタンの重複を解消し、確認ボタン隣の「戻る」を有効化 */
-    const backBtn = document.getElementById('selection-back-btn'); // 確認ボタンの左隣にあるボタン
-    const cancelBtn = document.getElementById('selection-cancel-btn'); // モーダル最下部のボタン
+    const cancelBtn = document.getElementById('selection-cancel-btn');
     const autoBtn = document.getElementById('selection-auto-btn');
-    
-    // 1. 本来の場所にある「戻る」ボタン(backBtn)に機能を付与
-    if (backBtn) {
-        backBtn.classList.remove('hidden'); 
-        backBtn.onclick = () => {
-            area.classList.add('hidden'); // 結果エリアを隠す
-            document.getElementById('selection-container').classList.remove('hidden'); // 選択肢を出す
-            // 下部のキャンセルボタンなどを再表示させるために必要なら
-            if (cancelBtn) cancelBtn.classList.remove('hidden');
-        };
-    }
-
-    // 2. 最下部の「キャンセル」ボタンは、結果画面では隠す（混乱防止）
     if (cancelBtn) cancelBtn.classList.add('hidden');
-    if (autoBtn) autoBtn.classList.add('hidden');
     if (autoBtn) autoBtn.classList.add('hidden');
 
     const resContainer = document.getElementById('selection-result-container'); 
@@ -1264,8 +1142,7 @@ function showSelectionResult(cards, onComplete, effectName, cancelCallback = nul
 /**
  * カード獲得・到達モーダル
  */
-/* 2026/03/12 修正：第6引数 actingP を追加し、CPUなら自動で閉じるよう拡張 */
-function showCardModal(cards, onComplete, titleText = "カード獲得", playerName = "", actionVerbiage = "到達しました", actingP = null) {
+function showCardModal(cards, onComplete, titleText = "カード獲得", playerName = "", actionVerbiage = "到達しました") {
 
 // SE再生。文字列が含まれているかを柔軟に判定
     if (titleText && (titleText.includes("到達効果") || titleText.includes("到達時"))) {
@@ -1306,33 +1183,21 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
         // タイトルに自分の名前がある、またはカード自体が「元々自分のもの(fromP1)」フラグを持っている場合
         const isRelatedToP1 = titleText.includes(players[0].name) || card.fromP1 === true;
 
-        /* 2026/03/12 修正：P1(自分)からカードが奪われた場合は、秘匿せず表向きで表示する */
-        /* 2026/03/12 修正：CPUの獲得モーダルにおける秘匿ルールの適正化 */
+        // 2. 秘匿判定の決定打
         let isSecretInfo = false;
-
-        // P1以外（CPU）がカードを獲得する場合の判定
         if (isP1HandOnlyView && playerName !== players[0].name) {
-            
-            const isP1Victim = titleText.includes(`${players[0].name}から`) || titleText.includes(`${players[0].name}の手札`);
-            
-            // ★追加：既に表向き(revealed)であるか、または「到達獲得」中なら隠さない
-            const isPublicKnowledge = (card && card.revealed) || titleText.includes("到達獲得");
-
-            if (titleText.includes("公開") || isPublicKnowledge) {
-                isSecretInfo = false; // 既にみんなが見た情報は隠さない
-            } else if (isRelatedToP1 || isP1Victim) {
-                isSecretInfo = false; // 自分の物なら見える
-            } else {
-                // 山札からのドローなどは引き続き隠す
-                const isPrivateAction = titleText.includes("ドロー") || 
-                                        titleText.includes("獲得") || 
-                                        titleText.includes("奪") || 
-                                        titleText.includes("報酬") || 
-                                        titleText.includes("スティール");
-                
-                if (isPrivateAction) {
-                    isSecretInfo = true;
-                }
+            // 例外ルール：タイトルに「公開」が含まれている場合は、秘匿設定を無視して表示する
+            if (titleText.includes("公開")) {
+                isSecretInfo = false;
+            } else if (isRelatedToP1) {
+                // 自分の持ち物なら見える
+                isSecretInfo = false;
+            } else if (titleText.includes("ドロー") || titleText.includes("奪")|| titleText.includes("自ゲートのカード獲得") || titleText.includes("スティール")) {
+                // 通常のドローや強奪は隠す
+                isSecretInfo = true;
+            } else if (card.revealed === false) {
+                // 盤面の裏向きカードを拾ったなら隠す
+                isSecretInfo = true;
             }
         }
 
@@ -1442,36 +1307,15 @@ if (actualCards.length > 0) {
         finalize();
     };
 
-    /* 2026/03/13 修正：CPUスキップ設定による自動閉鎖の分岐処理 */
-    const isCpuActing = actingP && actingP.id !== 1;
-    if (isAutoAction || isCpuActing) {
+    if (isAutoAction) {
+        const drawWaitTime = 4000;
+        if (typeof pauseTimer === 'function') pauseTimer();
         
-        // 設定画面のスイッチを確認
-        const isSkipEnabled = document.getElementById('setting-cpu-skip')?.checked !== false;
-
-        // スキップ対象の判定（指定された3つのモーダル）
-        const isTargetModal = titleText.includes("到達効果") || 
-                             titleText.includes("手札効果") || 
-                             titleText.includes("到達獲得");
-
-        // 「スキップがON」または「対象外のモーダル（ドロー等）」なら自動で閉じる
-        if (isSkipEnabled || !isTargetModal) {
-            const drawWaitTime = 2000;
-            if (typeof pauseTimer === 'function') pauseTimer();
-            
-            autoProcessTimeout = setTimeout(() => {
-                autoProcessTimeout = null;
-                finalize();
-            }, drawWaitTime);
-        } else {
-            // スキップOFF かつ 対象モーダルの場合、タイマーを起動せず停止
-            console.log(`[CPU Pause] ${titleText} のため確認ボタン待機中...`);
-            if (typeof pauseTimer === 'function') pauseTimer();
-            
-            // ヒント：ここでボタンを強調（アニメーション）させるとより親切です
-            btnEl.classList.add('animate-bounce');
-            setTimeout(() => btnEl.classList.remove('animate-bounce'), 3000);
-        }
+        // タイマーをグローバル変数に格納
+        autoProcessTimeout = setTimeout(() => {
+            autoProcessTimeout = null;
+            finalize();
+        }, drawWaitTime);
     }
 }
 
@@ -1528,35 +1372,24 @@ async function showTurnChangeNotification(p) {
 /**
  * 盤面マス選択モードの開始
  */
-/**
- * 2026/03/17 修正
- * 盤面選択モード開始時、操作主がCPUであれば人間用のUI表示を完全にスキップし、
- * 強制的に triggerAutoSelect を起動するように修正。
- */
 function startSelectionMode(type, count, logic, promptText, callback, range = null, forbiddenTile = null, noCancel = false, origin = null, isEightDirection = false, cancelCallback = null, autoBtnText = null, restrictedCells = null, actingPlayer = null) {
     const msg = promptText || "対象を選択してください";
     selectionState = { active: true, type, count, current: 0, selected: [], logic, callback, range, prompt: msg, forbiddenTile, noCancel, origin, isEightDirection, cancelCallback, autoBtnText, restrictedCells, actingPlayer };
     
-    // --- 外科手術：操作主がCPU(IDが1以外)なら、即座に自動選択を実行して終了する ---
+    // ★ 2026/03/08 修正：誰のターンであっても、操作者が人間(P1)なら手動UIを表示する
     const p = actingPlayer || players[turn];
-    const isHumanActing = (p && p.id === 1);
+    const isHumanActing = (p.id === 1);
 
-    if (!isHumanActing) {
-        addLog(`[Auto] ${p.name} が ${msg} を思考中...`);
-        // UIを表示させずに内部ロジックのみで完結させるため、setTimeoutで自動選択を叩く
+    // CPUのターン(isAutoAction)かつ、操作者がCPUの場合のみ自動処理へ
+    if (isAutoAction && !isHumanActing) {
+        addLog(`[Auto] ${msg}`);
         setTimeout(() => {
-            if (typeof triggerAutoSelect === 'function') {
-                // 自動処理フラグを一時的にONにして確実に処理させる
-                const wasAuto = isAutoAction;
-                isAutoAction = true; 
-                triggerAutoSelect();
-                isAutoAction = wasAuto;
-            }
-        }, 400);
+            if (typeof triggerAutoSelect === 'function') triggerAutoSelect();
+        }, 300);
         return; 
     }
 
-    // --- 以下、人間(P1)の場合のみUIを構築 ---
+    // --- ここから下（人間用のUI表示）に P1 の場合は必ず進むようになる ---
     const appEl = document.getElementById('app');
     if (appEl) appEl.classList.add('selection-active');
     
@@ -1583,28 +1416,20 @@ function startSelectionMode(type, count, logic, promptText, callback, range = nu
  * 自動選択ロジック
  */
 /** 2026/03/09 修正：「おまかせ」ボタン押下時はP1でも自動選択を許可する **/
-/**
- * 2026/03/17 修正
- * 人間(P1)が「おまかせ」ボタンを押した際、ガードに弾かれず実行されるよう引数を追加。
- */
-function triggerAutoSelect(isManualClick = false) {
+function triggerAutoSelect() {
     if (!selectionState.active || isPeekingMode) return;
 
     // 操作しているプレイヤーを特定
     const p = selectionState.actingPlayer || players[turn];
     
-    /* 2026/03/17 修正：P1のガード条件を緩和 */
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        if (p.id !== window.MULTIPLAY.playerNumber) return; 
-    } else {
-        // 「手動クリックではない」かつ「P1かつオート中ではない」場合のみ待機させる
-        if (!isManualClick && !isAutoAction && p.id === 1) {
-            addLog("プレイヤーの選択を待機中...");
-            return; 
-        }
+    // ★ 修正：isAutoAction(CPUの思考中) かつ P1 の場合のみ待機させる。
+    // 「おまかせ」ボタンを手動で押した場合は isAutoAction が false なので、この下の処理に進めます。
+    if (isAutoAction && p.id === 1) {
+        addLog("プレイヤーの選択を待機中...");
+        return; 
     }
 
-    // --- 以下、自動選択ロジック（変更なし） ---
+    // --- 以下、自動選択ロジック ---
     
     let allValidCells = [];
     if (selectionState.restrictedCells && selectionState.restrictedCells.length > 0) {
@@ -1643,14 +1468,8 @@ function triggerAutoSelect(isManualClick = false) {
 
                 // 2. プレイヤー位置関連・特殊保護ロジック
                 const isSelfOn = (p.x === pos.x && p.y === pos.y);
-                /** 2026/03/17 修正
-                 * AIのスコア計算対象に「民の道」の新しいロジック名を追加し、NaNエラーを防止。
-                 */
-                const L = selectionState.logic;
-                const isGainLogic = (L === 'add_all_to_hand' || L === 'add_to_hand');
-                const isDestroyLogic = (L === 'destroy_all' || L === 'destroy_top');
-                // 移動系ロジック（民の道など）の判定を追加
-                const isMoveLogic = (L === 'civil_path_select_cards' || L === 'civil_path_select_dest' || L === 'civil_path_step1_dummy' || L === 'civil_path_step2_dummy');
+                const isGainLogic = (selectionState.logic === 'add_all_to_hand' || selectionState.logic === 'add_to_hand');
+                const isDestroyLogic = (selectionState.logic === 'destroy_all' || selectionState.logic === 'destroy_top');
 
                 // ★【追加】ゲート侵攻の踏み台保護ロジック
                 const isEnemyGate = enemyGatePos.some(eg => eg.x === pos.x && eg.y === pos.y);
@@ -1688,30 +1507,11 @@ function triggerAutoSelect(isManualClick = false) {
                 if (distToEnemyGate === 0 && currentDistToEnemyGate <= 1) score += cfg.REACH_ENEMY_GATE;
                 if (distToEnemyGate < currentDistToEnemyGate) score += cfg.MOVE_TOWARD_GATE;
 
-                /* 2026/03/13 修正：NaNガードの実装 */
-                if (isNaN(score)) {
-                    console.warn(`[DEBUG] スコアがNaNになりました。pos:(${pos.x}, ${pos.y}), logic: ${selectionState.logic}`);
-                    score = 0; // 計算不能な場合はとりあえず0点にする
-                }
                 return { pos, score };
             });
 
-
-            // --- 2026/03/13 追加：コンソールへの全候補スコア出力（提案4） ---
-            console.table(scoredCells.map(s => ({
-                x: s.pos.x, 
-                y: s.pos.y, 
-                score: s.score,
-                logic: selectionState.logic
-            })));
-
-
             scoredCells.sort((a, b) => b.score - a.score || Math.random() - 0.5);
             selection = scoredCells.slice(0, selectionState.count).map(item => item.pos);
-            
-            /* 2026/03/13 追加：AI自動選択スコアログ */
-            const scoreDetail = scoredCells.slice(0, selectionState.count).map(s => `${s.score}pt`).join(', ');
-            addLog(`[DEBUG] AI Select (${selectionState.logic}): ${scoreDetail}`, true);
         } else {
             const shuffled = allValidCells.sort(() => Math.random() - 0.5);
             selection = shuffled.slice(0, selectionState.count);
@@ -1771,21 +1571,11 @@ function isCellSelectable(x, y) {
         if (cell.empty) return false;
     }
 
-    /* 2026/03/12 修正：民の道などの移動先選択において、位置制限(範囲外)を無視するように修正 */
     const origin = selectionState.origin || p || {x: -1, y: -1};
     const dx = Math.abs(origin.x - x), dy = Math.abs(origin.y - y);
 
-    /* 2026/03/13 修正：民の道などの「全画面の空きマス」が対象のロジック */
-    const isSpecialPlacement = [
-        'place_deck_facedown', 
-        'exile_curse_logic', 
-        'civil_path_step2', 
-        'civil_path_step2_dummy',
-        'civil_path_select_dest' // ← 前回の修正案の名前も追加して安全策をとります
-    ].includes(L);
-
-    // --- 範囲チェック ---
-    if (!isSpecialPlacement && selectionState.range !== null && selectionState.range !== undefined) {
+    // --- 範囲チェック：null または undefined の場合は全域対象とする ---
+    if (selectionState.range !== null && selectionState.range !== undefined && L !== 'place_deck_facedown' && L !== 'exile_curse_logic') {
         let inRange = selectionState.isEightDirection ? (dx <= selectionState.range && dy <= selectionState.range) : (dx + dy <= selectionState.range);
         if (!inRange) return false;
     }
@@ -1854,39 +1644,12 @@ function handleSelection(x, y) {
     selectionState.current++; 
     renderBoard(); 
     
-    /**
- * 2026/03/17 修正
- * 空きマスが指定数(count)より少ない場合でも、選択可能な全マスを選んだ時点で
- * 自動的に確定処理へ進むよう修正（民の道の建設などの詰まりを解消）。
- */
-    // 1. 現在の選択数と目標数をチェック
-    const isTargetReached = selectionState.current >= selectionState.count;
-
-    // 2. 「これ以上選べるマスがあるか」をチェック
-    let hasMoreSelectable = false;
-    for (let iy = 0; iy < GRID_SIZE; iy++) {
-        for (let ix = 0; ix < GRID_SIZE; ix++) {
-            // まだ選んでいない、かつ選択可能なマスが1つでもあれば true
-            const alreadySelected = selectionState.selected.some(s => s.x === ix && s.y === iy);
-            if (!alreadySelected && isCellSelectable(ix, iy)) {
-                hasMoreSelectable = true;
-                break;
-            }
-        }
-        if (hasMoreSelectable) break;
-    }
-
-    // 「目標達成」または「これ以上選べるマスがない」なら確定
-    if (isTargetReached || !hasMoreSelectable) {
+    if (selectionState.current >= selectionState.count) {
         const sel = [...selectionState.selected];
         const L = selectionState.logic, cb = selectionState.callback, actingP = selectionState.actingPlayer; 
-        
         cancelSelection(true); 
         selectionState.actingPlayer = actingP; 
-        
-        if (typeof executeSelectionLogic === 'function') {
-            executeSelectionLogic(L, sel, cb);
-        }
+        if (typeof executeSelectionLogic === 'function') executeSelectionLogic(L, sel, cb);
     }
 }
 
@@ -2255,11 +2018,9 @@ function executeSelectionLogic(logic, selection, callback) {
 
                     const target = board[pos.y][pos.x];
                     if (!target.empty) {
-                        // 2026/03/14 修正：手札配列の存在を保証してから追加
+                        // 盤面での「表か裏か」の状態を、一時的にカードデータへ持たせる
                         const cardWithState = { ...target.color, revealed: target.revealed };
                         acquiredCards.push(cardWithState);
-
-                        if (!hands[p.id]) hands[p.id] = [];
                         hands[p.id].push(target.color);
                         if (target.stack && target.stack.length > 0) {
                             const topStack = target.stack.shift();
@@ -2713,9 +2474,9 @@ function showStealActionModal(thief, victim, onComplete) {
     const overlapClass = victimHandCount > 5 ? '-ml-5' : victimHandCount > 1 ? '-ml-3' : '';
     
     for(let i = 0; i < victimHandCount; i++) {
+        // 最初の1枚以外にマイナスマージンを適用
         const margin = i > 0 ? overlapClass : '';
-        // 2026/03/11 修正：w-8 h-8 を追加し、縦横比を1:1に固定
-        handHTML += `<div class="steal-hand-back ${margin} w-8 h-8" style="min-width: 32px; height: 32px;"></div>`;
+        handHTML += `<div class="steal-hand-back ${margin}"></div>`;
     }
 
     modal.innerHTML = `
@@ -2728,7 +2489,7 @@ function showStealActionModal(thief, victim, onComplete) {
 
             <div class="flex flex-col items-center shrink-0 w-12">
                 <div class="text-2xl text-yellow-500">◀</div>
-                <div class="steal-card-blinking w-8 h-8" style="min-width: 32px; height: 32px;"></div>
+                <div class="steal-card-blinking"></div>
             </div>
 
             <div class="steal-player-unit">
@@ -3405,11 +3166,8 @@ function showTitleSelectionModal(onChanged) {
                 <button 
                     class="w-full h-full p-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all relative overflow-hidden
                     ${isUnlocked ? (isSelected ? 'border-yellow-500 bg-gray-700 shadow-[0_0_10px_rgba(234,179,8,0.4)]' : 'border-gray-600 bg-gray-800 hover:border-gray-400') : 'border-gray-800 bg-gray-900/50 cursor-not-allowed opacity-60'}"
-                    /* 2026/03/12 修正：スマホで未開放の称号をタップしても説明が出るように変更 */
-                    onclick="window._handleTitleTap(event, '${t}', ${isUnlocked})"
-                    class="w-full h-full p-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all relative overflow-hidden
-                    ${isUnlocked ? (isSelected ? 'border-yellow-500 bg-gray-700 shadow-[0_0_10px_rgba(234,179,8,0.4)]' : 'border-gray-600 bg-gray-800 hover:border-gray-400') : 'border-gray-800 bg-gray-900/50 opacity-60'}"
-                    >
+                    onclick="${isUnlocked ? `window._confirmTitle('${t}')` : ''}"
+                    ${!isUnlocked ? 'disabled' : ''}>
                     
                     ${isNew ? '<span class="absolute top-1 right-1 bg-red-500 text-white text-[8px] font-black px-1 rounded-sm animate-pulse z-20">NEW</span>' : ''}
                     
@@ -3447,40 +3205,30 @@ function showTitleSelectionModal(onChanged) {
     `;
 
     /** 2026/03/10 修正：スマホで説明を一瞬で見失わないよう、2回タップで確定に変更 **/
-    /* 2026/03/12 修正：スマホ専用の称号タップハンドラ */
-    let lastTappedTitleId = null;
+    let lastTappedTitle = null; 
 
-    window._handleTitleTap = (event, titleName, isUnlocked) => {
-        event.preventDefault();
-        event.stopPropagation();
+    window._confirmTitle = (titleName) => {
+        // すでに選択中（装着中）のものを押した場合は、何もしない（説明だけ見せる）
+        if (userProfile.selectedTitle === titleName) return;
 
-        // 既にその称号の説明（ツールチップ）が出ている場合
-        if (lastTappedTitleId === titleName) {
-            if (isUnlocked) {
-                // 解放済みなら2回目のタップで確定
-                userProfile.selectedTitle = titleName;
-                if (!userProfile.seenTitles) userProfile.seenTitles = ["駆け出しの旅人"];
-                if (!userProfile.seenTitles.includes(titleName)) userProfile.seenTitles.push(titleName);
-                saveUserProfile();
-                modal.remove();
-                if (onChanged) onChanged();
-            }
-            return;
+        // まだ一度もタップされていない、または別の称号をタップした直後の場合
+        if (lastTappedTitle !== titleName) {
+            lastTappedTitle = titleName;
+            // 視覚的に「選択中」であることを伝えるためにログを出すか、ボタンの状態を変える処理
+            // スマホではこれで「説明（ツールチップ）」が表示された状態をキープできます
+            return; 
         }
 
-        // 1回目のタップ：説明を表示させる
-        lastTappedTitleId = titleName;
+        // 同じ称号を2回連続でタップした、あるいは1回目で lastTappedTitle にセットされた後
+        // もう一度同じものをタップした瞬間に確定処理を行う
+        userProfile.selectedTitle = titleName;
+        if (!userProfile.seenTitles) userProfile.seenTitles = ["駆け出しの旅人"];
+        if (!userProfile.seenTitles.includes(titleName)) userProfile.seenTitles.push(titleName);
+        saveUserProfile();
         
-        // 全てのボタンから「強制表示クラス」を一度消す
-        document.querySelectorAll('.title-option-btn').forEach(btn => btn.classList.remove('show-tooltip-force'));
-        
-        // タップしたボタンのツールチップを強制表示
-        const currentBtn = event.currentTarget;
-        currentBtn.classList.add('show-tooltip-force');
-        
-        if (!isUnlocked) {
-            showToast("獲得条件を確認してください");
-        }
+        // ここで初めて画面を閉じる
+        modal.remove();
+        if (onChanged) onChanged();
     };
 
     /** 2026/03/10 修正：スマホのクリック貫通（ゴーストクリック）を防止 **/
@@ -3540,15 +3288,13 @@ function showLevelUpModal(type, newValue) {
     const closeHandler = () => {
         modal.classList.add('animate-fade-out');
         setTimeout(() => {
-            /* 2026/03/12 修正：演出後にトップ画面を完全に排除しホームを優先 */
             modal.remove();
-            if (typeof cleanupGame === 'function') cleanupGame(); // 念のため盤面データを掃除
-            
+            // 既存の backToTitle (タイトルへ戻る) ではなく、ホーム画面を表示する
             const homeScreen = document.getElementById('home-screen');
-            const titleOverlay = document.getElementById('title-overlay');
             if (homeScreen) {
                 homeScreen.classList.remove('hidden');
-                if (titleOverlay) titleOverlay.classList.add('hidden');
+                // タイトル画面などは確実に隠す
+                document.getElementById('title-overlay')?.classList.add('hidden');
             }
         }, 500);
         document.removeEventListener('click', closeHandler);
@@ -3911,37 +3657,19 @@ document.addEventListener('DOMContentLoaded', () => {
  * 2026/03/06 修正
  * ホーム画面からタイトルオーバーレイ（START GAME画面）に戻る処理。
  */
-/**
- * 2026/03/17 修正
- * リセット処理で強制非表示(display:none)になったタイトル画面を
- * 確実に再表示できるよう、スタイルプロパティを直接操作して復旧する。
- */
-/**
- * 2026/03/17 修正
- * タイトルに戻る際、ホーム画面だけでなく開発用画面(setup-overlay)や
- * CPU設定画面も確実に道連れにして非表示にする。
- */
 function backToTitle() {
     const homeScreen = document.getElementById('home-screen');
     const titleOverlay = document.getElementById('title-overlay');
-    const setupOverlay = document.getElementById('setup-overlay');
-    const cpuSetup = document.getElementById('cpu-setup-overlay');
-
-    // 1. 消すべき画面をすべてリストアップして一括処理
-    [homeScreen, setupOverlay, cpuSetup].forEach(el => {
-        if (el) {
-            el.classList.add('hidden');
-            el.style.display = 'none'; // 強制非表示
-        }
-    });
-
-    // 2. タイトル画面を表示
-    if (titleOverlay) {
+    
+    if (homeScreen && titleOverlay) {
+        // ホーム画面を隠す
+        homeScreen.classList.add('hidden');
+        // タイトル画面を表示する
         titleOverlay.classList.remove('hidden');
-        titleOverlay.style.display = 'flex'; 
         
-        // 初期化フラグのリセット
+        // 念のため、初期化フラグなどもリセットが必要であればここで行います
         window.isProfileSet = false; 
+        
         addLog("タイトル画面に戻りました。");
     }
 }
@@ -3972,349 +3700,3 @@ function setCpuBoostMode(isBoost) {
     }
 }
 
-
-
-
-/**
- * 2026/03/17 新規追加
- * ゲストプレイ開始前の注意喚起モーダルを表示する
- */
-/**
- * 2026/03/17 修正
- * 2回目以降に「何も起きない」問題を解消。
- * モーダルを表示する前に、強制非表示(display:none)を完全に解除するリセット処理を追加。
- */
-function handleGuestStart() {
-    // --- 外科手術：表示の壁をすべて取り払う ---
-    const detailModal = document.getElementById('detail-modal');
-    if (detailModal) {
-        // 以前の処理で display: none が書き込まれていたら flex に戻して見えるようにする
-        detailModal.style.display = 'flex'; 
-        detailModal.classList.remove('hidden');
-    }
-
-    const msg = `
-        <div class="text-left space-y-2 text-[11px]">
-            <p>⚠️ <span class="text-yellow-500 font-bold">ログインせずに開始する場合の注意：</span></p>
-            <ul class="list-disc list-inside text-gray-400">
-                <li>プレイデータはブラウザにのみ保存されます。</li>
-                <li>キャッシュを削除すると、<span class="text-red-500">戦歴やランク等のデータは完全に消去</span>されます。</li>
-                <li>異なる端末やブラウザへの引き継ぎはできません。</li>
-            </ul>
-            <p class="mt-4 text-center text-gray-300">継続的なプレイにはGoogleログインを推奨します。</p>
-        </div>
-    `;
-
-    // 2. モーダルを表示
-    showDetailModal(
-        "ゲストプレイの確認", 
-        msg, 
-        null, 
-        "リスクを承知で開始", 
-        () => {
-            console.log("Guest Start Proceeding...");
-            
-            // 決定後は自分を隠す
-            if (detailModal) {
-                detailModal.classList.add('hidden');
-                detailModal.style.display = 'none';
-            }
-
-            // --- 鉄壁のホーム画面遷移 ---
-            const overlays = ['title-overlay', 'setup-overlay', 'cpu-setup-overlay', 'test-mode-modal', 'profile-setup-modal'];
-            overlays.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) {
-                    el.classList.add('hidden');
-                    el.style.display = 'none';
-                }
-            });
-
-            const homeScreen = document.getElementById('home-screen');
-            if (homeScreen) {
-                homeScreen.classList.remove('hidden');
-                homeScreen.style.display = 'flex';
-                
-                const nameDisplay = document.getElementById('home-user-name');
-                if (nameDisplay) nameDisplay.textContent = userProfile.name || "Guest Player";
-                
-                if (typeof updateProfileButtonVisual === 'function') updateProfileButtonVisual();
-                if (typeof setupHomeDragEvents === 'function') setupHomeDragEvents();
-                
-                addLog("ホーム画面に移動しました。");
-            }
-        }
-    );
-
-    // 3. キャンセルボタンのテキスト変更とスタイル復旧
-    const cnl = document.getElementById('detail-cancel-btn');
-    if (cnl) {
-        cnl.textContent = "Googleログインへ";
-        cnl.style.display = 'block'; // 消えていた場合に備えて
-        cnl.classList.remove('hidden');
-    }
-}
-
-
-
-/**
- * 2026/03/17 修正：タップとドラッグの判別機能を追加
- * ただのタップなら拡大せず、少し動かした場合のみドラッグモードを起動します。
- */
-let homeDragState = { active: false, draggingStarted: false, target: null, offsetX: 0, offsetY: 0, startX: 0, startY: 0 };
-
-/**
- * 2026/03/17 修正：ドラッグ＆ドロップ（共鳴＆導線演出 統合版）
- */
-/**
- * 2026/03/17 修正：ドラッグ＆ドロップ（遷移不具合解消版）
- */
-/**
- * 2026/03/17 修正：ドラッグ＆ドロップ（位置ズレ＆遷移不具合 最終修正版）
- */
-function setupHomeDragEvents() {
-    const cards = document.querySelectorAll('.menu-card');
-    const dropCircle = document.querySelector('.magic-circle'); // 光らせる対象
-    const container = document.querySelector('.magic-circle-container'); // 判定基準
-    const avatar = document.querySelector('.home-avatar-wrap');
-    const guideLine = document.getElementById('drag-guide-line');
-    const guidePath = guideLine?.querySelector('.guide-path');
-
-    cards.forEach(card => {
-        card.style.touchAction = 'none';
-
-        card.onpointerdown = (e) => {
-            if (e.button !== 0 && e.pointerType === 'mouse') return;
-            homeDragState.startX = e.clientX;
-            homeDragState.startY = e.clientY;
-            homeDragState.active = true;
-            homeDragState.draggingStarted = false;
-            homeDragState.target = card;
-            
-            const rectNow = card.getBoundingClientRect();
-            homeDragState.offsetX = e.clientX - rectNow.left;
-            homeDragState.offsetY = e.clientY - rectNow.top;
-            card.setPointerCapture(e.pointerId);
-        };
-
-        card.onpointermove = (e) => {
-            if (!homeDragState.active || homeDragState.target !== card) return;
-
-            const moveDist = Math.hypot(e.clientX - homeDragState.startX, e.clientY - homeDragState.startY);
-            
-            if (!homeDragState.draggingStarted && moveDist > 10) {
-                homeDragState.draggingStarted = true;
-                const rect = card.getBoundingClientRect();
-                card.style.setProperty('position', 'fixed', 'important');
-                card.style.setProperty('z-index', '10000', 'important');
-                card.style.setProperty('width', rect.width + 'px', 'important');
-                card.style.setProperty('height', rect.height + 'px', 'important');
-                card.style.transform = 'scale(1.1) rotate(0deg)';
-                card.style.transition = 'none';
-                card.classList.add('dragging');
-                
-                // 魔法陣(画像)を光らせる
-                if (dropCircle) dropCircle.classList.add('resonance');
-                if (guideLine) guideLine.style.opacity = "1";
-                if (typeof updateOrbsGathering === 'function') updateOrbsGathering(true);
-            }
-
-            if (homeDragState.draggingStarted) {
-                const cardX = e.clientX - homeDragState.offsetX;
-                const cardY = e.clientY - homeDragState.offsetY;
-                card.style.left = cardX + 'px';
-                card.style.top = cardY + 'px';
-                
-                if (container && guidePath) {
-                    const rect = container.getBoundingClientRect();
-                    const targetX = rect.left + rect.width / 2;
-                    const targetY = rect.top + rect.height / 2;
-                    
-                    const currentX = cardX + (card.offsetWidth / 2);
-                    const currentY = cardY + (card.offsetHeight / 2);
-
-                    // 導線更新
-                    const cpY = (currentY + targetY) / 2;
-                    guidePath.setAttribute('d', `M ${currentX} ${currentY} Q ${(currentX + targetX) / 2} ${cpY} ${targetX} ${targetY}`);
-
-                    // 魔法陣の中心との距離判定
-                    const dist = Math.hypot(e.clientX - targetX, e.clientY - targetY);
-                    if (dist < 150) container.classList.add('drag-over');
-                    else container.classList.remove('drag-over');
-                }
-            }
-        };
-
-        /**
-         * 2026/03/17 修正
-         * PCブラウザでの遷移不具合を解消。onclick属性に頼らず、JSから直接関数を叩きます。
-         */
-        card.onpointerup = (e) => {
-            if (!homeDragState.active || homeDragState.target !== card) return;
-            
-            const wasDragging = homeDragState.draggingStarted;
-            homeDragState.active = false;
-            homeDragState.draggingStarted = false;
-            
-            const isDroppedIn = container?.classList.contains('drag-over');
-
-            // 演出解除
-            if (dropCircle) dropCircle.classList.remove('resonance');
-            if (container) container.classList.remove('drag-over');
-            if (guideLine) guideLine.style.opacity = "0";
-            if (typeof updateOrbsGathering === 'function') updateOrbsGathering(false);
-            
-            if (wasDragging) {
-                if (isDroppedIn) {
-                    card.classList.add('absorbing');
-                    if (typeof playSE === 'function') playSE('se_get_card.mp3');
-
-                    // --- 外科手術：吸い込み完了後、直接画面を切り替える ---
-                    setTimeout(() => {
-                        // 1. 各カードのクラス名をチェックして、対応するグローバル関数を直接呼び出す
-                        if (card.classList.contains('card-cpu')) {
-                            console.log("Navigating to: CPU Battle");
-                            if (typeof showCpuBattleSelection === 'function') showCpuBattleSelection();
-                        } 
-                        else if (card.classList.contains('card-online')) {
-                            console.log("Navigating to: Online Match");
-                            if (typeof showOnlineMenu === 'function') showOnlineMenu();
-                        } 
-                        else if (card.classList.contains('card-practice')) {
-                            console.log("Navigating to: Practice Game");
-                            if (typeof startPracticeGame === 'function') startPracticeGame();
-                        } 
-                        else if (card.classList.contains('card-rules')) {
-                            console.log("Navigating to: Rules");
-                            if (typeof showRules === 'function') showRules();
-                        }
-
-                        // 2. 最後にカードを元の場所（不可視状態）へ戻す
-                        resetCardPosition(card);
-                    }, 400);
-                } else {
-                    card.style.transition = "all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
-                    resetCardPosition(card);
-                }
-            } else {
-                // ドラッグせずにただクリック（タップ）しただけの場合の救済措置
-                // ここでも直接関数を呼ぶように分岐
-                if (card.classList.contains('card-cpu')) showCpuBattleSelection();
-                else if (card.classList.contains('card-online')) showOnlineMenu();
-                else if (card.classList.contains('card-practice')) startPracticeGame();
-                else if (card.classList.contains('card-rules')) showRules();
-            }
-
-            card.classList.remove('dragging');
-            card.releasePointerCapture(e.pointerId);
-            homeDragState.target = null;
-        };
-    });
-}
-
-function resetCardPosition(card) {
-    if (!card) return;
-    card.classList.remove('absorbing');
-    card.classList.remove('dragging');
-    // JSで直接書き込んだスタイルを全削除
-    card.style.position = '';
-    card.style.left = '';
-    card.style.top = '';
-    card.style.width = '';
-    card.style.height = '';
-    card.style.zIndex = '';
-    card.style.transition = '';
-    card.style.transform = '';
-    card.style.touchAction = '';
-}
-
-// ページ読み込み時、またはホーム画面表示時にセットアップ
-document.addEventListener('DOMContentLoaded', () => {
-    // 既存の showSetup や finalizeLoginUI の末尾でもこれを呼ぶようにします
-    setupHomeDragEvents();
-});
-
-
-/**
- * 2026/03/17 新規追加：7色のマナ・オーブ生成システム
- */
-function createManaOrbs() {
-    const container = document.getElementById('mana-orbs-container');
-    if (!container) return;
-
-    const colors = [
-        '#ef4444', '#f97316', '#eab308', '#22c55e', 
-        '#3b82f6', '#ec4899', '#a855f7'
-    ];
-
-    colors.forEach((color, i) => {
-        const orb = document.createElement('div');
-        orb.className = 'mana-orb';
-        orb.style.color = color;
-        orb.style.backgroundColor = color;
-        
-        // ランダムな初期位置と動き
-        animateOrb(orb);
-        container.appendChild(orb);
-    });
-}
-
-/**
- * 2026/03/17 修正
- * オーブが魔法陣の円周に絡みつくように、円運動ベースのランダム航行へ変更。
- */
-function animateOrb(orb) {
-    // 魔法陣の半径(160px)付近を漂うように設定
-    const baseRadius = 170; 
-    const randomRadius = baseRadius + (Math.random() * 40 - 20); // 150px〜190pxの間を浮遊
-    
-    // 現在の角度を取得するかランダムに決める
-    if (!orb.dataset.angle) orb.dataset.angle = Math.random() * Math.PI * 2;
-    let currentAngle = parseFloat(orb.dataset.angle);
-    
-    // 次の目標角度（少しずつ進む）
-    const nextAngle = currentAngle + (Math.random() * 1.5 + 0.5); // 角度を一定方向に進める
-    orb.dataset.angle = nextAngle;
-
-    // 円周上の座標計算（中心は200, 200）
-    const x = Math.cos(nextAngle) * randomRadius + 200;
-    const y = Math.sin(nextAngle) * randomRadius + 200;
-    
-    // アニメーション速度（ゆったりと円を描く）
-    const duration = 4000 + Math.random() * 3000;
-    
-    orb.animate([
-        { left: orb.style.left || '200px', top: orb.style.top || '200px' },
-        { left: `${x}px`, top: `${y}px` }
-    ], {
-        duration: duration,
-        easing: 'linear', // 円運動なので等速が自然
-        fill: 'forwards'
-    }).onfinish = () => {
-        if (!orb.classList.contains('gathering')) {
-            animateOrb(orb); // 次の軌道へ
-        }
-    };
-}
-
-// カードを掴んだ時にオーブを中央に集める連動処理
-function updateOrbsGathering(isGathering) {
-    const orbs = document.querySelectorAll('.mana-orb');
-    orbs.forEach(orb => {
-        if (isGathering) {
-            orb.classList.add('gathering');
-            orb.style.left = '200px';
-            orb.style.top = '200px';
-            orb.style.transform = 'scale(1.5)';
-        } else {
-            orb.classList.remove('gathering');
-            orb.style.transform = 'scale(1)';
-            animateOrb(orb); // 再び散らす
-        }
-    });
-}
-
-// ページ読み込み時に実行
-document.addEventListener('DOMContentLoaded', () => {
-    createManaOrbs();
-});

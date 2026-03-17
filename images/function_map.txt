@@ -1,0 +1,117 @@
+function_map
+
+1. game_state.js（変数・状態管理）
+このファイルは関数の定義ではなく、ゲーム全体で共有する「記憶」を管理します。
+
+主要な変数: board, players, turn, currentPhase, collections, hands, deck, selectionState など。
+
+役割: ゲームの現在の状況（誰の番か、どこに何があるか）を保持する。
+
+2. game_core.js（進行・初期化）
+ゲームの寿命（開始から終了まで）をコントロールします。
+
+initGame(): ゲームの初期化、デッキ作成、プレイヤー配置。
+
+nextTurn(): 次のプレイヤーへ手番を移す。
+
+nextPhase(isForced = false): ロック/ハンド/ムーブのフェイズ切り替え。
+
+handleBoardClick(x, y): 盤面がクリックされた際のメイン入力処理。
+
+movePlayer(player, targetX, targetY): 駒の移動処理。
+
+checkWin(): 勝利条件（7色コンプリート等）の判定。
+
+showResultModal(pid): 決着時のリザルト画面表示。
+
+pauseTimer(): タイマーを一時停止する。
+
+resumeTimer(): タイマーを再開する。
+
+3. data_cards.js（データ定義）
+カードの能力や色の定義ファイルです。
+
+CARD_DATA: 全カードのID、名前、色のデータベース。
+
+BASE_COLORS: プレイヤーカラーや駒の画像定義。
+
+GLOSSARY: ゲーム用語集の定義。
+
+4. game_utils.js（汎用ツール・演出）
+どこからでも呼ばれる便利な道具箱です。
+
+addLog(text): ログエリアにメッセージを表示。
+
+showToast(msg): 画面に通知を表示。
+
+playSE(fileName): 効果音の再生。
+
+getDistance(p1, p2): 2点間の距離計算。
+
+drawCard(pId): 山札からカードを引く共通処理。
+
+5. game_ui_render.js（盤面・手札の描画処理）
+画面上の見た目を最新の状態に更新する役割です。
+
+renderBoard(): 7x7の盤面全体を再描画。
+
+renderHand(pId): 指定したプレイヤーの手札を表示。
+
+renderStatus(): 各プレイヤーのロック状況や名前を表示。
+
+updateTimerVisual(): 制限時間のバーを更新。
+
+injectGuardLayer(parent): カードの重なりやクリック判定を制御する層を生成。
+
+6. game_ui_modal.js（モーダル・選択モード）
+プレイヤーへの通知や、カード選択などの特殊な対話を管理します。
+
+showSelectionModal(title, msg, options, ...): カードやプレイヤーを選択させる画面を表示。
+
+showTurnChangeNotification(player): ターン開始時の大きな通知演出。
+
+
+
+toggleLightMode(enabled): ライトモード/ダークモードの切り替え。
+
+7. game_effects.js（カード個別の効果ロジック）
+「このカードを踏んだらどうなるか」「手札で使うとどうなるか」の頭脳です。
+
+canPlayHandEffect(card, p): 今その手札が使える状態かチェック。
+
+runAction(act, p, onSuccess, contextCard = null, isNewReveal = false): 到達時の効果（■）を解決。
+
+runAction(act, p, onSuccess, contextCard = null, isNewReveal = false): 手札使用時の効果（▼）を解決。
+
+processArrivalSequence(p, x, y, callback): 「到達→効果→獲得」の一連の流れを管理。
+
+8. debug_console.js（デバッグツール）
+開発中にエラーを確認したり、ログを取得したりするための支援ツールです。
+
+addLogEntry(type, msg): デバッグコンソール専用のログを追加。
+
+btn.onclick: コンソールの開閉制御。
+
+dc-copy.onclick: ログをクリップボードにコピー（私への報告用）。
+
+9. style.css（デザイン・演出定義）
+見た目とアニメーションの定義です。
+
+--bg-main, --bg-app: カラーテーマ変数。
+
+.light-mode: ライトモード時の配色定義。
+
+@keyframes card-transfer: カードが移動する際のアニメーション。
+
+@keyframes blink-stealing: カード強奪時の点滅演出。
+
+10. index.html（本体構造）
+ゲームの骨組みと、各種UIパーツの配置です。
+
+#app: ゲーム画面のメインコンテナ。
+
+#board: 7x7の盤面エリア。
+
+#setup-overlay: 人数選択・ゲーム開始画面。
+
+#profile-setup-modal: プレイヤー名・アイコン設定画面。

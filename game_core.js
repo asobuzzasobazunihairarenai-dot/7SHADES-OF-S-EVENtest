@@ -2422,10 +2422,31 @@ function processEternalAcquisition(invader, victim) {
 
 function processForcedReturn(invader) { const gate = invader.startPos; setTimeout(() => { const gCell = board[gate.y][gate.x]; if (!gCell.empty) { showCardModal(gCell.color, () => { if(hands[invader.id]) hands[invader.id].push(gCell.color); if(gCell.stack?.length > 0) { gCell.color = gCell.stack.shift(); gCell.revealed = gCell.color.savedRevealedState || false; gCell.empty = false; } else { gCell.empty = true; } invader.x = gate.x; invader.y = gate.y; updateGameState(); setTimeout(processInvasionQueue, 1000); }, "自ゲートのカード獲得", invader.name, "獲得しました"); } else { invader.x = gate.x; invader.y = gate.y; updateGameState(); setTimeout(processInvasionQueue, 1000); } }, 1000); }
 
+/**
+ * 2026/03/17 修正
+ * ゲーム終了時、盤面・ステータスエリア・操作ボタンなどを完全に隠し、
+ * ホーム画面と重ならないようクリーンアップ処理を強化。
+ */
 function cleanupGame() { 
+    // 1. モーダルやオーバーレイを隠す
     ['setup-overlay','winner-overlay','arrival-modal','selection-modal','detail-modal','player-detail-modal','invasion-overlay','test-mode-modal','settings-modal','discard-modal'].forEach(id => { 
         const el = document.getElementById(id); if(el) el.classList.add('hidden'); 
     }); 
+
+    // 2. ゲームプレイ中のメインUI要素を隠す（★追加箇所）
+    const gameUIElements = [
+        'area-p1', 'area-p2', 'area-p3', 'area-p4', // 相手と自分のステータスエリア
+        'hand-area-container',                      // 手札エリア
+        'my-lock-container',                        // ロックエリア
+        'timer-wrapper',                            // タイマー
+        'skip-btn',                                 // 「ロックしない」等の右下ボタン
+        'peek-board-container'                      // 盤面確認ボタン
+    ];
+    gameUIElements.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+    });
+
     if(timerInterval) clearInterval(timerInterval); 
     timerInterval = null; 
     selectionState.active = false; 

@@ -166,21 +166,6 @@ body {
     margin: 0 auto;
 }
 
-/* 上下のプレイヤー(P1/P3)の横幅調整：幅を固定し、常に中央配置 */
-.area-top .player-area-box,
-.area-bottom .player-area-box {
-    width: 90% !important;
-    margin: 0 auto !important; /* 中央寄せを追加 */
-}
-
-/* 左右のプレイヤー(P2/P4)の横幅調整 */
-.area-left .player-area-box,
-.area-right .player-area-box {
-    height: 90% !important;
-    width: 100% !important;
-    margin: auto 0 !important; /* 垂直方向の中央寄せ */
-}
-
 /* ターン中の演出：幅は固定済みなので枠線と光のみ制御 */
 .player-active-box { 
     animation: active-player-glow 1.2s ease-in-out infinite; 
@@ -226,7 +211,10 @@ body {
     padding: 10px; 
 }
 
-/* プレイマット */
+/**
+ * 2026/03/17 修正：疑似3D（マジックアリーナ風）空間の構築
+ * 盤面に遠近感(perspective)と傾き(rotateX)を与えます。
+ */
 .game-layout { 
     display: grid; 
     grid-template-areas: ". top ." "left center right" ". bottom ."; 
@@ -235,15 +223,18 @@ body {
     width: 80vw; 
     max-width: 400px; 
     aspect-ratio: 1 / 1; 
-    /* 2026/02/19 16:15 修正：変数を使用してモード切替に対応 */
-    background-image: var(--playmat-url);
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
+    /* 外枠からは背景画像を消す（重要！） */
+    background: transparent; 
     position: relative;
     margin: auto;
+
+    /* 遠近感の設定（500pxだと台形が強く、800pxだとマイルドになります） */
+    perspective: 700px; 
+    transform-style: preserve-3d;
+    overflow: visible !important;
 }
 
+/* 盤面を包む「中央エリア」ごと倒す（これで台形化が確定します） */
 .area-center { 
     grid-area: center; 
     display: flex; 
@@ -251,9 +242,15 @@ body {
     align-items: center; 
     width: 100%;
     height: 100%;
+    
+    /* ★重要：ここで一気に回転させて台形を作る */
+    transform: rotateX(35deg);
+    transform-style: preserve-3d;
+    /* 浮遊感のある影 */
+    filter: drop-shadow(0 50px 30px rgba(0,0,0,0.5));
 }
 
-/* 盤面グリッド */
+/* 盤面グリッド自体はフラットに（親が倒れているのでこれだけでOK） */
 #board-grid { 
     width: 91%; 
     height: 88%; 
@@ -261,6 +258,46 @@ body {
     border: none;
     gap: 0px; 
     grid-template-rows: repeat(7, 1fr);
+    transform-style: preserve-3d;
+}
+
+/**
+ * 2026/03/17 修正：プレイマットの中央固定 ＆ サイズ拡大対応
+ * サイズを大きくしても右にずれず、常に画面中央を起点に広がるようにします。
+ */
+.area-center { 
+    grid-area: center; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    
+    /* ★外科手術：サイズを大きく（例：120%）しても中央を維持する設定 */
+    width: 125%;  /* ここをお好みの大きさに調整してください */
+    height: 125%; /* 幅と合わせるのがおすすめです */
+    justify-self: center; /* Grid内での水平中央寄せ */
+    align-self: center;   /* Grid内での垂直中央寄せ */
+    
+    background-image: var(--playmat-url);
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+
+    transform: rotateX(30deg);
+    transform-style: preserve-3d;
+    filter: drop-shadow(0 40px 30px rgba(0,0,0,0.4));
+}
+
+/* 盤面グリッド：床の上に乗っている状態 */
+#board-grid { 
+    width: 72%; 
+    height: 72%; 
+    background-color: transparent; 
+    border: none;
+    gap: 0px; 
+    grid-template-rows: repeat(7, 1fr);
+    /* 床（area-center）から少しだけ浮かせる（translateZ）と、より3D感が出ます */
+    transform: translateZ(1px); 
+    transform-style: preserve-3d;
 }
 
 .cell {
@@ -277,51 +314,6 @@ body {
     box-shadow: inset 0 0 15px #22c55e, 0 0 10px #22c55e !important;
     z-index: 60;
 }
-
-/* ロックエリア */
-.player-area-box { 
-    position: relative;
-    background-color: transparent !important; 
-    border-color: transparent !important;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.player-area-box > div:first-child {
-    position: absolute;
-    white-space: nowrap;
-    z-index: 100;
-    text-shadow: 0 0 6px rgba(0,0,0,1), 0 0 2px rgba(0,0,0,1);
-    /* ステータスエリアのプレイヤー名のフォントサイズ */
-    font-size: 16px !important;
-    font-weight: bold;
-    color: #fff;
-    pointer-events: none;
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 4px;
-}
-
-/* ステータスエリアの位置調整 */
-.area-top .player-area-box > div:first-child { top: -25px; left: 50%; transform: translateX(-50%); }
-.area-bottom .player-area-box > div:first-child { bottom: -25px; left: 50%; transform: translateX(-50%); }
-.area-left .player-area-box > div:first-child { left: -30px; top: 50%; transform: translateY(-50%) rotate(90deg); }
-.area-right .player-area-box > div:first-child { right: -30px; top: 50%; transform: translateY(-50%) rotate(-90deg); }
-
-.area-top { grid-area: top; width: 100%; display: flex; justify-content: center; align-items: center; }
-.area-bottom { grid-area: bottom; width: 100%; display: center; justify-content: center; align-items: center; }
-.area-left { grid-area: left; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; }
-.area-right { grid-area: right; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; }
-
-.area-top .mini-slot { transform: rotate(180deg); }
-.area-right .mini-slot { transform: rotate(270deg); }
-.area-bottom .mini-slot { transform: rotate(0deg); }
-.area-left .mini-slot { transform: rotate(90deg); }
 
 .mini-slot { 
     width: 2.5rem; 
@@ -515,61 +507,6 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     justify-content: center;
 }
 
-/* モバイル端末向けの調整 (iPhone等) */
-@media (max-width: 640px) {
-    /* ロックエリア全体をマットのサイズに合わせて縮小 */
-    .player-area-box {
-        transform: scale(0.86); /* 15%縮小（マットに合うよう微調整） */
-        transform-origin: center;
-    }
-
-    /* 上下のプレイヤーエリア（P1/P3）のコンテナ自体のサイズと位置を調整 */
-    .area-top, .area-bottom {
-        transform: scale(1); /* エリア全体を10%縮小して被りを軽減 */
-    }
-
-    /* 上のプレイヤー(P1)を少し上に逃がす */
-    .area-top {
-        margin-top: -10px; 
-    }
-
-    /* 下のプレイヤー(P3)を少し下に逃がす */
-    .area-bottom {
-        margin-bottom: -10px;
-    }
-
-    /* --- 黄色い点滅枠(80%)のモバイル用微調整 --- */
-    
-    /* 上下のプレイヤー(P1/P3): 画面が狭いため80%だと小さすぎる場合はここを少し増やします */
-    .area-top .player-active-box,
-    .area-bottom .player-active-box {
-        width:100% !important; /* モバイルでは少しだけ広げてマットに合わせる */
-    }
-
-    /* 左右のプレイヤー(P2/P4): 回転による高さ(見た目上の幅)を微調整 */
-    .area-left .player-active-box,
-    .area-right .player-active-box {
-        height:100% !important; /* 上下と同様に少し広げて調整 */
-        width: 100% !important;
-    }
-
-    /* 各エリアの位置微調整（縮小によって生じる隙間を埋める） */
-    .area-top .player-area-box { 
-    /* 既存の scale(0.86) を維持しつつ、下に 15px 移動 */
-    transform: scale(0.86) translateY(8px) !important; 
-    }
-    .area-bottom .player-area-box { 
-    /* 既存の scale(0.86) を維持しつつ、上に 15px 移動 */
-    transform: scale(0.86) translateY(-8px) !important; 
-    }
-    .area-left .player-area-box { margin-right: -5px; }
-    .area-right .player-area-box { margin-left: -5px; }
-
-    /* 縮小に伴い、カード枚数などのテキストが重ならないよう調整 */
-    .player-area-box > div:first-child {
-        font-size: 14px !important; /* 強制的に14pxにする */
-    }
-}
 
 @keyframes rainbow-rain-glow {
     0% { 
@@ -661,28 +598,137 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     animation: victory-gold-pulse 1.5s infinite ease-in-out, rainbow-glow 3s infinite linear;
 }
 
-/* 修正箇所：.player-marker の基本スタイルを更新 */
+/**
+ * 2026/03/18 修正：3D駒 最終安定化パッチ
+ * 移動・演出中の立体崩れ、潜り込み、不自然な移動経路をすべて根治します。
+ */
+
+/* 1. 駒の基本構造（ここは変更なし：安定しています） */
 .player-marker {
-    width: 85%;
-    height: 85%;
-    border-radius: 4px; /* 正方形に近い形。完全に角を消すなら 0 */
+    width: 30px; 
+    height: 30px;
     position: absolute;
-    z-index: 1000 !important; /* 通常時もカード（1）より圧倒的に上 */
+    inset: 0;
+    margin: auto;
+    z-index: 1000 !important;
     pointer-events: none;
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    transform-style: preserve-3d;
+    transform-origin: bottom center;
+    /* translateZ(1px) を足すことで、静止時もカードへのめり込みを防止 */
+    transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(-20px);
+    transition: left 0.6s linear, top 0.6s linear, transform 0.4s ease-out;
 }
 
-/* 修正箇所：自ターンの発光演出（拡大縮小に合わせて光が広がる） */
-.player-active .player-marker {
-    animation: pulse-ring 2s infinite;
-    z-index: 50;
-    /* 駒の色に合わせて外側を強く光らせる（変数はJSから動的にセットされます） */
-    box-shadow: 0 0 15px 5px var(--player-color-glow);
-    border: 2px solid rgba(255, 255, 255, 0.8);
+/* 2. 移動中：絶対にカードの裏に行かず、直線的にスライドさせる設定 */
+.moving-unit-glow {
+    /* translateZ(60px) で物理的に高く浮かせ、z-index との二段構えで潜り込みを阻止 */
+    transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(60px) !important;
+    z-index: 99999 !important;
+    
+    /* linear に固定することで弧を描く動きを抑制 */
+    transition: left 0.6s linear, top 0.6s linear !important;
+    
+    animation: unit-orange-glow 0.4s ease-in-out infinite;
+    transform-style: preserve-3d !important;
 }
+
+/* 1. 駒本体：自ターンでも絶対に transform を動かさない（!importantで保護） */
+.player-active .player-marker {
+    animation: none !important; /* 揺れを完全に停止 */
+    transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(-20px) !important;
+    transform-style: preserve-3d !important;
+    border: none !important; /* 辺が離れる原因になるので border も外す */
+    box-shadow: none !important; /* 立方体本体を光らせるのをやめる */
+    z-index: 1100 !important;
+}
+
+/* 1. 駒の不透明化：画像が透けるのを防ぎ、中身を詰める */
+.cube-face {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    background-color: #111; /* 画像の裏を黒で塗りつぶして透過を防止 */
+    backface-visibility: hidden;
+    border-radius: 2px;
+    box-shadow: inset 0 0 5px rgba(255,255,255,0.2);
+    opacity: 1 !important; /* 強制的に不透明にする */
+}
+
+/* 2. 演出強化：駒の背後で輝く「神々しい後光」 */
+.cube-aura-layer {
+    position: absolute;
+    /* ★修正：inset を調整して位置を下げます。topを増やし、bottomを減らすことで下にずれます */
+    top: 10px;      /* 上側に余白を作り、位置を下げる */
+    left: -20px;
+    right: -20px;
+    bottom: -30px;  /* 下側へ広げる */
+    
+    background: radial-gradient(circle, var(--aura-color) 0%, rgba(255,255,255,0.8) 30%, var(--aura-color) 50%, transparent 75%);
+    border-radius: 50%;
+    
+    /* 駒の背後に配置 */
+    transform: translateZ(-25px); 
+    filter: blur(8px);
+    opacity: 0.8;
+    pointer-events: none;
+    animation: aura-divine-glow 2s infinite ease-in-out;
+}
+
+/* 立ち昇る光の粒子エフェクト（擬似要素で追加） */
+.cube-aura-layer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, #fff 1px, transparent 1px);
+    background-size: 10px 10px; /* 粒子の密度 */
+    mask-image: radial-gradient(circle, black 30%, transparent 70%);
+    animation: aura-particle-rise 1.5s infinite linear;
+}
+
+@keyframes aura-divine-glow {
+    0%, 100% { transform: translateZ(-25px) scale(1); opacity: 0.6; filter: blur(8px) brightness(1); }
+    50% { transform: translateZ(-25px) scale(1.4); opacity: 1; filter: blur(12px) brightness(1.5); }
+}
+
+@keyframes aura-particle-rise {
+    from { transform: translateY(0); opacity: 0.5; }
+    to { transform: translateY(-30px); opacity: 0; }
+}
+
+/* 4. 駒のパーツ（立方体の面）の設定 */
+.cube-face {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    backface-visibility: hidden;
+    border-radius: 2px;
+    box-shadow: inset 0 0 5px rgba(255,255,255,0.2);
+}
+
+/* --- 各面の組み立て（後面を追加して5面構造にします） --- */
+.face-front { transform: translateZ(15px); z-index: 5; }
+.face-top   { transform: rotateX(90deg) translateZ(15px); filter: brightness(1.2); transform-origin: top; }
+.face-left  { transform: rotateY(-90deg) translateZ(15px); filter: brightness(0.7); }
+.face-right { transform: rotateY(90deg) translateZ(15px); filter: brightness(0.8); }
+
+/* ★追加：後面。これを置くことで隙間から盤面が透けるのを防ぎます */
+.face-back  { 
+    transform: rotateY(180deg) translateZ(15px); 
+    filter: brightness(0.5); /* 背面なので暗く */
+}
+
+
+
+/* もし画像以外の背景色（cssプロパティ）を使う場合のための補足 */
+.face-top, .face-left, .face-right, .face-front {
+    background-color: inherit; /* 親から色を引き継ぐ */
+}
+
+
 
 /** 2026/03/09 修正：ライトモード時のログ文字色と強調表示の視認性向上 **/
 /* ログエリア */
@@ -771,32 +817,6 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 }
 
 
-
-/* --- 2. ロックエリア・盤面：強制透過 & 境界線削除 --- */
-.light-mode #board-grid,
-.light-mode .area-top, .light-mode .area-bottom, .light-mode .area-left, .light-mode .area-right,
-.light-mode #area-p1, .light-mode #area-p2, .light-mode #area-p3, .light-mode #area-p4 {
-    background: none !important;
-    background-color: transparent !important;
-    border: none !important; 
-    box-shadow: none !important;
-}
-
-/* 修正：.player-active-box（発光枠）がある場合は border: none を適用しないように分離 */
-.light-mode .player-area-box:not(.player-active-box) {
-    background: none !important;
-    background-color: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
-.light-mode .player-area-box > div {
-    background: none !important;
-    background-color: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
 /* スマホ版でのみ発生する「発光時の枠線」なども念押しで消去 */
 @media (max-width: 640px) {
     .light-mode .player-active-box {
@@ -874,11 +894,7 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     color: var(--text-main) !important;
 }
 
-/* プレイヤー情報の文字影 */
-.light-mode .player-area-box > div:first-child {
-    text-shadow: 1px 1px 2px #fff, -1px -1px 2px #fff !important;
-    color: #000 !important;
-}
+
 
 .light-mode .fab-btn {
     background-color: #ffffff !important;
@@ -993,10 +1009,11 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     50% { filter: brightness(1.8) drop-shadow(0 0 15px #f97316); }
 }
 
-/* 移動中や発光中の演出。盤面全体のあらゆる要素（モーダル除く）の頂点へ */
-.moving-unit-glow {
-    animation: unit-orange-glow 0.4s ease-in-out infinite;
-    z-index: 99999 !important; /* ほぼ最前面 */
+
+
+/* 盤面のカード自体の重なり優先度を下げる */
+.cell div, .cell {
+    z-index: 1;
 }
 
 /* 盤面の各マス（カードを含む）の基本階層を低く固定 */
@@ -2188,3 +2205,358 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 #detail-modal > div {
     z-index: 10001 !important;
 }
+
+
+/**
+ * 2026/03/17 修正：豪華演出（カードの厚み ＆ ダイナミック・背景）
+ */
+
+/* --- 1. カードの厚み表現 --- */
+.card-shape {
+    /* わずかな立体感：左上にハイライト、右下にシャドウ */
+    box-shadow: 
+        1px 1px 0px rgba(255,255,255,0.2) inset, 
+        -1px -1px 0px rgba(0,0,0,0.3) inset,
+        0 4px 6px -1px rgba(0, 0, 0, 0.5);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* 盤面でカードが重なっている時、側面を見せて厚みを出す */
+.card-stack-layer {
+    position: relative;
+}
+.card-stack-layer::after {
+    content: '';
+    position: absolute;
+    bottom: -3px;
+    right: -3px;
+    width: 100%;
+    height: 100%;
+    border-radius: 0.5rem;
+    background: rgba(0,0,0,0.4);
+    z-index: -1;
+    /* スタック数に応じてこの厚みをJSで調整する準備 */
+}
+
+/* --- 2. ダイナミック・プレイマット（霧と粒子） --- */
+/**
+ * 2026/03/17 修正：背景演出を最前面に移動
+ * z-index を 50 (盤面より上、モーダルより下) に設定し、
+ * pointer-events: none で操作を邪魔しないようにします。
+ */
+#dynamic-bg-container {
+    position: fixed;
+    inset: 0;
+    /* 操作を透過させる（重要！） */
+    pointer-events: none; 
+    /* 盤面(z-0〜10)より手前、かつモーダル(z-100以上)より後ろの絶妙な高さ */
+    z-index: 50; 
+    overflow: hidden;
+    /* 透明度を 1.0 にして、粒子自体の色設定を活かす */
+    opacity: 1.0; 
+}
+
+/* 動く霧の層 */
+.mist-layer {
+    position: absolute;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at center, rgba(255,255,255,0.05) 0%, transparent 70%);
+    animation: mist-float 20s ease-in-out infinite alternate;
+}
+
+/**
+ * 2026/03/17 修正：粒子の視認性強化
+ * モードに合わせて粒子の色と輝きを調整。
+ */
+.particle {
+    position: absolute;
+    border-radius: 50%;
+    /* ダークモード（デフォルト）: 白く光る粒子 */
+    background: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+    filter: blur(0.5px);
+    pointer-events: none;
+    animation: particle-rise var(--d) linear infinite;
+}
+
+.light-mode .particle {
+    /* ライトモード: 青みと不透明度を上げて白背景でも見えるように */
+    background: rgba(70, 130, 250, 0.8);
+    box-shadow: 0 0 5px rgba(70, 130, 250, 0.4);
+}
+
+.mist-layer {
+    position: absolute;
+    width: 200%;
+    height: 200%;
+    /* 霧の濃度を少しアップ */
+    background: radial-gradient(circle at center, rgba(255,255,255,0.15) 0%, transparent 60%);
+    animation: mist-float 20s ease-in-out infinite alternate;
+}
+
+.light-mode .mist-layer {
+    /* ライトモード用の霧（少し青みを入れて白背景と差別化） */
+    background: radial-gradient(circle at center, rgba(200,220,255,0.4) 0%, transparent 70%);
+}
+
+@keyframes mist-float {
+    from { transform: translate(-10%, -10%) rotate(0deg); }
+    to { transform: translate(0%, 0%) rotate(5deg); }
+}
+
+@keyframes particle-rise {
+    0% { transform: translateY(100vh) scale(0); opacity: 0; }
+    20% { opacity: 0.4; }
+    80% { opacity: 0.4; }
+    100% { transform: translateY(-10vh) scale(1.2); opacity: 0; }
+}
+
+
+
+
+
+
+
+/* ============================================================
+   3D戦場レイアウト：床の固定 ＆ クリック判定 最終統合パッチ
+   ============================================================ */
+
+/* 1. 背景（マット）：物理的に一番奥へ押し込み、重なりを防ぐ */
+.area-center {
+    /* rotateX(30deg) で倒し、translateZ(-50px) で物理的に下げます */
+    transform: rotateX(30deg) translateZ(-50px) !important;
+    z-index: 0 !important;
+    transform-style: preserve-3d !important;
+    overflow: visible !important;
+}
+
+/* 2. エリアの外枠：クリックを完全にスルーさせて下の盤面を通す */
+.area-top, .area-bottom, .area-left, .area-right {
+    display: flex !important;
+    grid-area: var(--ga);
+    z-index: 500 !important;
+    transform-style: preserve-3d !important;
+    pointer-events: none !important; /* 枠自体は幽霊化 */
+    width: 100%;
+    height: 100%;
+}
+
+.area-top    { grid-area: top;    --ga: top; }
+.area-bottom { grid-area: bottom; --ga: bottom; }
+.area-left   { grid-area: left;   --ga: left; }
+.area-right  { grid-area: right;  --ga: right; }
+
+/* 3. ロックエリア本体：自分だけはクリックを受け取り、実体化する */
+.player-area-box {
+    position: relative;
+    transform-style: preserve-3d !important;
+    pointer-events: auto !important; /* スロットやボタンは触れる */
+    background-color: transparent !important;
+    border: none !important;
+    border-radius: 4px;
+    width: fit-content !important;
+    padding: 2px 5px !important;
+    margin: auto !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 4. 各プレイヤーの位置・サイズの個別調整（現在のベスト数値を統合） */
+.area-top .player-area-box {
+    transform: rotateX(30deg) translateZ(-130px) translate(0px, -10px) scale(0.96) !important;
+}
+.area-bottom .player-area-box {
+    transform: rotateX(30deg) translateZ(40px) translate(0px, 20px) scale(0.98) !important;
+}
+.area-left .player-area-box {
+    flex-direction: column !important; 
+    transform: rotateX(30deg) translateZ(-50px) translate(2px, 0px) scale(0.98) !important;
+}
+.area-right .player-area-box {
+    flex-direction: column !important; 
+    transform: rotateX(30deg) translateZ(-50px) translate(-10px, 0px) scale(0.98) !important;
+}
+
+/* 5. ステータス（名前）エリア：表示を優先しつつクリックはスルー */
+.player-area-box > div:first-child {
+    position: absolute !important;
+    z-index: 1000 !important;
+    transform: translateZ(40px) !important;
+    pointer-events: none !important; 
+}
+
+/* 6. ミニスロット：カードのクリックを有効化 */
+.mini-slot {
+    transform-style: preserve-3d !important;
+    transform: translateZ(10px) !important;
+    pointer-events: auto !important; 
+}
+
+/* ============================================================
+   2026/03/18 各プレイヤーUI 位置・サイズ個別調整パレット
+   これを CSS の一番最後に貼り付けて、数値をいじってください。
+   ============================================================ */
+
+/**
+ * 2026/03/18 3D戦場レイアウト：最終統合パッチ
+ * 各プレイヤーの位置・サイズ調整 ＆ ステータスエリアの分離
+ */
+
+/* 1. 外枠：3D空間の整合性を維持 */
+.area-top, .area-bottom, .area-left, .area-right {
+    display: flex !important;
+    z-index: 500 !important;
+    transform-style: preserve-3d !important;
+    pointer-events: none;
+    width: 100%;
+    height: 100%;
+}
+
+/* 2. 背景（マット）の位置固定 */
+.area-center {
+    transform: rotateX(30deg) translateZ(-50px) !important;
+    z-index: 0 !important;
+}
+
+/* 3. ロックエリア本体の共通ルール */
+/* 通常時は背景も枠も見えないように設定 */
+/* 3. ロックエリア本体の共通ルール */
+.player-area-box {
+    position: relative;
+    transform-style: preserve-3d !important;
+    /* ★重要：自分自身のエリア（スロットなど）はクリックを有効にする */
+    pointer-events: auto !important; 
+    background-color: transparent !important;
+    border: none !important;
+    border-radius: 4px;
+    width: fit-content !important;
+    padding: 2px 5px !important;
+    margin: auto !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 4. ステータスエリア（名前・手札枚数）をスロットから「独立」させる */
+/* これにより、スロット（カード置き場）が正確に中央へ配置されます */
+.player-area-box > div:first-child {
+    position: absolute !important;
+    z-index: 1000 !important;
+    /* エリアの外（少し手前）に浮かせる */
+    transform: translateZ(40px) !important; 
+    text-shadow: 0 0 10px rgba(0,0,0,1);
+    white-space: nowrap;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 5px;
+    pointer-events: none;
+}
+
+/* ------------------------------------------------------------
+   ステータスエリア（名前・アイコン）の個別調整
+   ------------------------------------------------------------ */
+
+/* 全体共通：基点設定 */
+.player-area-box > div:first-child {
+    position: absolute !important;
+    z-index: 1000 !important;
+    white-space: nowrap;
+    display: flex !important;
+    align-items: center;
+    gap: 5px;
+    pointer-events: none;
+}
+
+/* ■ P3 (上側/対面) */
+.area-top .player-area-box > div:first-child {
+    top: 0px; 
+    left: 50%;
+    transform: translateZ(40px) translateX(-50%) rotate(180deg) !important;
+}
+
+/* ■ P1 (下側/手前) */
+.area-bottom .player-area-box > div:first-child {
+    bottom: -35px;
+    left: 50%;
+    transform: translateZ(40px) translateX(-50%) rotate(0deg) !important;
+}
+
+/* ■ P2 (左側) */
+.area-left .player-area-box > div:first-child {
+    left: -20px;            /* ★数値を減らすと中央に寄ります */
+    top: 40%;
+    /* rotate(90deg) など、ここをいじれば回転します */
+    transform: translateZ(40px) translateY(-50%) rotate(90deg) !important;
+}
+
+/* ■ P4 (右側) */
+.area-right .player-area-box > div:first-child {
+    right: -20px;           /* ★マイナス値を減らすと中央に寄ります */
+    top: 70%;
+    transform: translateZ(40px) translateY(-50%) rotate(270deg) !important;
+}
+
+/* ------------------------------------------------------------
+   各プレイヤーの位置・サイズの個別調整（最新版）
+   ------------------------------------------------------------ */
+
+/* ■ P3 (上側/対面) */
+.area-top .player-area-box {
+    transform: rotateX(30deg) translateZ(-130px) translate(0px, -10px) scale(0.96) !important;
+}
+
+/* ■ P1 (下側/手前) */
+.area-bottom .player-area-box {
+    transform: rotateX(30deg) translateZ(40px) translate(0px, 20px) scale(0.98) !important;
+}
+
+/* ■ P2 (左側) */
+.area-left .player-area-box {
+    flex-direction: column !important; 
+    width: fit-content !important;
+    height: fit-content !important;
+    transform: rotateX(30deg) translateZ(-50px) translate(2px, 0px) scale(0.98) !important;
+}
+
+/* ■ P4 (右側) */
+.area-right .player-area-box {
+    flex-direction: column !important; 
+    width: fit-content !important;
+    height: fit-content !important;
+    transform: rotateX(30deg) translateZ(-50px) translate(-10px, 0px) scale(0.98) !important;
+}
+
+/* ------------------------------------------------------------
+   ロックエリア内カード（ミニスロット）の向き調整
+   ------------------------------------------------------------ */
+
+/* 全体共通：浮きと3D設定 */
+.mini-slot {
+    transform-style: preserve-3d !important;
+}
+
+/* ■ P3 (上側/対面) のカード向き：180度回転して相手に向ける */
+.area-top .mini-slot {
+    transform: translateZ(10px) rotate(180deg) !important;
+}
+
+/* ■ P1 (下側/手前) のカード向き：そのままでOK */
+.area-bottom .mini-slot {
+    transform: translateZ(10px) rotate(0deg) !important;
+}
+
+/* ■ P2 (左側) のカード向き：左が上面なので、右に90度回転 */
+.area-left .mini-slot {
+    transform: translateZ(10px) rotate(90deg) !important;
+}
+
+/* ■ P4 (右側) のカード向き：右が上面なので、左に90度回転（270度） */
+.area-right .mini-slot {
+    transform: translateZ(10px) rotate(270deg) !important;
+}
+
+
+

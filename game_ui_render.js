@@ -464,27 +464,41 @@ function renderBoard() {
                 div.appendChild(label);
             }
 
-            // --- 3. プレイヤー駒の描画 ---
+            // --- 3. プレイヤー駒の描画（5面体構造 ＆ 演出パーツの分離） ---
             const pOnCellMarker = players.find(pl => x === pl.x && y === pl.y && x !== -1); 
             if (pOnCellMarker) { 
                 const isActive = p && (turn === players.indexOf(pOnCellMarker)); 
                 const pDiv = document.createElement('div'); 
                 pDiv.id = `p${pOnCellMarker.id}-marker`; 
-                pDiv.className = `w-[85%] h-[85%] player-marker absolute inset-0 m-auto`; 
+                pDiv.className = `player-marker`; 
                 
-                pDiv.style.zIndex = "1000";
-
-                // 修正箇所：常に pieceImage (piece_00X.png) を使用するよう固定
+                const rotateX = -50;
+                const rotateY = 0;
+                pDiv.style.setProperty('--rotate-x', `${rotateX}deg`);
+                pDiv.style.setProperty('--rotate-y', `${rotateY}deg`);
+                
                 const markerImage = pOnCellMarker.pieceImage;
 
                 if (markerImage) {
-                    pDiv.style.backgroundImage = `url('${markerImage}')`;
-                    pDiv.style.backgroundSize = 'cover';
-                    pDiv.style.backgroundPosition = 'center';
-                    pDiv.style.backgroundColor = 'transparent';
-                    pDiv.style.border = 'none';
+                    // ★外科手術：立方体本体（5面）を作成
+                    const faces = ['front', 'top', 'left', 'right', 'back'];
+                    faces.forEach(name => {
+                        const f = document.createElement('div');
+                        f.className = `cube-face face-${name}`;
+                        f.style.backgroundImage = `url('${markerImage}')`;
+                        pDiv.appendChild(f);
+                    });
+
+                    // ★新規：演出用オーラパーツを「立方体の外側」に独立して作成
+                    if (isActive) {
+                        const aura = document.createElement('div');
+                        aura.className = 'cube-aura-layer';
+                        // オーラの色をセット
+                        aura.style.setProperty('--aura-color', pOnCellMarker.color.hex || '#fff');
+                        pDiv.appendChild(aura);
+                    }
                 } else {
-                    pDiv.className += ` ${pOnCellMarker.css} rounded-sm cube-shadow`;
+                    pDiv.className += ` ${pOnCellMarker.css} rounded-sm`;
                 }
 
                 if (isActive) {
@@ -1075,3 +1089,34 @@ function updateProfileButtonVisual() {
     // 4. ログへの反映（任意：必要なら）
     console.log(`[UI Sync] Name: ${userProfile.name}, Icon: ${targetSrc}`);
 }
+
+
+/**
+ * 2026/03/17 修正：ダイナミック背景の粒子生成
+ */
+/**
+ * 2026/03/17 修正：背景粒子の増量とランダム性の強化
+ */
+document.addEventListener('DOMContentLoaded', () => {
+    const bg = document.getElementById('dynamic-bg-container');
+    if (!bg) return;
+
+    // 粒子を40個に増量
+    for (let i = 0; i < 40; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        // 大きさを2px〜8pxの間でバラつかせる
+        const size = Math.random() * 6 + 2; 
+        p.style.width = `${size}px`;
+        p.style.height = `${size}px`;
+        // 開始位置を画面全体に散らす
+        p.style.left = `${Math.random() * 100}%`;
+        // 昇っていく時間を10秒〜40秒の間でランダムに
+        p.style.setProperty('--d', `${10 + Math.random() * 30}s`); 
+        // 出現タイミングをバラバラにして一斉に出るのを防ぐ
+        p.style.animationDelay = `-${Math.random() * 30}s`;
+        // 透明度もランダムにして奥行きを出す
+        p.style.opacity = Math.random() * 0.5 + 0.2;
+        bg.appendChild(p);
+    }
+});

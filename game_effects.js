@@ -254,73 +254,29 @@ function canPlayHandEffect(card, p) {
         if (candidates.length < cost.amount) return false;
     }
 
-    /* 2026/03/13 修正：民の道の建設 移動先の制限を解除 */
+    /**
+ * 2026/03/17 修正
+ * 「民の道の建設」の手札効果が勝手に自動実行されないよう修正。
+ * 判定関数(canPlayHandEffect)の中では「使用可能か」のチェックのみを行い、
+ * 実際の選択モード起動は runAction 側に集約させました。
+ */
     if (act.type === 'civil_path_hand') {
-        // ステップ1：移動元（相手の周囲以外の裏向きカード）の候補を取得
         const faceDownCards = [];
         for(let y=0; y<GRID_SIZE; y++) {
             for(let x=0; x<GRID_SIZE; x++) {
                 const cell = board[y][x];
                 if(cell.empty || cell.revealed) continue;
-                
                 let isAroundOpponent = false;
                 players.forEach(pl => {
                     if(pl.id === p.id) return;
                     if(Math.abs(pl.x - x) <= 1 && Math.abs(pl.y - y) <= 1) isAroundOpponent = true;
                 });
-                // 移動元として選べるのは「相手の周囲以外」
                 if(!isAroundOpponent) faceDownCards.push({x, y});
             }
         }
-
         const emptyCells = board.flat().filter(c => c.empty);
-        if (emptyCells.length < 2 || faceDownCards.length < 2) return false;
-
-        // ステップ2：まず「移動させるカード」を2枚選ぶ
-        startSelectionMode('select_cell', 2, 'civil_path_select_cards', '移動させる裏向きカードを2枚選んでください', (selCards) => {
-            
-            // ステップ3：「移動先」を2つ選ぶ
-            // ここで logic を 'civil_path_select_dest' などに渡し、そこでは「相手の周囲以外」という判定を「行わない」ようにします
-            startSelectionMode('select_cell', 2, 'civil_path_select_dest', '移動先の空マスを2つ選んでください', (selDests) => {
-                
-                // 実際の移動処理（ここは既存のロジックがあればそれを維持）
-                selCards.forEach((cPos, idx) => {
-                    const dest = selDests[idx];
-                    const targetCell = board[cPos.y][cPos.x];
-                    const destCell = board[dest.y][dest.x];
-                    
-                    destCell.color = targetCell.color;
-                    destCell.empty = false;
-                    destCell.revealed = false;
-                    destCell.stack = targetCell.stack || [];
-
-                    targetCell.color = null;
-                    targetCell.empty = true;
-                    targetCell.revealed = false;
-                    targetCell.stack = [];
-                });
-
-                /** 2026/03/17 修正
-                 * 1. 存在しない変数名 onSuccess による ReferenceError を修正。
-                 * 2. callback が存在する場合のみ実行するように安全策を講じる。
-                 */
-                addLog(`${p.name} が民の道を建設し、カードを再配置しました。`);
-                renderBoard();
-                
-                // 外科手術：このスコープで利用可能な callback (selDests の親から引き継いだもの) を呼び出す
-                // 手札効果の場合、通常は引数の末尾にある callback 等を適切に参照する必要があります
-                if (typeof callback === 'function') {
-                    callback();
-                } else if (typeof onSuccess === 'function') {
-                    onSuccess();
-                }
-
-            }, 0, null, true, p, false, null, "おまかせ", null, p); 
-            // ↑ ここの判定用ID 'civil_path_select_dest' を game_ui_modal.js 側で「全空マスOK」にする必要があります
-
-        }, 0, null, true, p, false, null, "おまかせ", faceDownCards, p); // 移動元は faceDownCards（制限あり）に限定
-
-        return true;
+        // 移動元が2枚以上、かつ空きマスが2つ以上あれば「使用可能（ボタンを点灯）」とする
+        return (emptyCells.length >= 2 && faceDownCards.length >= 2);
     }
     
     else if (act.type === 'apocalypse_arrival') {
@@ -958,28 +914,14 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         startSelectionMode('select_cell', 2, 'civil_path_step1_dummy', '移動させる裏向きカードを2枚選択', (selectedFrom) => {
             // 2段階目：移動先を選択
             setTimeout(() => {
-                // CPU（または「おまかせ」）の場合、移動先候補から相手の周囲を除外する
-                let validDestCells = null;
-                const opponents = players.filter(pl => pl.id !== p.id);
-                
-                // 全ての空きマスのうち、相手の周囲8マスに含まれないマスをリストアップ
-                const safeDestinations = board.flat().filter(cell => {
-                    if (!cell.empty) return false;
-                    // 相手の誰かの周囲1マス以内ならNG
-                    const isNearOpponent = opponents.some(opp => 
-                        Math.abs(opp.x - cell.x) <= 1 && Math.abs(opp.y - cell.y) <= 1
-                    );
-                    return !isNearOpponent;
-                }).map(cell => ({ x: cell.x, y: cell.y }));
-
-                // 候補がある場合のみ制限をかける（候補ゼロで詰まるのを防ぐため）
-                if (safeDestinations.length >= 2) {
-                    validDestCells = safeDestinations;
-                }
-
-                startSelectionMode('select_cell', 2, 'civil_path_step2_dummy', '移動先の空きマスを選択', (selectedTo) => {
+                /**
+                 * 2026/03/17 修正
+                 * 「民の道の建設」の手札効果：移動先は「空きマスならどこでも（相手の周囲含む）」選べるよう修正。
+                 */
+                // 移動先候補の制限（validDestCells）を撤廃し、全空きマスを選択可能にします
+                startSelectionMode('select_cell', 2, 'civil_path_step2_dummy', '移動先の空きマスを選択（どこでも可）', (selectedTo) => {
                     animateCivilPath(selectedFrom, selectedTo);
-                }, null, null, true, p, false, null, "おまかせ", validDestCells, p);
+                }, null, null, true, p, false, null, "おまかせ", null, p);
             }, 300);
         }, null, null, true, p, false, null, "おまかせ", faceDownCards, p);
         return;

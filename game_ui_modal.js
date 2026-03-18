@@ -1798,13 +1798,18 @@ function isCellSelectable(x, y) {
     const origin = selectionState.origin || p || {x: -1, y: -1};
     const dx = Math.abs(origin.x - x), dy = Math.abs(origin.y - y);
 
+    /**
+ * 2026/03/17 修正
+ * 「民の道の建設」の手札効果において、移動先が全画面の空きマスから選べるよう修正。
+ */
     /* 2026/03/13 修正：民の道などの「全画面の空きマス」が対象のロジック */
     const isSpecialPlacement = [
         'place_deck_facedown', 
         'exile_curse_logic', 
         'civil_path_step2', 
         'civil_path_step2_dummy',
-        'civil_path_select_dest' // ← 前回の修正案の名前も追加して安全策をとります
+        'civil_path_select_dest',
+        'civil_path_hand' // ★追加：手札効果のメインロジック名も特例に含める
     ].includes(L);
 
     // --- 範囲チェック ---
@@ -3730,19 +3735,23 @@ function showPostGameLevelModal(data, onFinish) {
         }
     }, 100); // 0.1秒待機してから開始
 
-    /** 2026/03/10 修正：レベルゲージ確認後、ホーム画面へ遷移 **/
+    /** * 2026/03/17 修正
+     * レベルアップ演出の有無に関わらず、ゲージ確認後は確実にホーム画面へ戻るよう修正。
+     */
     const close = () => {
         modal.classList.add('animate-fade-out');
         setTimeout(() => {
             modal.remove();
-            // レベルアップしなかった場合、ここでホーム画面を表示
-            if (!data.isLevelUp) {
-                const homeScreen = document.getElementById('home-screen');
-                if (homeScreen) {
-                    homeScreen.classList.remove('hidden');
-                    document.getElementById('title-overlay')?.classList.add('hidden');
-                }
+            
+            // 外科手術：if (!data.isLevelUp) の条件を撤廃し、常にホームを表示させる
+            const homeScreen = document.getElementById('home-screen');
+            const titleOverlay = document.getElementById('title-overlay');
+            if (homeScreen) {
+                homeScreen.classList.remove('hidden');
+                homeScreen.style.display = 'flex'; // 確実に表示
+                if (titleOverlay) titleOverlay.classList.add('hidden');
             }
+            
             if (onFinish) onFinish();
         }, 500);
         document.removeEventListener('click', close);

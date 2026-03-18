@@ -2599,23 +2599,23 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     .area-top .player-area-box {
         /* translateZ を 50px 以上にするとマットの裏に隠れなくなります */
         /* translate の第2引数で上下位置を調整可能です */
-        transform: rotateX(30deg) translateZ(-125px) translate(0px, 0px) scale(0.96) !important;
+        transform: rotateX(30deg) translateZ(-125px) translate(-10px, 0px) scale(0.9) !important;
     }
 
     /* ■ P1 (下側/手前) - iPhone調整 */
     .area-bottom .player-area-box {
-        transform: rotateX(30deg) translateZ(20px) translate(0px, 0px) scale(0.98) !important;
+        transform: rotateX(30deg) translateZ(30px) translate(0px, 0px) scale(0.85) !important;
     }
 
     /* ■ P2 (左側) - iPhone調整 */
     .area-left .player-area-box {
         /* translateZ(40px) でマットから浮かせ、translateX(-10px) 等で左右位置を調整 */
-        transform: rotateX(30deg) translateZ(-40px) translate(0px, 0px) scale(0.98) !important;
+        transform: rotateX(30deg) translateZ(-40px) translate(0px, 0px) scale(0.85) !important;
     }
 
     /* ■ P4 (右側) - iPhone調整 */
     .area-right .player-area-box {
-        transform: rotateX(30deg) translateZ(-40px) translate(0px, 0px) scale(0.98) !important;
+        transform: rotateX(30deg) translateZ(-40px) translate(-10px, 0px) scale(0.85) !important;
     }
 
     /* 3. ステータスエリア（名前等）も iPhone で消える場合はここを調整 */

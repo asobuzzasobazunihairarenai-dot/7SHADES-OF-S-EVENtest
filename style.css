@@ -2599,12 +2599,12 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     .area-top .player-area-box {
         /* translateZ を 50px 以上にするとマットの裏に隠れなくなります */
         /* translate の第2引数で上下位置を調整可能です */
-        transform: rotateX(30deg) translateZ(-125px) translate(-10px, -20px) scale(0.82) !important;
+        transform: rotateX(30deg) translateZ(-125px) translate(-11px, -15px) scale(0.82) !important;
     }
 
     /* ■ P1 (下側/手前) - iPhone調整 */
     .area-bottom .player-area-box {
-        transform: rotateX(30deg) translateZ(30px) translate(-10px, 0px) scale(0.82) !important;
+        transform: rotateX(30deg) translateZ(30px) translate(-10px, 20px) scale(0.82) !important;
     }
 
     /* ■ P2 (左側) - iPhone調整 */

@@ -2651,7 +2651,7 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     /* ■ P2 (左側) - ステータス位置 */
     .area-left .player-area-box > div:first-child {
         left: -35px; /* 【調整点】マイナスを大きくするとより左（画面端）へ */
-        top: 70%;
+        top: 30%;
         /* rotate(90deg) を維持しつつ、位置を微調整 */
         transform: translateZ(0px) translateY(-50%) rotate(90deg) !important;
     }
@@ -2659,7 +2659,7 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     /* ■ P4 (右側) - ステータス位置 */
     .area-right .player-area-box > div:first-child {
         right: -35px; /* 【調整点】マイナスを大きくするとより右（画面端）へ */
-        top: 30%;
+        top: 70%;
         /* rotate(270deg) を維持しつつ、位置を微調整 */
         transform: translateZ(0px) translateY(-50%) rotate(270deg) !important;
     }

@@ -776,39 +776,46 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
     }
 
     
+    /**
+ * 2026/03/19 修正：カード拡大画像の表示復元
+ * 1. 画像がある場合に background-image が確実に適用され、かつ hidden が解除されるよう修正。
+ * 2. テキスト表示用要素との排他制御を厳密化。
+ */
     const view = document.getElementById('detail-card-view');
     const charEl = document.getElementById('detail-card-char');
     const nameEl = document.getElementById('detail-card-name');
     const arrivalEl = document.getElementById('detail-arrival-text');
     const handEl = document.getElementById('detail-hand-text');
 
-    /**
-     * 2026/03/17 修正
-     * cloneNode によるイベント消失と二重起動バグを回避するため、
-     * 要素を複製せず、直接スタイルと内容を更新する方式へ変更。
-     */
-    /**
-     * 2026/03/17 修正
-     * card または view が存在しない場合にエラー(TypeError)が出るのを防ぐガード処理を追加。
-     */
     if (view) {
         if (card) {
-            view.classList.add('modal-large-card');
+            // 共通設定：拡大カード用のクラスを付与し、非表示を解除
+            view.className = "modal-large-card relative overflow-hidden flex flex-col items-center justify-center border-2 border-white rounded-lg shadow-2xl mx-auto mb-4";
             view.classList.remove('hidden');
+            view.style.display = 'flex'; 
 
             const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
 
             if (imgPath) {
+                // 画像がある場合：背景を設定し、テキスト要素をすべて隠す
                 view.style.backgroundImage = `url('${imgPath}')`;
                 view.style.backgroundSize = 'cover';
                 view.style.backgroundPosition = 'center';
-                if (charEl) charEl.textContent = "";
+                view.style.backgroundColor = 'transparent'; // 背景色を透明にして画像を優先
+                
+                if (charEl) charEl.classList.add('hidden');
                 if (nameEl) nameEl.classList.add('hidden');
                 if (arrivalEl) arrivalEl.classList.add('hidden');
                 if (handEl) handEl.classList.add('hidden');
             } else {
+                // 画像がない場合：背景をクリアし、テキスト要素を表示
                 view.style.backgroundImage = 'none';
-                if (charEl) charEl.textContent = card.name ? card.name[0] : '?';
+                view.style.backgroundColor = card.hex || '#374151';
+                
+                if (charEl) {
+                    charEl.textContent = card.name ? card.name[0] : '?';
+                    charEl.classList.remove('hidden');
+                }
                 if (nameEl) {
                     nameEl.textContent = card.name || "";
                     nameEl.classList.remove('hidden');
@@ -824,8 +831,8 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
             }
             if (typeof attachHoverEvents === 'function') attachHoverEvents(view, card, true);
         } else {
-            // カード情報がない場合は枠自体を隠す
             view.classList.add('hidden');
+            view.style.display = 'none';
         }
     }
 

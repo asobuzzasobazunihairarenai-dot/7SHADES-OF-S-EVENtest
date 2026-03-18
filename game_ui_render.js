@@ -411,31 +411,53 @@ function renderBoard() {
                 cls += "bg-transparent "; 
             }
 
-            // --- ここで先に移動や選択の onclick を定義 ---
-            // ★修正：p が存在する場合のみ各モードの onclick を設定
+            /**
+ * 2026/03/19 修正：選択モード時のハイライト表示の確実化
+ */
+            /**
+ * 2026/03/19 14:00 修正
+ * 1. 選択可能マスのハイライトを緑色 (ring-green-400) に統一。
+ * 2. 移動先のハイライトも黄色から緑色へ変更。
+ * 3. 選択済みマスの強調 (ring-yellow-500) を維持し、3D空間で浮かせるための z-50 を付与。
+ */
             if (p && selectionState.active) {
                 const isSelectable = isCellSelectable(x, y);
                 if (isSelectable) {
-                    cls += "selectable "; div.onclick = () => { if(!isLongPressActive) handleSelection(x, y); };
+                    // 選択可能：緑色でハイライト
+                    cls += "selectable ring-2 ring-green-400 opacity-100 z-50 "; 
+                    div.onclick = () => { if(!isLongPressActive) handleSelection(x, y); };
+                    
                     if (selectionState.selected.some(s => s.x === x && s.y === y)) {
-                        cls += "ring-2 ring-yellow-500 "; 
+                        // 選択済み：黄色（金）でさらに強調
+                        cls += "ring-4 ring-yellow-500 "; 
                         if (selectionState.count > 1) {
                             const selIdx = selectionState.selected.findIndex(s => s.x === x && s.y === y);
                             cardDisplay += `<div class="absolute top-0 left-0 bg-yellow-500 text-black text-[10px] font-bold px-1 z-[60] shadow-sm">${selIdx + 1}</div>`;
                         }
                     }
-                } else { cls += "opacity-50 "; }
+                } else { 
+                    cls += "opacity-30 grayscale "; 
+                }
             } else if (p) {
                 const pOnCell = players.find(ep => ep.id !== p.id && ep.x === x && ep.y === y);
                 const dist = Math.abs(p.x - x) + Math.abs(p.y - y);
                 const isTarget = (p.dimensionActive && !p.baseMoveUsed) ? (dist === 2) : (dist === 1);
-                if (isPlacingCard) { if (isTarget && !pOnCell) { cls += "ring-2 ring-green-400 cursor-pointer z-10 "; div.onclick = () => { if(!isLongPressActive) executePlaceCard(x, y); }; } else cls += "opacity-50 "; } 
+                
+                if (isPlacingCard) { 
+                    if (isTarget && !pOnCell) { cls += "ring-2 ring-green-400 cursor-pointer z-50 "; div.onclick = () => { if(!isLongPressActive) executePlaceCard(x, y); }; } 
+                    else cls += "opacity-50 "; 
+                } 
                 else if (!winner && currentPhase === PHASE.MOVE && isTarget && !isStuck && !isProcessingMove) { 
                     const canStep = !cell.empty || pOnCell; 
                     if (canStep) { 
                         let showRing = false;
-                        if (pOnCell) { if (!p.konohanaPenalty) { cls += "ring-2 ring-red-500 cursor-pointer z-10 "; showRing = true; } }
-                        else { if (!p.marmegoPenalty) { cls += "ring-2 ring-yellow-400 cursor-pointer z-10 "; showRing = true; } }
+                        if (pOnCell) { 
+                            if (!p.konohanaPenalty) { cls += "ring-2 ring-red-500 cursor-pointer z-50 "; showRing = true; } 
+                        }
+                        else { 
+                            // 修正：移動先のハイライトを黄色(yellow-400)から緑色(green-400)に統一
+                            if (!p.marmegoPenalty) { cls += "ring-2 ring-green-400 cursor-pointer z-50 "; showRing = true; } 
+                        }
                         if (showRing) div.onclick = () => { if(!isLongPressActive) handleBoardClick(x, y); };
                     } else cls += "opacity-50 cursor-not-allowed "; 
                 } else cls += "opacity-90 ";
@@ -501,9 +523,14 @@ function renderBoard() {
                     pDiv.className += ` ${pOnCellMarker.css} rounded-sm`;
                 }
 
+                /**
+ * 2026/03/19 修正：駒がいるマスの視認性確保
+ */
                 if (isActive) {
                     div.classList.add('player-active'); 
                     pDiv.style.setProperty('--player-color-glow', pOnCellMarker.color.hex || '#fff');
+                    // 駒がいるマスのハイライト不透明度をわずかに下げ、駒を際立たせる
+                    div.style.opacity = "1";
                 }
                 div.appendChild(pDiv); 
             }

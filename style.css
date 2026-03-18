@@ -609,20 +609,30 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
  * 移動・演出中の立体崩れ、潜り込み、不自然な移動経路をすべて根治します。
  */
 
-/* 1. 駒の基本構造（ここは変更なし：安定しています） */
+/**
+ * 2026/03/19 修正：駒の描画優先度の引き上げ
+ * ハイライト(translateZ(20px))よりも手前に駒を表示するため、
+ * 数値(translateZ)はいじらず、z-indexによる階層制御を強化します。
+ */
 .player-marker {
     width: 30px; 
     height: 30px;
     position: absolute;
     inset: 0;
     margin: auto;
-    z-index: 1000 !important;
+    /* z-indexを最大級に上げ、ハイライト(100)よりも確実に手前に */
+    z-index: 9999 !important; 
     pointer-events: none;
     transform-style: preserve-3d;
     transform-origin: bottom center;
-    /* translateZ(1px) を足すことで、静止時もカードへのめり込みを防止 */
     transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(-20px);
     transition: left 0.6s linear, top 0.6s linear, transform 0.4s ease-out;
+}
+
+/* 駒が乗っているマス（cell）自体の優先度も上げ、周囲のハイライトに埋もれないようにする */
+.cell:has(.player-marker) {
+    z-index: 200 !important;
+    transform-style: preserve-3d;
 }
 
 /* 2. 移動中：絶対にカードの裏に行かず、直線的にスライドさせる設定 */
@@ -2422,13 +2432,31 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
  */
 
 /* 1. 外枠：3D空間の整合性を維持 */
+/**
+ * 2026/03/19 修正：盤面ハイライトの視認性とクリック判定の復元
+ * 1. プレイヤーエリアの z-index を下げ、盤面への干渉を防ぐ。
+ * 2. 選択可能なマスのハイライトを 3D空間で手前に浮かせ、画像に埋もれないようにする。
+ */
 .area-top, .area-bottom, .area-left, .area-right {
     display: flex !important;
-    z-index: 500 !important;
+    z-index: 5 !important; /* 500から大幅に下げ、盤面を遮らないように修正 */
     transform-style: preserve-3d !important;
     pointer-events: none;
     width: 100%;
     height: 100%;
+}
+
+/* 選択モード時のハイライト（黄色い枠）を 3D空間で手前に浮かせる */
+.cell.selectable {
+    transform: translateZ(15px) !important; /* 15px 手前に浮かせる */
+    z-index: 50 !important;
+    cursor: pointer;
+}
+
+/* 既に選択済みのマスの枠をより強調 */
+.cell.ring-2.ring-yellow-500 {
+    box-shadow: 0 0 20px #facc15, inset 0 0 10px #facc15;
+    background-color: rgba(250, 204, 21, 0.2) !important;
 }
 
 /* 2. 背景（マット）の位置固定 */
@@ -2663,4 +2691,33 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
         /* rotate(270deg) を維持しつつ、位置を微調整 */
         transform: translateZ(0px) translateY(-50%) rotate(270deg) !important;
     }
+}
+
+/**
+ * 2026/03/19 14:00 修正：統合ハイライト演出
+ * 1. 緑色のハイライトを 3D空間で手前に浮かせ、カード画像に埋もれないようにする。
+ * 2. 脈動するアニメーションを追加して視認性を劇的に向上。
+ */
+.ring-green-400 {
+    transform: translateZ(20px) !important; /* カードより手前に浮かす */
+    z-index: 100 !important;
+    animation: highlight-pulse-green 1.5s infinite ease-in-out;
+    border-radius: 2px;
+}
+
+@keyframes highlight-pulse-green {
+    0%, 100% { box-shadow: 0 0 5px #4ade80, inset 0 0 5px #4ade80; opacity: 0.8; }
+    50% { box-shadow: 0 0 20px #4ade80, inset 0 0 10px #4ade80; opacity: 1; }
+}
+
+/* 選択済み（黄色）はさらに手前に浮かせて差別化 */
+.ring-yellow-500 {
+    transform: translateZ(25px) !important;
+    z-index: 110 !important;
+    animation: highlight-pulse-yellow 1.0s infinite ease-in-out;
+}
+
+@keyframes highlight-pulse-yellow {
+    0%, 100% { box-shadow: 0 0 10px #facc15, inset 0 0 5px #facc15; }
+    50% { box-shadow: 0 0 25px #facc15, inset 0 0 15px #facc15; }
 }

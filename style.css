@@ -2618,8 +2618,16 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
         transform: rotateX(30deg) translateZ(-40px) translate(-12px, -5px) scale(0.83) !important;
     }
 
-    /* 3. ステータスエリア（名前等）も iPhone で消える場合はここを調整 */
+    /* 3. ステータスエリア（名前等）の iPhone 専用調整 */
     .player-area-box > div:first-child {
-        transform: translateZ(100px) !important; /* カード(60px)よりさらに手前へ */
+        transform: translateZ(100px) !important; 
+    }
+
+    /* ★外科手術的追加：P1(自分)のステータスエリアだけをさらに下にずらす */
+    .area-bottom .player-area-box > div:first-child {
+        /* bottom の数値をマイナス方向に大きくすると、より画面下に移動します */
+        bottom: -45px !important; 
+        left: 50%;
+        transform: translateZ(100px) translateX(-50%) !important;
     }
 }

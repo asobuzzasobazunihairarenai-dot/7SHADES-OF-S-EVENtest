@@ -215,6 +215,7 @@ body {
  * 2026/03/17 修正：疑似3D（マジックアリーナ風）空間の構築
  * 盤面に遠近感(perspective)と傾き(rotateX)を与えます。
  */
+/* 2026/03/19 修正：犯人特定。game-layout自体が盤面を覆っていたため幽霊化する */
 .game-layout { 
     display: grid; 
     grid-template-areas: ". top ." "left center right" ". bottom ."; 
@@ -223,23 +224,25 @@ body {
     width: 80vw; 
     max-width: 400px; 
     aspect-ratio: 1 / 1; 
-    /* 外枠からは背景画像を消す（重要！） */
     background: transparent; 
     position: relative;
     margin: auto;
-
-    /* 遠近感の設定（500pxだと台形が強く、800pxだとマイルドになります） */
     perspective: 700px; 
     transform-style: preserve-3d;
     overflow: visible !important;
+    
+    /* 【外科手術】自分自身へのクリックを無効にし、奥の要素へパスさせる */
+    pointer-events: none !important;
 }
 
-/* 盤面を包む「中央エリア」ごと倒す（これで台形化が確定します） */
+/* 2026/03/19 修正：親が幽霊化したので、盤面のみクリックを有効に戻す */
 .area-center { 
     grid-area: center; 
     display: flex; 
     justify-content: center; 
     align-items: center; 
+    /* 【外科手術】親の無効化を打ち消し、盤面をクリック可能にする */
+    pointer-events: auto !important;
     width: 100%;
     height: 100%;
     
@@ -300,19 +303,22 @@ body {
     transform-style: preserve-3d;
 }
 
+/* 2026/03/19 修正：3D傾斜による判定のズレを補正 */
 .cell {
     border-radius: 0px;
-    /* 以下の2行を追加 */
-    aspect-ratio: 1 / 1; /* セルを常に正方形に保つ */
-    min-height: 0;       /* Grid内での潰れ防止 */
+    aspect-ratio: 1 / 1; 
+    min-height: 0;      
+    /* 3D空間で確実にクリックを拾うための設定 */
+    transform-style: preserve-3d;
+    backface-visibility: hidden;
+    position: relative;
+    z-index: 20; /* 盤面(z-10)より少し上に */
 }
 
-/* 選択モード時のハイライト */
+/* 選択可能状態の時はさらに手前に浮かせて、絶対にクリックを逃さないようにする */
 .selection-active .cell.selectable {
-    opacity: 1 !important;
-    cursor: pointer;
-    box-shadow: inset 0 0 15px #22c55e, 0 0 10px #22c55e !important;
-    z-index: 60;
+    transform: translateZ(20px) !important;
+    z-index: 100 !important;
 }
 
 .mini-slot { 
@@ -2322,24 +2328,30 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
    3D戦場レイアウト：床の固定 ＆ クリック判定 最終統合パッチ
    ============================================================ */
 
-/* 1. 背景（マット）：物理的に一番奥へ押し込み、重なりを防ぐ */
+/* 2026/03/19 修正：奥側のマスのクリック感度を上げるため、translateZをプラス方向に調整 */
+/* 1. 背景（マット）：盤面全体を手前に浮かせて判定を安定させる */
 .area-center {
-    /* rotateX(30deg) で倒し、translateZ(-50px) で物理的に下げます */
-    transform: rotateX(30deg) translateZ(-50px) !important;
-    z-index: 0 !important;
+    /* translateZ を -50px から +10px に変更し、奥側のマスを「指」に近づけます */
+    transform: rotateX(30deg) translateZ(10px) !important;
+    z-index: 10 !important; /* z-indexも少し上げます */
     transform-style: preserve-3d !important;
     overflow: visible !important;
 }
 
+/* 2026/03/19 修正：エリア外枠のクリック判定を完全に排除し、盤面への干渉を防止 */
 /* 2. エリアの外枠：クリックを完全にスルーさせて下の盤面を通す */
+/* 2026/03/19 修正：奥のマスが触れない原因である「エリアの重なり」を完全に排除 */
+/* 2. エリアの外枠：pointer-events: none を徹底し、下の盤面へのクリックを 100% 通過させる */
 .area-top, .area-bottom, .area-left, .area-right {
     display: flex !important;
     grid-area: var(--ga);
-    z-index: 500 !important;
+    z-index: 5 !important; /* 500から5に大幅に下げ、盤面(z-10)より下に配置 */
     transform-style: preserve-3d !important;
-    pointer-events: none !important; /* 枠自体は幽霊化 */
+    pointer-events: none !important; 
     width: 100%;
     height: 100%;
+    /* 【追加】背景や枠が盤面を遮らないよう、念のため visibility を調整 */
+    background: transparent !important;
 }
 
 .area-top    { grid-area: top;    --ga: top; }
@@ -2347,11 +2359,16 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 .area-left   { grid-area: left;   --ga: left; }
 .area-right  { grid-area: right;  --ga: right; }
 
+/* 2026/03/19 修正：親が pointer-events: none でも、カード自体は触れるように明示 */
 /* 3. ロックエリア本体：自分だけはクリックを受け取り、実体化する */
+/* 2026/03/19 修正：親要素が幽霊化しているため、カード部分のみ pointer-events を復元 */
 .player-area-box {
     position: relative;
     transform-style: preserve-3d !important;
-    pointer-events: auto !important; /* スロットやボタンは触れる */
+    /* この要素自体と、その子要素（カードスロット）のみクリックを有効にする */
+    pointer-events: auto !important; 
+    z-index: 100 !important; /* カード自体は盤面より上に浮かせる */
+    background-color: transparent !important;
     background-color: transparent !important;
     border: none !important;
     border-radius: 4px;
@@ -2560,3 +2577,49 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 
 
 
+
+
+
+
+/* ============================================================
+   2026/03/19 iPhone/モバイル専用：ロックエリア位置・高さ個別調整パッチ
+   ============================================================ */
+
+@media (max-width: 640px) {
+    /* 1. 潜り込み対策：全プレイヤー共通の浮かせ設定 */
+    .player-area-box {
+        /* translateZ の値を大きくして、プレイマット画像より確実に手前に出します */
+        /* PC版に影響を与えないよう、ここを iPhone 専用の浮きとして定義 */
+        z-index: 100 !important;
+    }
+
+    /* 2. 各プレイヤーの iPhone 専用位置・高さ調整（ここで数値を微調整してください） */
+
+    /* ■ P3 (上側/対面) - iPhone調整 */
+    .area-top .player-area-box {
+        /* translateZ を 50px 以上にするとマットの裏に隠れなくなります */
+        /* translate の第2引数で上下位置を調整可能です */
+        transform: rotateX(30deg) translateZ(60px) translate(0px, 0px) scale(0.85) !important;
+    }
+
+    /* ■ P1 (下側/手前) - iPhone調整 */
+    .area-bottom .player-area-box {
+        transform: rotateX(30deg) translateZ(80px) translate(0px, 10px) scale(0.9) !important;
+    }
+
+    /* ■ P2 (左側) - iPhone調整 */
+    .area-left .player-area-box {
+        /* translateZ(40px) でマットから浮かせ、translateX(-10px) 等で左右位置を調整 */
+        transform: rotateX(30deg) translateZ(50px) translate(-10px, 0px) scale(0.85) !important;
+    }
+
+    /* ■ P4 (右側) - iPhone調整 */
+    .area-right .player-area-box {
+        transform: rotateX(30deg) translateZ(50px) translate(10px, 0px) scale(0.85) !important;
+    }
+
+    /* 3. ステータスエリア（名前等）も iPhone で消える場合はここを調整 */
+    .player-area-box > div:first-child {
+        transform: translateZ(100px) !important; /* カード(60px)よりさらに手前へ */
+    }
+}

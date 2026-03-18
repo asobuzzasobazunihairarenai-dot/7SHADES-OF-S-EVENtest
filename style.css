@@ -2626,7 +2626,7 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     /* ★外科手術的追加：P1(自分)のステータスエリアだけをさらに下にずらす */
     .area-bottom .player-area-box > div:first-child {
         /* bottom の数値をマイナス方向に大きくすると、より画面下に移動します */
-        bottom: -45px !important; 
+        bottom: -70px !important; 
         left: 50%;
         transform: translateZ(100px) translateX(-50%) !important;
     }

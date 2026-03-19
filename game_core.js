@@ -1456,15 +1456,28 @@ function checkWin(pid) {
             }, 150); // わずかにディレイを伸ばして再生を安定化
         }
 
+        /**
+         * 2026/03/20 14:30 修正
+         * 決着後の勝利/敗北モーダルが表示されない不具合を修正。
+         * 演出完了後に確実にDOMの状態を確認し、モーダルのhiddenを解除するよう保証。
+         */
         // --- ★ここから演出の接続 ---
-        // すぐにオーバーレイを出さず、カメラ演出を呼び出す
         if (typeof performVictoryCameraWork === 'function') {
             performVictoryCameraWork(pid, () => {
-                // 演出（ズーム＆衝撃波）が終わった後に実行される処理
-                showVictoryUI(pid); 
+                // カメラ演出（ズーム等）が完全に終わった後のコールバック
+                setTimeout(() => {
+                    showVictoryUI(pid);
+                    
+                    // ダメ押し：モーダルが表示されないケースへの対策
+                    const overlay = document.getElementById('winner-overlay');
+                    if (overlay) {
+                        overlay.classList.remove('hidden');
+                        overlay.style.display = 'flex'; // 強制表示
+                        overlay.style.zIndex = '20000'; // 最前面へ
+                    }
+                }, 100);
             });
         } else {
-            // 万が一演出関数がない場合のフォールバック
             showVictoryUI(pid);
         }
     }
@@ -3565,23 +3578,36 @@ function showVictoryUI(pid) {
     const lockDisplay = document.getElementById('winner-lock-display');
 
     /* --- 2026/03/11 修正：勝敗に応じたタイトル表示の切り替え --- */
-    if (nameEl) {
+    /**
+     * 2026/03/20 14:45 修正
+     * 勝利/敗北タイトルの二重表示を解消し、適切なID要素(winner-result-title)に書き込みます。
+     */
+    const titleEl = document.getElementById('winner-result-title');
+    if (titleEl) {
         if (Number(pid) === 1) {
-            // 自分が勝った場合
-            nameEl.textContent = "VICTORY!";
-            nameEl.className = "text-3xl font-black mb-2 text-yellow-500 animate-bounce";
+            titleEl.textContent = "VICTORY!";
+            titleEl.className = "text-4xl font-black mb-2 text-yellow-500 animate-bounce";
         } else {
-            // CPUが勝った場合
-            nameEl.textContent = "DEFEAT...";
-            nameEl.className = "text-3xl font-black mb-2 text-blue-500";
+            titleEl.textContent = "DEFEAT...";
+            titleEl.className = "text-4xl font-black mb-2 text-blue-500";
         }
+    }
+
+    if (nameEl) {
+        // ここには「プレイヤー名」だけを表示させる
+        nameEl.textContent = winnerPl.name;
+        nameEl.className = "text-2xl font-bold mb-6 text-gray-800";
         
-        // その下に勝者の名前を小さく表示
+        // 既存の「has conquered the board」メッセージがあれば一旦クリア
+        const oldMsg = nameEl.nextElementSibling;
+        if (oldMsg && oldMsg.textContent.includes('conquered')) oldMsg.remove();
+
         const winnerSubText = document.createElement('div');
-        winnerSubText.className = "text-sm font-bold opacity-80 mb-2";
-        winnerSubText.textContent = `${winnerPl.name} has conquered the board.`;
+        winnerSubText.className = "text-sm font-bold opacity-80 mb-2 text-gray-600";
+        winnerSubText.textContent = `has conquered the board.`;
         nameEl.after(winnerSubText);
     }
+        
 
     // --- アワード（勲章）の表示 ---
     if (statsDisplay) {

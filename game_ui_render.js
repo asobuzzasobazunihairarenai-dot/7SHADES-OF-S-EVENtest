@@ -494,11 +494,16 @@ function renderBoard() {
                 pDiv.id = `p${pOnCellMarker.id}-marker`; 
                 pDiv.className = `player-marker`; 
                 
+                // 2026/03/20 修正：駒の潜り込み防止のため translateZ をプラスに変更し接地位置を調整
+                // 2026/03/21 修正：奥（y=0付近）に行くほど背が縮むため、y座標に応じて垂直方向に拡大(scaleY)をかける
                 const rotateX = -50;
                 const rotateY = 0;
                 pDiv.style.setProperty('--rotate-x', `${rotateX}deg`);
                 pDiv.style.setProperty('--rotate-y', `${rotateY}deg`);
                 
+                // y=0(最奥)で約1.2倍、y=6(最前)で1.0倍になるように計算
+                const verticalScale = 1.2 - (y * 0.03); 
+                pDiv.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateZ(15px) translateY(-40px) scaleY(${verticalScale})`;                
                 const markerImage = pOnCellMarker.pieceImage;
 
                 if (markerImage) {

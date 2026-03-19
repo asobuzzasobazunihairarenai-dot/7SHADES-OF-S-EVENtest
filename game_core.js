@@ -692,14 +692,23 @@ function updateTimerTick() {
                 const allCandidates = [...hands[p.id], ...lockCards];
                 const usable = allCandidates.filter(c => {
                     /**
-                     * 2026/03/20 02:30 修正
-                     * パレット(ID:33)等の「いつでも可」カードを人間が持っている場合、
-                     * CPUのターン中のタイムアウト等で勝手に発動されるのを防止します。
-                     * 操作対象プレイヤー(p)が人間(ID:1)なら、自動発動リストに含めません。
+                     * 2026/03/21 修正
+                     * ゴール（ゲート）まであと1マスの地点にいる場合、
+                     * 「ダッシュ(ID:15)」を温存して確実にゲート侵攻を狙うロジックを追加。
                      */
                     if (p.id === 1) return false; 
 
                     if (!canPlayHandEffect(c, p)) return false;
+
+                    // --- 外科手術：ダッシュ(ID:15)の温存判定 ---
+                    if (c.id === 15) {
+                        const enemyGatePos = players.filter(pl => pl.id !== p.id).map(pl => pl.startPos);
+                        const distToGate = Math.min(...enemyGatePos.map(eg => Math.abs(p.x - eg.x) + Math.abs(p.y - eg.y)));
+                        
+                        // ゲートまでちょうど1マスなら、ダッシュを使わずに温存（通り過ぎを防止）
+                        if (distToGate === 1) return false;
+                    }
+
                     if (autoMode === 'NORMAL') {
                         if (c.fromViridian) return true;
                         const col = c.colorId;
@@ -3659,29 +3668,37 @@ function showVictoryUI(pid) {
     // 最後に画面を表示！
     if (overlay) overlay.classList.remove('hidden');
 
-    // ★重要：リザルト画面への遷移ボタンを確実に再接続する
+    /**
+     * 2026/03/21 修正：決着モーダルの遷移不具合を修正
+     * 「リザルトを確認」ボタンが確実に winner-overlay を閉じ、
+     * 統計データを集計してリザルト画面を表示するようにイベントを再接続。
+     */
     const winBtn = overlay.querySelector('button');
     if (winBtn) {
         winBtn.textContent = "リザルトを確認";
         winBtn.onclick = () => {
-                overlay.classList.add('hidden');
-                
-                // 1. 色ごとの使用回数を集計 (colorStats の復元)
-                const colorResults = BASE_COLORS.map(bc => {
-                    let totalCount = 0;
-                    // 全プレイヤーの使用スタッツから、その色のカードを探して合算
+            // 0. モーダルを物理的に隠す（ここが動かないと画面が消えません）
+            overlay.classList.add('hidden');
+            overlay.style.display = 'none';
+
+            // 1. 色ごとの使用回数を集計 (colorStats の復元)
+            const colorResults = BASE_COLORS.map(bc => {
+                let totalCount = 0;
+                if (window.cardUsageStats) {
                     Object.values(cardUsageStats).forEach(pStats => {
                         Object.entries(pStats).forEach(([cardName, count]) => {
                             const cardData = CARD_DATABASE.find(d => d.name === cardName);
                             if (cardData && cardData.colorId === bc.id) totalCount += count;
                         });
                     });
-                    return { id: bc.id, name: bc.name, bg: bc.bg, hex: bc.hex, count: totalCount };
-                });
+                }
+                return { id: bc.id, name: bc.name, bg: bc.bg, hex: bc.hex, count: totalCount };
+            });
 
-                // 2. MVPカードの選定 (最も多く使われたカード)
-                let mvpName = "なし";
-                let maxUsage = 0;
+            // 2. MVPカードの選定
+            let mvpName = "なし";
+            let maxUsage = 0;
+            if (window.cardUsageStats) {
                 Object.values(cardUsageStats).forEach(pStats => {
                     Object.entries(pStats).forEach(([cardName, count]) => {
                         if (count > maxUsage) {
@@ -3690,65 +3707,19 @@ function showVictoryUI(pid) {
                         }
                     });
                 });
+            }
 
-                // 3. リザルトモーダルの呼び出し
-                /** 2026/03/05 13:15 修正：リザルト表示後、画面が閉じられるタイミングでランク表示を行う **/
-                if (typeof showResultModal === 'function') {
-                    showResultModal(pid, {
-                        time: window.currentPlayTime || 0,
-                        turns: totalTurnCount,
-                        colorStats: colorResults,
-                        lockHistory: lockHistory,
-                        mvp: mvpName
-                    });
-
-                    /** 2026/03/05 13:35 修正：リザルト→ランク→タイトルの遷移を完全保証 **/
-                if (typeof showResultModal === 'function') {
-                    showResultModal(pid, {
-                        time: window.currentPlayTime || 0,
-                        turns: totalTurnCount,
-                        colorStats: colorResults,
-                        lockHistory: lockHistory,
-                        mvp: mvpName
-                    });
-
-                    /* 2026/03/12 修正：試合終了後にトップに戻らずホーム画面へ遷移させる */
-                    const resultCloseBtn = document.getElementById('close-result-btn');
-                    if (resultCloseBtn) {
-                        resultCloseBtn.onclick = () => {
-                            document.getElementById('result-overlay').classList.add('hidden');
-                            
-                            // 共通の「ホームへ戻る」処理
-                            const returnToHome = () => {
-                                cleanupGame(); // ゲーム変数をリセット
-                                const home = document.getElementById('home-screen');
-                                if (home) {
-                                    home.classList.remove('hidden');
-                                    document.getElementById('title-overlay')?.classList.add('hidden');
-                                } else {
-                                    location.reload(); // ホーム画面がない場合のみフォールバック
-                                }
-                            };
-
-                            if (window.pendingRankUpdate) {
-                                const { isWin, oldPoint, newPoint } = window.pendingRankUpdate;
-                                showPostGameRankModal(isWin, oldPoint, newPoint, () => {
-                                    if (window.pendingLevelUpdate) {
-                                        showPostGameLevelModal(window.pendingLevelUpdate, returnToHome);
-                                        window.pendingLevelUpdate = null;
-                                    } else {
-                                        returnToHome();
-                                    }
-                                });
-                                window.pendingRankUpdate = null;
-                            } else {
-                                returnToHome();
-                            }
-                        };
-                    }
-                }
-                }
-            };
+            // 3. リザルトモーダルの呼び出し
+            if (typeof showResultModal === 'function') {
+                showResultModal(pid, {
+                    time: window.currentPlayTime || 0,
+                    turns: totalTurnCount,
+                    colorStats: colorResults,
+                    lockHistory: lockHistory,
+                    mvp: mvpName
+                });
+            }
+        };
     }
 
     const peekBtn = document.getElementById('peek-board-container');

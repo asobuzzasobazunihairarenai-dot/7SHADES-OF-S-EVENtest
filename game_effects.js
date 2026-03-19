@@ -51,6 +51,60 @@ function canPlayHandEffect(card, p) {
 
 
 
+    /* --- 2026/03/21 修正：フェニックス(ID: 8)の有効判定 --- */
+    if (card.id === 8) {
+        if (!discardPile || discardPile.length === 0) return false;
+    }
+
+    /* --- 2026/03/21 修正：ハーベスト(ID: 9)の有効判定 --- */
+    if (card.id === 9) {
+        let hasTarget = false;
+        // 射程2（マンハッタン距離）以内の全マスをスキャン
+        for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+                if (Math.abs(dx) + Math.abs(dy) <= 2) {
+                    const tx = p.x + dx;
+                    const ty = p.y + dy;
+                    // 盤面内かつ、マスが空ではない（カードがある）かチェック
+                    if (tx >= 0 && tx < GRID_SIZE && ty >= 0 && ty < GRID_SIZE) {
+                        if (!board[ty][tx].empty) {
+                            hasTarget = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (hasTarget) break;
+        }
+        // 獲得できるカードが1枚もない場合は使用不可（グレーアウト）
+        if (!hasTarget) return false;
+    }
+
+    /* --- 2026/03/21 修正：サフラン(ID: 10)の有効判定 --- */
+    if (card.id === 10) {
+        let hasFacedown = false;
+        // 射程2（マンハッタン距離）以内の全マスをスキャン
+        for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+                if (Math.abs(dx) + Math.abs(dy) <= 2) {
+                    const tx = p.x + dx;
+                    const ty = p.y + dy;
+                    if (tx >= 0 && tx < GRID_SIZE && ty >= 0 && ty < GRID_SIZE) {
+                        const cell = board[ty][tx];
+                        // マスにカードがあり、かつ「まだ裏向き（revealedがfalse）」かチェック
+                        if (!cell.empty && !cell.revealed) {
+                            hasFacedown = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (hasFacedown) break;
+        }
+        // オープンできる裏向きカードが1枚もない場合は使用不可（グレーアウト）
+        if (!hasFacedown) return false;
+    }
+
     /* 2026/03/14 修正：セレナーデ(ID:13) の二重計算バグを修正 */
     if (card.id === 13) {
         const pHand = hands[p.id] || [];
@@ -118,6 +172,15 @@ function canPlayHandEffect(card, p) {
 
     // ID 22: 反撃
     if (card.id === 22) return false;
+
+    /* --- 2026/03/21 修正：セレスティア(ID:12)の有効判定（無駄撃ち防止） --- */
+    if (card.id === 12) {
+        // 自分以外の相手プレイヤーの中で、手札を3枚以上持っている人が1人でもいるかチェック
+        const hasValidTarget = players.some(pl => pl.id !== p.id && (hands[pl.id] || []).length >= 3);
+        
+        // 対象が一人もいない場合は、使用不可（グレーアウト）にする
+        if (!hasValidTarget) return false;
+    }
 
     // ★ 2026/03/07 追加：神鳴(ID:24)の特別ルール
     if (card.id === 24) {
@@ -1182,20 +1245,69 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 onSuccess({});
             });
         } else {
-            // 2. 手札がある場合：選択肢を出す
+            // 2. 手札がある場合
+            const isAI = (isAutoAction || isAutoProcessing || p.id !== 1);
+
+            // --- 外科手術：CPU（AI）ならモーダルを出さずに自動実行 ---
+            if (isAI) {
+                // AIの判断：基本は「捨てる（進む）」を選択。
+                // ただし、EASYモードかつ低確率で「戻る」を選択する遊びを入れる
+                const shouldReturn = (autoMode === 'EASY' && Math.random() > 0.8);
+
+                if (shouldReturn) {
+                    addLog(`${p.name}はカードを惜しんで引き返しました。(AI判断)`);
+                    executeReturnLogic();
+                    updateGameState();
+                    onSuccess({});
+                } else {
+                    // 捨てる処理へ（showSelectionModalは内部でAIなら自動選択されるためそのまま呼んでOK）
+                    showSelectionModal("手札を捨てる", "捨てるカードを1枚選んでください", hands[p.id], "card-back-pattern", 1, (sel) => {
+                        const discarded = sel[0];
+                        const curIdx = hands[p.id].indexOf(discarded);
+                        if(curIdx > -1) hands[p.id].splice(curIdx, 1);
+                        discardPile.push(discarded);
+
+                        if (typeof showCardModal === 'function') {
+                            showCardModal(discarded, () => {
+                                addLog(`${p.name}は「${discarded.name}」を捨てて、欲しがりの吊り橋を渡りきりました。`);
+                                renderHand();
+                                renderDeckAndDiscard();
+                                onSuccess({});
+                            }, "吊り橋：通行料", p.name, "このカードを捨てて吊り橋を渡りました", p); // 第6引数に p を渡してAIなら自動で閉じさせる
+                        } else {
+                            onSuccess({});
+                        }
+                    }, false, null, null, "おまかせ", p); // 第9引数に autoLabel, 第11引数に actingPlayer
+                }
+                return; // CPU処理はここで終了
+            }
+
+            // --- 人間（P1）の場合：従来通りモーダルを表示 ---
             const msg = "手札を1枚捨てて獲得しますか？<br>（「戻る」を選択すると元の場所へ戻ります）";
             showDetailModal("欲しがりの吊り橋", msg, null, "1枚捨てる", () => {
                 showSelectionModal("手札を捨てる", "捨てるカードを1枚選んでください", hands[p.id], "card-back-pattern", 1, (sel) => {
+// ...（以下、人間用の既存ロジックが続く）...
                     const discarded = sel[0];
                     const curIdx = hands[p.id].indexOf(discarded);
                     if(curIdx > -1) hands[p.id].splice(curIdx, 1);
                     discardPile.push(discarded);
-                    
-                    showMessageOverlay(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> は<br>【手札を1枚捨てて、その場に留まりました】`, 2500, () => {
-                        addLog(`${p.name}は「${discarded.name}」を捨てて、欲しがりの吊り橋を渡りきりました。`);
+
+                    // ★外科手術：捨てたカードを全員に見せるためのモーダルを表示
+                    if (typeof showCardModal === 'function') {
+                        showCardModal(discarded, () => {
+                            // モーダルを閉じた後に、元々の「留まりました」メッセージを出す
+                            showMessageOverlay(`<span style="color:${p.color.hex}">●</span> <b>${p.name}</b> は<br>【手札を1枚捨てて、その場に留まりました】`, 2500, () => {
+                                addLog(`${p.name}は「${discarded.name}」を捨てて、欲しがりの吊り橋を渡りきりました。`);
+                                renderHand();
+                                renderDeckAndDiscard();
+                                onSuccess({});
+                            });
+                        }, "吊り橋：通行料", p.name, "このカードを捨てて吊り橋を渡りました");
+                    } else {
+                        // フォールバック（念のため）
                         renderHand();
                         onSuccess({});
-                    });
+                    }
                 }, false, null, null, null, p);
             });
 
@@ -1342,53 +1454,61 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
     else if (act.type === 'favorite_flower_arrival') {
         const opponents = players.filter(pl => pl.id !== p.id);
         
-        showSelectionModal("対象プレイヤー選択", "カードを渡す相手を選んでください", opponents.map(pl => ({id:pl.id, name:pl.name, type:"PLAYER_SELECT"})), "card-back-pattern", 1, (selPl) => {
-            const victim = players.find(v => v.id === selPl[0].id);
-            
-            // 演出モーダルを表示
-            showPresentFlowerModal(p, victim, contextCard, () => {
-                /** 2026/03/09 修正：称号「博愛主義」用のカウント **/
-                if (p.id !== victim.id) {
-                    matchStats.flowerGifts[p.id] = (matchStats.flowerGifts[p.id] || 0) + 1;
-                }
-                // 演出終了後にカードを移動
-                hands[victim.id].push(contextCard);
-
-                const currentCell = board[p.y][p.x];
-                if (currentCell.stack && currentCell.stack.length > 0) {
-                    const nextCard = currentCell.stack.shift();
-                    currentCell.color = nextCard;
-                    currentCell.revealed = nextCard.savedRevealedState || false;
-                    delete nextCard.savedRevealedState;
-                    currentCell.empty = false;
-                } else {
-                    currentCell.empty = true;
-                    currentCell.revealed = false;
-                    currentCell.color = null;
-                    currentCell.stack = [];
-                }
+        showSelectionModal(
+            "対象プレイヤー選択", 
+            "カードを渡す相手を選んでください", 
+            opponents.map(pl => ({id:pl.id, name:pl.name, type:"PLAYER_SELECT"})), 
+            "card-back-pattern", 
+            1, 
+            (selPl) => {
+                const victim = players.find(v => v.id === selPl[0].id);
                 
-                if (typeof renderBoard === 'function') renderBoard();
+                // 演出モーダルを表示
+                showPresentFlowerModal(p, victim, contextCard, () => {
+                    if (p.id !== victim.id) {
+                        matchStats.flowerGifts[p.id] = (matchStats.flowerGifts[p.id] || 0) + 1;
+                    }
+                    hands[victim.id].push(contextCard);
 
-                /* 2026/03/13 修正：既に表向き（手札効果で設置）の場合はドローさせない */
-                // isNewReveal が true 且つ、元々裏向きだった場合のみドロー
-                if (isNewReveal === true) {
-                    const c = drawCard();
-                    if (c) {
-                        hands[p.id].push(c);
-                        showCardModal(c, () => {
-                            onSuccess({ preventGain: true, stayOnBoard: true });
-                        }, "ドロー", p.name, "花がオープンされたため、見つけたボーナスとして1枚ドローしました");
+                    const currentCell = board[p.y][p.x];
+                    if (currentCell.stack && currentCell.stack.length > 0) {
+                        const nextCard = currentCell.stack.shift();
+                        currentCell.color = nextCard;
+                        currentCell.revealed = nextCard.savedRevealedState || false;
+                        delete nextCard.savedRevealedState;
+                        currentCell.empty = false;
                     } else {
+                        currentCell.empty = true;
+                        currentCell.revealed = false;
+                        currentCell.color = null;
+                        currentCell.stack = [];
+                    }
+                    
+                    if (typeof renderBoard === 'function') renderBoard();
+
+                    if (isNewReveal === true) {
+                        const c = drawCard();
+                        if (c) {
+                            hands[p.id].push(c);
+                            showCardModal(c, () => {
+                                onSuccess({ preventGain: true, stayOnBoard: true });
+                            }, "ドロー", p.name, "花がオープンされたため、見つけたボーナスとして1枚ドローしました");
+                        } else {
+                            onSuccess({ preventGain: true, stayOnBoard: true });
+                        }
+                    } else {
+                        addLog(`[Check] ${p.name}: 既に表向きであったため、ドロー効果は発動しません。`);
                         onSuccess({ preventGain: true, stayOnBoard: true });
                     }
-                } else {
-                    // 表向き（既知）の花を踏んだ場合は、カードを渡すだけで終了
-                    addLog(`[Check] ${p.name}: 既に表向きであったため、ドロー効果は発動しません。`);
-                    onSuccess({ preventGain: true, stayOnBoard: true });
-                }
-            });
-        }, false, null, null, null, p);
+                });
+            }, 
+            false,  // 7: isBlind
+            null,   // 8: cancelCallback (nullにすることでキャンセルを不可にする)
+            null,   // 9: cancelLabel
+            "自動選択", // 10: autoBtnText (CPUの場合や、万が一のために自動選択を有効化)
+            null,   // 11: restrictedCells
+            p       // 12: actingPlayer (操作主を指定)
+        );
         return;
     }
 
@@ -1407,16 +1527,30 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
             "card-back-pattern", 
             discardCount, 
             (sel) => {
+                // 1. 実際に手札から削除し、捨て札へ送る
                 sel.forEach(c => {
                     const idx = hands[p.id].indexOf(c);
                     if (idx !== -1) {
                         discardPile.push(hands[p.id].splice(idx, 1)[0]);
                     }
                 });
-                addLog(`${p.name}は罠により手札を${discardCount}枚捨てました。`);
-                renderHand();
-                renderDeckAndDiscard();
-                onSuccess({});
+
+                addLog(`${p.name}は罠により 『${sel.map(c => c.name).join('』『')}』 を捨てました。`);
+
+                // 2. ★外科手術：捨てたカードを全員に見せるためのモーダルを表示
+                if (typeof showCardModal === 'function') {
+                    // sel（選択されたカードの配列）をそのまま渡して表示
+                    showCardModal(sel, () => {
+                        renderHand();
+                        renderDeckAndDiscard();
+                        onSuccess({});
+                    }, "罠：手札破壊", p.name, "罠にかかり、これらのカードを捨てました");
+                } else {
+                    // 万が一関数がない場合のフォールバック
+                    renderHand();
+                    renderDeckAndDiscard();
+                    onSuccess({});
+                }
             }, 
             false, // 自分でカードを見て選ぶため isBlind は false
             null, 
@@ -1426,6 +1560,8 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         );
         return;
     }
+
+
     if (act.type === 'draw') { 
         const c = drawCard(); 
         if(c) {
@@ -1496,9 +1632,22 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 const h = hands[victim.id]; 
                 h.splice(h.indexOf(cardToDiscard), 1); 
                 discardPile.push(cardToDiscard); 
-                // 強調表示に変更
+
                 addLog(`[${victim.name}] の手札から 『${cardToDiscard.name}』 が捨てられました。`);
-                renderHand(); renderDeckAndDiscard(); renderStatus(); processNextCelestia(idx + 1);
+
+                // ★外科手術：捨てられたカードを全員に見せるためのモーダルを表示
+                if (typeof showCardModal === 'function') {
+                    showCardModal(cardToDiscard, () => {
+                        // モーダルを閉じたら、次の対象プレイヤーの処理へ
+                        renderHand(); 
+                        renderDeckAndDiscard(); 
+                        renderStatus(); 
+                        processNextCelestia(idx + 1);
+                    }, "セレスティア：次元破棄", victim.name, "手札を1枚破棄されました");
+                } else {
+                    // フォールバック
+                    renderHand(); renderDeckAndDiscard(); renderStatus(); processNextCelestia(idx + 1);
+                }
             }, true, null, null, null, victim);
         };
         processNextCelestia(0); return;
@@ -1633,7 +1782,36 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
                 }
             }
             if (validCells.length > 0) {
-                startSelectionMode('select_cell', 1, 'force_move_logic', `${victim.name}の移動先を選択`, (res) => {}, null, null, true, p, false, null, "おまかせ", validCells, p);
+                /**
+                 * 2026/03/21 修正：二重削除の防止
+                 * システム側でコスト徴収が行われるため、ここでは「フォース本体」の削除のみを
+                 * 確実に行い、コスト用の余計な splice を削除しました。
+                 */
+                const forceIdx = hands[p.id].indexOf(contextCard);
+                if (forceIdx > -1) {
+                    const removed = hands[p.id].splice(forceIdx, 1)[0];
+                    discardPile.push(removed);
+                }
+                
+                // コスト削除のコード（findIndex...）をここから削除しました。
+                // システム側の自動徴収に任せることで、合計2枚（本体1+コスト1）が正しく消費されます。
+
+                addLog(`${p.name}はフォースを唱え、${victim.name}の運命を操作します。`);
+                renderHand();
+                renderDeckAndDiscard();
+
+                startSelectionMode('select_cell', 1, 'force_move_logic', `${victim.name}の移動先を選択`, (res) => {
+                    // 移動完了後の処理はシステムに委譲
+                }, null, null, true, p, false, null, "おまかせ", validCells, p);
+                renderHand();
+
+                // 2. 移動先選択モードを開始
+                // コールバックを空 (res)=>{} にせず、selectionState に victim を保持させて
+                // game_ui_modal.js 側の移動完了処理に任せることで二重発動を防止
+                startSelectionMode('select_cell', 1, 'force_move_logic', `${victim.name}の移動先を選択`, (res) => {
+                    // ここでの個別処理は不要（システム側の移動処理とコンボロジックに合流させる）
+                }, null, null, true, p, false, null, "おまかせ", validCells, p);
+                
                 selectionState.targetVictim = victim;
                 selectionState.originalCallback = onSuccess;
             } else {
@@ -2277,12 +2455,24 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         const pIdx = players.indexOf(p);
         const ordered = [];
         for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
-        /* 2026/03/13 修正：発動直後の枚数チェック（自分自身をカウントしない） */
+        /* * 2026/03/21 修正：富裕層の気まぐれの対象判定
+         * 到達効果（マスを踏んだ）なら手札枚数はそのまま3枚以上。
+         * 手札効果（カードを消費した）なら、自分は消費後なので2枚以上あれば、
+         * 発動前は3枚持っていたことになるため対象に含める。
+         */
+        const isHandEffect = (contextCard && contextCard.id === 25); // 手札からの発動か判定
+
         const wealthyPlayers = ordered.filter(pl => {
             const hCount = (hands[pl.id] || []).length;
-            // pl が 発動者(p) の場合、既に「富裕層の気まぐれ」は手札から離れている(捨て札待ち)とみなす
-            return (pl.id === p.id) ? (hCount >= 4) : (hCount >= 3);
-        }); 
+            if (pl.id === p.id) {
+                // 自分自身の場合
+                // 手札効果なら使用後なので「2枚以上」あれば、使用前は「3枚以上」だったとみなす
+                // 到達効果なら手札は減っていないので、そのまま「3枚以上」で判定
+                return isHandEffect ? (hCount >= 2) : (hCount >= 3);
+            }
+            // 他人は常に3枚以上
+            return hCount >= 3;
+        });
         
         if (wealthyPlayers.length === 0) { 
             showMessageOverlay("対象者がいなかったため不発でした。", 2500, () => onSuccess({})); 

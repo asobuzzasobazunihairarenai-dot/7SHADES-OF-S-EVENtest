@@ -630,18 +630,22 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
  * ハイライト(translateZ(20px))よりも手前に駒を表示するため、
  * 数値(translateZ)はいじらず、z-indexによる階層制御を強化します。
  */
+/**
+ * 2026/03/20 修正：駒の下部欠け（潜り込み）を解消
+ * translateZ を -20px から +15px に変更し、接地感を出すために translateY を追加
+ */
 .player-marker {
     width: 30px; 
     height: 30px;
     position: absolute;
     inset: 0;
     margin: auto;
-    /* z-indexを最大級に上げ、ハイライト(100)よりも確実に手前に */
     z-index: 9999 !important; 
     pointer-events: none;
     transform-style: preserve-3d;
     transform-origin: bottom center;
-    transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(-20px);
+    /* scaleY(1.1) を追加して、3D遠近法による高さの減少をあらかじめ補正 */
+    transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(15px) translateY(-40px) scaleY(1.1);
     transition: left 0.6s linear, top 0.6s linear, transform 0.4s ease-out;
 }
 
@@ -666,11 +670,13 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 
 /* 1. 駒本体：自ターンでも絶対に transform を動かさない（!importantで保護） */
 .player-active .player-marker {
-    animation: none !important; /* 揺れを完全に停止 */
-    transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(-20px) !important;
+    animation: none !important;
+    /* ここも同様に translateZ(15px) translateY(10px) に合わせる */
+    /* 自ターン時も同様に背の高さを補正 */
+    transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(15px) translateY(-40px) scaleY(1.1) !important;
     transform-style: preserve-3d !important;
-    border: none !important; /* 辺が離れる原因になるので border も外す */
-    box-shadow: none !important; /* 立方体本体を光らせるのをやめる */
+    border: none !important;
+    box-shadow: none !important;
     z-index: 1100 !important;
 }
 
@@ -2276,15 +2282,19 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
  * z-index を 50 (盤面より上、モーダルより下) に設定し、
  * pointer-events: none で操作を邪魔しないようにします。
  */
+/**
+ * 2026/03/20 22:45 修正
+ * 背景演出コンテナが操作を邪魔しないよう、z-indexをマイナスに設定し、
+ * 物理的に全ての要素の「一番後ろ」に配置します。
+ */
 #dynamic-bg-container {
     position: fixed;
     inset: 0;
-    /* 操作を透過させる（重要！） */
-    pointer-events: none; 
-    /* 盤面(z-0〜10)より手前、かつモーダル(z-100以上)より後ろの絶妙な高さ */
-    z-index: 50; 
+    /* クリックを一切受け付けない */
+    pointer-events: none !important; 
+    /* 盤面やUIよりも後ろ（背景）に配置 */
+    z-index: -1 !important; 
     overflow: hidden;
-    /* 透明度を 1.0 にして、粒子自体の色設定を活かす */
     opacity: 1.0; 
 }
 
@@ -2368,15 +2378,20 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 /* 2. エリアの外枠：クリックを完全にスルーさせて下の盤面を通す */
 /* 2026/03/19 修正：奥のマスが触れない原因である「エリアの重なり」を完全に排除 */
 /* 2. エリアの外枠：pointer-events: none を徹底し、下の盤面へのクリックを 100% 通過させる */
+/**
+ * 2026/03/20 22:50 修正
+ * 3Dレイアウトの透明な重なりがクリックを遮断する問題を解決。
+ * z-indexを最小化し、中身の .player-area-box だけが浮き上がるようにします。
+ */
 .area-top, .area-bottom, .area-left, .area-right {
     display: flex !important;
     grid-area: var(--ga);
-    z-index: 5 !important; /* 500から5に大幅に下げ、盤面(z-10)より下に配置 */
+    /* 盤面(10)や背景(-1)よりも後ろに下げて、中身だけを z-index で手前に出す */
+    z-index: 0 !important; 
     transform-style: preserve-3d !important;
     pointer-events: none !important; 
     width: 100%;
     height: 100%;
-    /* 【追加】背景や枠が盤面を遮らないよう、念のため visibility を調整 */
     background: transparent !important;
 }
 
@@ -2736,4 +2751,34 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 @keyframes highlight-pulse-yellow {
     0%, 100% { box-shadow: 0 0 10px #facc15, inset 0 0 5px #facc15; }
     50% { box-shadow: 0 0 25px #facc15, inset 0 0 15px #facc15; }
+}
+
+
+/**
+ * 2026/03/20 23:30 見えない壁を強制的に無効化するパッチ
+ */
+
+/* 1. 雷エフェクト層が邪魔をしている可能性を排除 */
+#lightning-overlay {
+    pointer-events: none !important;
+    z-index: 0 !important;
+}
+
+/* 2. 背景コンテナに「クリックを絶対に拾わない」設定をダメ押し */
+#dynamic-bg-container {
+    pointer-events: none !important;
+}
+
+/* 3. プレビュー層（非表示時）が判定を持っていないか確認 */
+#hover-preview.hidden {
+    display: none !important;
+    pointer-events: none !important;
+}
+
+/* 4. 盤面マットの判定優先度を下げて、プレイヤーUIを優先させる */
+.area-center {
+    pointer-events: none !important; /* マット自体は触れなくて良い */
+}
+#board-grid {
+    pointer-events: auto !important; /* 盤面マスは触れる */
 }

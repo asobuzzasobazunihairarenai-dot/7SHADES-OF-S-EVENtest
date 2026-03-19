@@ -2606,6 +2606,10 @@ case 'open_facedown':
             
             const card = (cell && !cell.empty) ? cell.color : null;
             if (card) {
+                // ★外科手術：移動先のカードを強制的に「表向き」にする
+                cell.revealed = true;
+                if (typeof renderBoard === 'function') renderBoard();
+
                 // handleArrivalLogic を呼び出し、全ての連鎖が終わった後に onSuccess を実行
                 handleArrivalLogic(cell, victim, () => {
                     isProcessingMove = false;

@@ -101,14 +101,30 @@
     text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.6);
 }
 
+/**
+ * 2026/03/20 14:15 修正
+ * iPhoneでのバウンススクロール（画面の揺れ）を防止。
+ * html, body への overflow 指定と overscroll-behavior により、
+ * 画面が上下に引っ張られる挙動を抑制します。
+ */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* スクロールを完全に禁止 */
+    overscroll-behavior: none; /* iPhoneのバウンスを禁止 */
+}
+
 body { 
     font-family: 'Noto Sans JP', sans-serif; 
-    touch-action: manipulation; 
+    touch-action: none; /* 全てのスワイプ挙動をJS制御に委ねる */
     user-select: none; 
     -webkit-user-select: none; 
-    overflow-x: hidden; 
-    background-color: var(--bg-main); /* 変数に変更 */
-    color: var(--text-main);          /* 変数に変更 */
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    /* 画面全体が固定されるように設定 */
+    position: fixed;
+    width: 100%;
 }
 
 #app {

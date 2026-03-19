@@ -301,7 +301,12 @@ function canPlayHandEffect(card, p) {
             if(hIdx > -1) hands[p.id].splice(hIdx, 1);
             
             activeHandCard = cardToPlace;
-            startSelectionMode('select_cell', 1, 'apocalypse_placed_logic', "配置するマスを選択（周囲1マス）", onSuccess, 1, null, true, p, true, null, null, null, p);
+            /**
+             * 2026/03/19 23:15 修正
+             * アポカリプスの配置先から「自分の直下」を除外。
+             * 第7引数に {x: p.x, y: p.y} を渡すことで、周囲8マスのみを選択可能にします。
+             */
+            startSelectionMode('select_cell', 1, 'apocalypse_placed_logic', "配置するマスを選択（周囲8マス）", onSuccess, 1, {x: p.x, y: p.y}, true, p, true, null, null, null, p);
         }, false, null, null, null, p); 
         return;
     }

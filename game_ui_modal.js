@@ -642,14 +642,37 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
      * 前回の表示時に作成された「クローン要素（残骸）」を削除し、
      * ボタンが反応しなくなる、あるいは二重に重なる不具合を完全に解消します。
      */
+    /**
+     * 2026/03/19 15:30 修正
+     * 2回目以降の表示で画像が消える不具合を修正。
+     * クローンの削除は行いますが、元のテンプレート(originalView)を隠す処理を撤廃し、
+     * 常に表示のベースとして使えるようにします。
+     */
+    /**
+     * 2026/03/19 16:30 修正：画像表示の完全復旧
+     * クローン（残骸）のみを消し、テンプレート本体(#detail-card-view)は
+     * hiddenを解除した上で、中身の表示状態を一度クリーンアップします。
+     */
+    /**
+     * 2026/03/19 18:40 修正：画像消失バグの根本治療
+     * 削除対象からテンプレート本体 (#detail-card-view) を明確に除外します。
+     * これにより、2回目以降も表示の土台が維持されます。
+     */
     const oldClones = modal.querySelectorAll('.modal-large-card');
-    oldClones.forEach(el => el.remove());
+    oldClones.forEach(el => {
+        // IDが detail-card-view でないもの（クローンされた残骸）だけを削除
+        if (el.id !== 'detail-card-view') {
+            el.remove();
+        }
+    });
     
-    // 元の非表示になっているテンプレート要素を再取得または表示準備
     const originalView = document.getElementById('detail-card-view');
     if (originalView) {
-        // クローンによって hidden クラスが外れっぱなしになるのを防ぐ
-        originalView.classList.add('hidden');
+        // テンプレート本体の表示状態を一度リセット（ hidden を解除し、中身を空にする準備）
+        originalView.classList.remove('hidden');
+        originalView.style.display = 'flex';
+        // 前回のインラインスタイル（背景画像など）をクリア
+        originalView.style.backgroundImage = '';
     }
 
     modal.style.zIndex = "150";
@@ -781,56 +804,68 @@ function showDetailModal(title, msg, card, btnText, onOk, hideCancel = false, ac
  * 1. 画像がある場合に background-image が確実に適用され、かつ hidden が解除されるよう修正。
  * 2. テキスト表示用要素との排他制御を厳密化。
  */
+    /**
+     * 2026/03/19 19:15 修正：画像消失バグの完全解決
+     * 画像があるカードと無いカードの表示切り替え時に、
+     * スタイルとクラスを物理的にリセットすることで、2回目以降も確実に描画させます。
+     */
+    /**
+     * 2026/03/19 20:00 修正：画像表示の最終手段（リフレッシュ方式）
+     * 2回目以降に出ない原因は、要素の生存確認ミスか重複IDへの干渉です。
+     * 実行のたびに「今、画面にある要素」を確実に捕まえ直し、状態をゼロから作り直します。
+     */
     const view = document.getElementById('detail-card-view');
-    const charEl = document.getElementById('detail-card-char');
-    const nameEl = document.getElementById('detail-card-name');
-    const arrivalEl = document.getElementById('detail-arrival-text');
-    const handEl = document.getElementById('detail-hand-text');
-
     if (view) {
-        if (card) {
-            // 共通設定：拡大カード用のクラスを付与し、非表示を解除
-            view.className = "modal-large-card relative overflow-hidden flex flex-col items-center justify-center border-2 border-white rounded-lg shadow-2xl mx-auto mb-4";
-            view.classList.remove('hidden');
-            view.style.display = 'flex'; 
+        // --- 1. 徹底的なリセット ---
+        view.classList.remove('hidden');
+        view.style.display = 'flex';
+        view.style.backgroundImage = 'none'; // 前回の残像を消去
+        view.style.backgroundColor = '';     // 背景色をクリア
+        
+        // 中のテキスト要素を全て取得し、一度「見える状態」に戻す
+        const subEls = {
+            char: document.getElementById('detail-card-char'),
+            name: document.getElementById('detail-card-name'),
+            arrival: document.getElementById('detail-arrival-text'),
+            hand: document.getElementById('detail-hand-text')
+        };
 
+        Object.values(subEls).forEach(el => {
+            if (el) {
+                el.classList.remove('hidden');
+                el.style.display = ''; // デフォルトに戻す
+            }
+        });
+
+        // --- 2. カードデータの適用 ---
+        if (card) {
             const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
 
             if (imgPath) {
-                // 画像がある場合：背景を設定し、テキスト要素をすべて隠す
+                // 【画像があるカード】画像をセットし、テキスト類を物理的に「消す」
                 view.style.backgroundImage = `url('${imgPath}')`;
                 view.style.backgroundSize = 'cover';
                 view.style.backgroundPosition = 'center';
-                view.style.backgroundColor = 'transparent'; // 背景色を透明にして画像を優先
                 
-                if (charEl) charEl.classList.add('hidden');
-                if (nameEl) nameEl.classList.add('hidden');
-                if (arrivalEl) arrivalEl.classList.add('hidden');
-                if (handEl) handEl.classList.add('hidden');
+                if (subEls.char) subEls.char.style.display = 'none';
+                if (subEls.name) subEls.name.style.display = 'none';
+                if (subEls.arrival) subEls.arrival.style.display = 'none';
+                if (subEls.hand) subEls.hand.style.display = 'none';
             } else {
-                // 画像がない場合：背景をクリアし、テキスト要素を表示
-                view.style.backgroundImage = 'none';
+                // 【画像がないカード】テキストで構成する
                 view.style.backgroundColor = card.hex || '#374151';
-                
-                if (charEl) {
-                    charEl.textContent = card.name ? card.name[0] : '?';
-                    charEl.classList.remove('hidden');
-                }
-                if (nameEl) {
-                    nameEl.textContent = card.name || "";
-                    nameEl.classList.remove('hidden');
-                }
-                if (arrivalEl) {
-                    arrivalEl.classList.remove('hidden');
-                    arrivalEl.innerHTML = `<span class="text-yellow-500 font-bold">【到達】</span>${card.arrival || "(なし)"}`;
-                }
-                if (handEl) {
-                    handEl.classList.remove('hidden');
-                    handEl.innerHTML = `<span class="text-blue-400 font-bold">【手札】</span>${card.hand || "(なし)"}`;
-                }
+                if (subEls.char) subEls.char.textContent = card.name ? card.name[0] : '?';
+                if (subEls.name) subEls.name.textContent = card.name || "";
+                if (subEls.arrival) subEls.arrival.innerHTML = `<span class="text-yellow-500 font-bold">【到達】</span>${card.arrival || "(なし)"}`;
+                if (subEls.hand) subEls.hand.innerHTML = `<span class="text-blue-400 font-bold">【手札】</span>${card.hand || "(なし)"}`;
             }
-            if (typeof attachHoverEvents === 'function') attachHoverEvents(view, card, true);
+            
+            // ホバーイベントの再登録（念のため）
+            if (typeof attachHoverEvents === 'function') {
+                attachHoverEvents(view, card, true);
+            }
         } else {
+            // カード情報がない場合は箱ごと隠す
             view.classList.add('hidden');
             view.style.display = 'none';
         }
@@ -1010,13 +1045,16 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
     /* 2026/03/13 修正：効果処理中の「閉じる」ボタンを徹底排除 */
     const cancelBtn = document.getElementById('selection-cancel-btn'); 
     if (cancelBtn) {
+        /**
+         * 2026/03/20 01:45 修正
+         * 「強奪チャンス」等の強制イベントで「閉じる」ボタンを表示しないよう修正。
+         * これにより、ボタン押下によるゲームストップを防止します。
+         */
         // 1. 強制的に隠すべき条件を定義
-        // ・手札効果の処理中 (isHandEffectProcessing)
-        // ・AIによる自動進行中 (isAutoProcessing)
-        // ・特定の「やり直し不可」なタイトル
         const isForcedAction = isHandEffectProcessing || isAutoProcessing || 
                                title === "手札破棄" || title === "コスト支払い" || 
-                               title === "ETERNAL SELECTION";
+                               title === "ETERNAL SELECTION" || title === "強奪チャンス" ||
+                               title === "HAND STEAL"; // ゲート侵攻時も追加
 
         if (isForcedAction) {
             cancelBtn.classList.add('hidden');
@@ -1415,20 +1453,43 @@ function showCardModal(cards, onComplete, titleText = "カード獲得", playerN
 
     // 2026/03/06 修正：カード獲得ログの視認性向上（プレイヤーカラー＋アイコン）
     /** 2026/03/09 修正：到達と獲得のログを分離し、強調表示に対応 **/
-if (actualCards.length > 0) {
-    // カード名を『 』で囲み、highlightsルールが適用されるようにする
-    const cardNames = actualCards.map(c => `『${c.name}』`).join('、');
-    const pColor = players.find(pl => pl.name === playerName)?.color.hex || '#fff';
+/**
+     * 2026/03/20 01:20 修正
+     * 相手のドロー内容がログで見えてしまう不具合を修正。
+     * 秘匿対象（isSecretMsg）の場合は、ログ上のカード名も「？？？」に書き換えます。
+     */
+    if (actualCards.length > 0) {
+        // --- 秘匿判定の再計算 ---
+        const isSecretMsg = isP1HandOnlyView && 
+                             playerName !== players[0].name && 
+                             !titleText.includes("公開") && 
+                             (actualCards[0].revealed === false || titleText.includes("ドロー") || titleText.includes("奪"));
+
+        // カード名のリストを作成（秘匿対象なら「？？？」にする）
+        const cardNames = actualCards.map(c => isSecretMsg ? `『？？？』` : `『${c.name}』`).join('、');
+        const pColor = players.find(pl => pl.name === playerName)?.color.hex || '#fff';
+        
+        // モーダルのタイトルによって「到達」か「獲得」かを出し分ける
     
-    // モーダルのタイトルによって「到達」か「獲得」かを出し分ける
-    if (titleText.includes("到達")) {
+    /**
+     * 2026/03/19 23:58 修正
+     * ログの「到達」表示を、効果発動と獲得で明確に区別するよう改善。
+     */
+    if (titleText.includes("到達効果")) {
+        // 効果が発動した時のログ
+        addLog(`<span style="color:${pColor}">●</span> <b>${playerName}</b> <span class="text-orange-400">⚡ 到達効果</span> ${cardNames}`);
+    } else if (titleText.includes("到達獲得") || (titleText.includes("到達") && isAcquisition)) {
+        // カードを自分の手札に加えた時のログ
+        addLog(`<span style="color:${pColor}">●</span> <b>${playerName}</b> <span class="text-green-400">🎁 到達獲得</span> ${cardNames}`);
+    } else if (titleText.includes("到達")) {
+        // その他の到達（念のため維持）
         addLog(`<span style="color:${pColor}">●</span> <b>${playerName}</b> <span class="text-orange-400">📍 到達</span> ${cardNames}`);
     } else {
+        // 純粋なドローなどの獲得
         addLog(`<span style="color:${pColor}">●</span> <b>${playerName}</b> <span class="text-green-400">🎁 獲得</span> ${cardNames}`);
     }
     
     // 元のロジックを維持
-    const isSecretMsg = isP1HandOnlyView && 
                          playerName !== players[0].name && 
                          !titleText.includes("公開") && 
                          (actualCards[0].revealed === false || titleText.includes("ドロー") || titleText.includes("奪"));
@@ -1567,11 +1628,19 @@ function startSelectionMode(type, count, logic, promptText, callback, range = nu
     const msg = promptText || "対象を選択してください";
     selectionState = { active: true, type, count, current: 0, selected: [], logic, callback, range, prompt: msg, forbiddenTile, noCancel, origin, isEightDirection, cancelCallback, autoBtnText, restrictedCells, actingPlayer };
     
-    // --- 外科手術：操作主がCPU(IDが1以外)なら、即座に自動選択を実行して終了する ---
-    const p = actingPlayer || players[turn];
+    /**
+     * 2026/03/19 22:30 修正：テストモード初期位置選択の自動進行を物理的に遮断
+     * ID判定よりも強力な「ロジック名判定」を導入します。
+     * test_pos_p1〜p4 のロジックが指定されている間は、誰が操作主であっても
+     * 自動選択(triggerAutoSelect)を絶対に起動させず、人間の入力を待機させます。
+     */
+    const p = actingPlayer || (players[turn]);
+    const isTestPositionLogic = typeof logic === 'string' && logic.startsWith('test_pos_p');
     const isHumanActing = (p && p.id === 1);
 
-    if (!isHumanActing) {
+    // テストモードの位置選択ロジックでない場合のみ、CPU自動選択を許可する
+    if (!isHumanActing && !isTestPositionLogic) {
+        addLog(`[Auto] ${p ? p.name : 'CPU'} が ${msg} を思考中...`);
         addLog(`[Auto] ${p.name} が ${msg} を思考中...`);
         // UIを表示させずに内部ロジックのみで完結させるため、setTimeoutで自動選択を叩く
         setTimeout(() => {
@@ -2386,8 +2455,12 @@ case 'open_facedown':
             }
         }
         
-        // 全てのカードをめくり終えたら完了
-        if (onSuccess) onSuccess({});
+        /**
+         * 2026/03/19 23:55 修正
+         * サフラン等でのオープン効果終了時に ReferenceError: Can't find variable: onSuccess 
+         * が発生するバグを修正。引数で受け取っている callback を正しく呼び出します。
+         */
+        if (callback) callback({});
     })();
     // async関数を抜けた直後の break は必須。 
     // onSuccess は async 内で呼ばれるため、ここでは return しないよう注意。

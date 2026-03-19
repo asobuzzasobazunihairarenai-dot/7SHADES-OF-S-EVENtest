@@ -301,14 +301,22 @@ function toggleReactionSkip() {
  * CPUがロックフェイズ開始時に停止する現象を回避するため、
  * ターンの冒頭で全ての進行管理フラグを安全な状態にリセットします。
  */
+/**
+ * 2026/03/19 23:45 修正
+ * ターン開始時に「1ターンに1度」系の使用履歴(usedOnceEffectsThisTurn)を確実にリセットし、
+ * ヴァーディアン等が次ターンで再度使えるように修正。
+ */
 async function startTurn() { 
     if (!players || players.length === 0) return;
     
-    /* 2026/03/15 修正：演出待ちによるフリーズを防ぐため、フラグ掃除を最優先に */
+    // --- 1. 全ての進行・制限フラグを真っさらに掃除 ---
     isEndingTurn = false; 
     isProcessingMove = false; 
     isHandEffectProcessing = false;
     isAutoProcessing = false;
+    usedOnceEffectsThisTurn = []; // ★追加：ここをリセットすることで再使用を許可します
+    activeModalId = null;
+    if (typeof activeTimerPlayerId !== 'undefined') activeTimerPlayerId = null;
     activeModalId = null;
     if (typeof activeTimerPlayerId !== 'undefined') activeTimerPlayerId = null;
 
@@ -421,8 +429,13 @@ function nextPhase(isForced = false) {
             endTurn(); return; 
         } 
 
-        // 通常のログ
-        addLog(`<span class="text-indigo-400 font-bold italic">⏳ [PHASE] ${phaseName}</span>`); 
+        /**
+         * 2026/03/20 00:15 修正
+         * ログに「誰の」フェイズかを表示するように改善。
+         * 例：⏳ [P1: YGM] HAND PHASE
+         */
+        const pColor = p.color.hex || '#fff';
+        addLog(`<span class="text-indigo-400 font-bold italic">⏳ [<span style="color:${pColor}">${p.name}</span>] ${phaseName} PHASE</span>`); 
         
         // 1.【追加：提案1】詳細なデバッグログ（観戦・テストモードのみ画面に表示）
         addLog(`[DEBUG] ${timeStr} | Player: ${p.name} | Phase: ${phaseName} 開始`, true);
@@ -678,6 +691,14 @@ function updateTimerTick() {
 
                 const allCandidates = [...hands[p.id], ...lockCards];
                 const usable = allCandidates.filter(c => {
+                    /**
+                     * 2026/03/20 02:30 修正
+                     * パレット(ID:33)等の「いつでも可」カードを人間が持っている場合、
+                     * CPUのターン中のタイムアウト等で勝手に発動されるのを防止します。
+                     * 操作対象プレイヤー(p)が人間(ID:1)なら、自動発動リストに含めません。
+                     */
+                    if (p.id === 1) return false; 
+
                     if (!canPlayHandEffect(c, p)) return false;
                     if (autoMode === 'NORMAL') {
                         if (c.fromViridian) return true;
@@ -2987,20 +3008,41 @@ async function startTestGame() {
 
     await new Promise(r => setTimeout(r, 800));
 
-    // 全員の初期位置を順番に選ぶループ
+    /**
+     * 2026/03/19 21:20 修正
+     * テストモードでP2以降が勝手に決まる不具合を修正。
+     * startSelectionMode に渡す「操作主(actingPlayer)」を一時的に「人間(P1)」に固定することで、
+     * システムによるCPU自動選択の発動を完全にブロックし、人間のクリックを待機させます。
+     */
+    /**
+     * 2026/03/19 21:40 修正：テストモード初期位置選択の強制手動化
+     * 1. システム全体の自動行動フラグ(isAutoAction)を一時的に強制オフにします。
+     * 2. 操作主を強制的にP1に固定し、システムがP2をCPUと誤認するのを防ぎます。
+     */
+    const originalAutoAction = isAutoAction; // 現在のオート設定を記憶
+    isAutoAction = false; // 強制停止
+    
+    /**
+     * 2026/03/19 22:00 修正：テストモード初期位置選択の確実な手動化
+     * ID判定による自動実行を避けるため、選択中だけ一時的にプレイヤーIDを「1」にします。
+     */
+    // 2026/03/19 22:30 修正：game_ui_modal.js 側のガードに任せ、シンプルなループに戻します
     for (let i = 0; i < playerNum; i++) {
         const p = players[i];
         await new Promise((resolve) => {
             startSelectionMode('select_cell', 1, `test_pos_p${p.id}`, `${p.name}の開始位置を選択してください`, (sel) => {
                 if (sel && sel.length > 0) {
                     p.x = sel[0].x; p.y = sel[0].y; p.startPos = {...sel[0]};
+                    p.prevX = sel[0].x; p.prevY = sel[0].y;
                     renderBoard();
                 }
                 resolve();
-            }, null, null, true, null, false, null, null, null, p);
+            }, null, null, true, null, false, null, null, null, p); 
         });
         await new Promise(r => setTimeout(r, 300));
     }
+
+    isAutoAction = originalAutoAction; // ループ終了後にオート設定を元に戻す
 
     addLog("すべての準備が整いました。テスト開始！");
     showOpeningLogo(() => {
@@ -4420,3 +4462,30 @@ function deserializeBoard(flatBoard) {
     board = newBoard;
     renderBoard();
 }
+
+
+/**
+ * 2026/03/20 14:15 追記
+ * iOS/iPhone環境において、画面の上下スワイプによるバウンスを物理的に遮断します。
+ * ログエリアなど「スクロールが必要な場所」以外のタッチ移動を無効化します。
+ */
+document.addEventListener('touchmove', (e) => {
+    // スクロールを許可したい要素（ログ履歴やモーダルの中身など）を特定
+    const isScrollable = e.target.closest('#log-area, #log-history-content, .overflow-y-auto, #test-card-list, #hover-description');
+    
+    // スクロール許可エリア以外でのタッチ移動は、ブラウザの「画面揺らし」を阻止する
+    if (!isScrollable) {
+        if (e.touches.length > 1) return; // ピンチズーム等は許可
+        e.preventDefault();
+    }
+}, { passive: false });
+
+// 念のため画面がロードされた際に高さを再計算して固定（iOSのツールバー対策）
+window.addEventListener('load', () => {
+    const setViewHeight = () => {
+        const vh = window.innerHeight * 0.01;
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+    setViewHeight();
+    window.addEventListener('resize', setViewHeight);
+});

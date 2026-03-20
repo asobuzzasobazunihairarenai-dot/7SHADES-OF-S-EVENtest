@@ -2784,30 +2784,62 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 }
 
 
+
+
+
 /**
  * 2026/03/21 修正：扇状手札レイアウト（Fan Mode）の定義
  */
 
-/* 扇状表示時のコンテナ設定 */
+/**
+ * 2026/03/21 修正：扇状モード時のコンテナ装飾を解除
+ * スクロールバーを防止し、カードがエリア外に綺麗にはみ出せるようにします。
+ */
+/**
+ * 2026/03/21 修正：扇状モードのレイアウト最適化
+ * 1. ログエリアと被らないよう、コンテナの位置を調整
+ * 2. カードの配置基準を「中心」に変更し、両端の浮き上がりを解消
+ */
 #current-hand.hand-fan-mode {
     display: flex !important;
     justify-content: center;
-    align-items: flex-end;
+    align-items: center; /* bottomからcenterに変更 */
     position: relative;
-    height: 120px; /* 扇の高さ分を確保 */
+    height: 100px; 
     width: 100%;
     perspective: 1000px;
-    padding-bottom: 20px;
-    overflow: visible !important; /* カードがはみ出しても見せる */
+    overflow: visible !important; 
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    /* ログエリアより手前に出しつつ、位置を微調整 */
+    margin-top: -20px; 
+    z-index: 100;
+}
+
+/* 扇モードの時は手札のラベル（YOUR HAND）を物理的に消す */
+#current-hand.hand-fan-mode ~ #hand-instruction,
+#hand-area-container:has(.hand-fan-mode) #hand-instruction {
+    display: none !important;
+}
+
+#hand-area-container:has(#current-hand.hand-fan-mode) {
+    overflow: visible !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
 }
 
 /* 扇状表示時のカード個別スタイル */
 #current-hand.hand-fan-mode .hand-card {
     position: absolute;
-    bottom: 0;
-    transform-origin: bottom center;
-    transition: transform 0.3s ease, box-shadow 0.3s ease, margin 0.3s ease;
-    margin-bottom: 0;
+    /* 基準点を中心に固定 */
+    top: 50%;
+    left: 50%;
+    /* margin-left/top で自分のサイズの半分戻す設定はJS側で行います */
+    transform-origin: center center; 
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
 /**
@@ -2823,8 +2855,14 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     box-shadow: 0 10px 30px rgba(0,0,0,0.6);
 }
 
-/* ドラッグ中のカードは扇の法則から外す */
+/**
+ * 2026/03/21 修正：ドラッグ中の視認性確保
+ * カードが他のUIの下に隠れないようにし、透明化を防止します。
+ */
 #current-hand.hand-fan-mode .hand-card.dragging {
     transition: none !important;
     z-index: 9999 !important;
+    opacity: 1 !important; /* 透明化を絶対に許さない */
+    pointer-events: none;  /* 指の動きを邪魔しない */
+    filter: drop-shadow(0 15px 30px rgba(0,0,0,0.8)); /* 浮いている影をつける */
 }

@@ -348,6 +348,17 @@
 
         <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-700">
             <div class="flex flex-col">
+                <span class="text-xs text-gray-300">手札：扇状モード</span>
+                <span class="text-[8px] text-gray-500">ONで扇状、OFFでグリッド表示になります</span>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="hand-mode-toggle" class="sr-only peer" onchange="toggleHandDisplayMode(this.checked)">
+                <div class="w-9 h-5 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-yellow-600"></div>
+            </label>
+        </div>
+
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-700">
+            <div class="flex flex-col">
                 <span class="text-xs text-gray-300">CPUスキップ</span>
                 <span class="text-[8px] text-gray-500">OFFでCPUの挙動を確認できます</span>
             </div>

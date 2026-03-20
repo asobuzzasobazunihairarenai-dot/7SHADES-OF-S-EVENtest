@@ -26,6 +26,32 @@ function toggleLightMode(enabled) {
     }
 }
 
+/**
+ * 2026/03/21 修正：手札表示モード（扇状/グリッド）の切り替え
+ */
+function toggleHandDisplayMode(isFan) {
+    handDisplayMode = isFan ? 'fan' : 'grid';
+    localStorage.setItem('shades_hand_mode', handDisplayMode);
+    
+    addLog(`手札レイアウト: ${isFan ? '扇状' : 'グリッド'}`);
+    
+    // 即座に見た目を更新
+    if (typeof renderHand === 'function') {
+        renderHand();
+    }
+}
+
+// ページ読み込み時の初期化処理（DOM内容の読み込み完了時）
+document.addEventListener('DOMContentLoaded', () => {
+    // 既存のライトモード初期化の後に追記
+    const handToggle = document.getElementById('hand-mode-toggle');
+    if (handToggle) {
+        const savedHandMode = localStorage.getItem('shades_hand_mode') || 'fan'; // デフォルトを扇状に
+        handDisplayMode = savedHandMode;
+        handToggle.checked = (savedHandMode === 'fan');
+    }
+});
+
 // --- ページ読み込み時の初期化処理（既存のものを以下に差し替え、または追記） ---
 // 保存された設定がない場合は true (ライトモード) をデフォルトにする
 const savedMode = localStorage.getItem('shades_light_mode');

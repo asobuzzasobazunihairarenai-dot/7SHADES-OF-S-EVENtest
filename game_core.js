@@ -4486,3 +4486,109 @@ window.addEventListener('load', () => {
     setViewHeight();
     window.addEventListener('resize', setViewHeight);
 });
+
+
+
+
+/**
+ * 2026/03/21 修正：手札ドラッグ＆ドロップの移動・終了処理
+ * 画面全体を監視し、掴んでいるカードを指に追従させ、一定以上離れたら使用確認を出します。
+ */
+const handleGlobalMove = (e) => {
+    if (!isDraggingHandCard || draggedCardIndex === null) return;
+
+    // マウスまたはタッチの座標を取得
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    const handEl = document.getElementById('current-hand');
+    const draggedEl = handEl.children[draggedCardIndex];
+    if (!draggedEl) return;
+
+    /**
+     * 2026/03/21 修正：ドラッグ中のカード消失バグを修正
+     * position を fixed にせず、既存の transform を上書きして移動させます。
+     * これにより、カードがコンテナから脱走して消えるのを防ぎます。
+     */
+    const rect = handEl.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    draggedEl.style.position = 'absolute'; // 手札エリア内での相対位置を維持
+    draggedEl.style.left = `${x}px`;
+    draggedEl.style.top = `${y}px`;
+    draggedEl.style.transform = 'translate(-50%, -50%) scale(1.3)'; // 掴んでいる感を出すため少し大きく
+    draggedEl.style.zIndex = '1000';
+    draggedEl.style.transition = 'none';
+    draggedEl.style.opacity = '1'; // 透明化を防ぐ
+};
+
+const handleGlobalUp = (e) => {
+    if (!isDraggingHandCard || draggedCardIndex === null) return;
+
+    const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+    const threshold = window.innerHeight * 0.7; // 画面の下から30%より上に行ったら「使用」とみなす
+
+    const handEl = document.getElementById('current-hand');
+    const draggedEl = handEl.children[draggedCardIndex];
+
+    if (clientY < threshold) {
+        /**
+         * 2026/03/21 修正：モーダル表示直前にカードの見た目をリセット
+         * カードを投げ出した瞬間に、ドラッグ用のスタイル（移動座標など）を消去します。
+         * これにより、モーダルの裏にカードが残るのを防ぎます。
+         */
+        const index = draggedCardIndex;
+        
+        if (draggedEl) {
+            draggedEl.classList.remove('dragging');
+            draggedEl.style.position = '';
+            draggedEl.style.left = '';
+            draggedEl.style.top = '';
+            draggedEl.style.transform = '';
+            draggedEl.style.zIndex = '';
+        }
+
+        isDraggingHandCard = false;
+        draggedCardIndex = null;
+        if (typeof hoverTemporarilyDisabled !== 'undefined') hoverTemporarilyDisabled = false;
+        
+        // 見た目を元に戻してからモーダルを出す
+        renderHand();
+        handleHandClick(index);
+    } else {
+        // 2026/03/21 修正：ドラッグキャンセル時のUI復元をさらに強化（消しゴム処理）
+        isDraggingHandCard = false;
+        draggedCardIndex = null;
+        if (typeof hoverTemporarilyDisabled !== 'undefined') hoverTemporarilyDisabled = false;
+        
+        const handEl = document.getElementById('current-hand');
+        if (handEl && draggedCardIndex !== null) {
+            const el = handEl.children[draggedCardIndex];
+            if (el) {
+                el.classList.remove('dragging');
+                // 直接書き込んだスタイルをすべてリセット
+                el.style.position = '';
+                el.style.left = '';
+                el.style.top = '';
+                el.style.transform = '';
+                el.style.zIndex = '';
+                el.style.opacity = '';
+            }
+        }
+        
+        // 全てのカードに対して一括クリーニング（念押し）
+        document.querySelectorAll('.hand-card').forEach(c => {
+            c.classList.remove('dragging');
+            c.style.opacity = '1';
+        });
+
+        renderHand();
+    }
+};
+
+// 画面全体にイベントを登録
+document.addEventListener('mousemove', handleGlobalMove);
+document.addEventListener('touchmove', handleGlobalMove, { passive: false });
+document.addEventListener('mouseup', handleGlobalUp);
+document.addEventListener('touchend', handleGlobalUp);

@@ -22,9 +22,12 @@ let deck = [];
 let eternalDeck = [];
 let discardPile = [];
 
+// 2026/03/21 修正：ドラッグ＆ドロップ用の状態管理変数を追加
 let isStuck = false;
 let isAutoSkipping = false;
 let isPlacingCard = false;
+let isDraggingHandCard = false; // ★追加：現在手札をドラッグ中か
+let draggedCardIndex = null;    // ★追加：ドラッグしている手札の番号
 let isAutoAction = false;
 let isAutoProcessing = false; 
 

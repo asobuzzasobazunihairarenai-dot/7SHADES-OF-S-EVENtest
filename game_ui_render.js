@@ -618,20 +618,33 @@ function renderHand() {
         
         cardDiv.className = `hand-card w-16 h-16 rounded border-2 border-white ${faceClass} flex flex-col items-center justify-center shadow-lg cursor-pointer transition-all relative overflow-hidden shrink-0 ${isSelected ? 'ring-4 ring-yellow-400' : ''} ${!canPlay ? 'card-dimmed opacity-60 grayscale cursor-not-allowed' : ''} ${card.fromViridian ? 'viridian-temp-card' : ''}`;
         
-        // 扇状モード時の位置計算
+        /**
+         * 2026/03/21 修正：扇状モードの微調整パラメーター化
+         */
         if (mode === 'fan') {
             const total = pHand.length;
-            const angleStep = total <= 1 ? 0 : Math.min(60 / (total - 1), 15); 
-            const startAngle = (total <= 1) ? 0 : -(angleStep * (total - 1)) / 2;
-            const angle = startAngle + (index * angleStep);
-            
-            // 2026/03/21 修正：扇のカーブを深くし、両端が浮かないように調整
-            const xOffset = (index - (total - 1) / 2) * Math.min(40, 400 / total);
-            // 0.5 だった係数を 0.8〜1.0 程度に上げると、端がグッと下がって綺麗なアーチになります
-            const yOffset = Math.abs(angle) * 0.9;
 
-            // 2026/03/21 修正：ホバー時に元の角度を維持するため、変数をCSSに渡す
-            const baseTransform = `translateX(${xOffset}px) translateY(${yOffset}px) rotate(${angle}deg)`;
+            // --- 【調整ポイント1：扇の広がり（枚数連動型）】 ---
+            // 1枚あたりのずらし角度を固定します。
+            // 8〜10くらいにすると枚数が減った時にキュッとまとまり、歯抜けになりません。
+            const stepDeg = 8; 
+            const arcAngle = (total - 1) * stepDeg;
+            const startAngle = -arcAngle / 2;
+            const angle = startAngle + (index * stepDeg);
+            
+            // --- 【調整ポイント2：アーチの緩やかさ（半径）】 ---
+            // 150 を 300 や 500 に大きくすると、アーチがどんどん平ら（緩やか）になります。
+            const radius = 300; 
+            
+            // --- 【調整ポイント3：全体の上下位置】 ---
+            // ここの -50 を -100 や -150 にすると、手札全体がさらに上（盤面側）へ移動します。
+            const verticalPosition = -15; 
+
+            const rad = (angle - 90) * (Math.PI / 180);
+            const xOffset = Math.cos(rad) * radius;
+            const yOffset = Math.sin(rad) * radius + radius + verticalPosition;
+
+            const baseTransform = `translate(-50%, -50%) translateX(${xOffset}px) translateY(${yOffset}px) rotate(${angle}deg)`;
             cardDiv.style.transform = baseTransform;
             cardDiv.style.setProperty('--base-transform', baseTransform);
             cardDiv.style.zIndex = index;
@@ -654,11 +667,60 @@ function renderHand() {
             cardDiv.appendChild(seal);
         }
 
+        /**
+         * 2026/03/21 修正：ドラッグ＆ドロップの開始判定を追加
+         * マウスが押された（または指が触れた）瞬間にドラッグ状態を開始します。
+         */
+        /**
+         * 2026/03/21 修正：ドラッグとクリックの競合解消パッチ
+         * 押した瞬間に「まだ動いていない」フラグを立て、
+         * 1pxでも動いたらクリックを無効化するようにします。
+         */
         if (canPlay) {
-            cardDiv.onclick = () => {
-                if (isPeekingMode || isLongPressActive || isHandEffectProcessing) return;
-                handleHandClick(index); 
+            let hasMoved = false; // 内部フラグ：動いたかどうか
+
+            const startDrag = (e) => {
+                if (isPeekingMode || isHandEffectProcessing) return;
+                isDraggingHandCard = true;
+                draggedCardIndex = index;
+                hasMoved = false; // 押した直後はまだ動いていない
+                cardDiv.classList.add('dragging');
+                if (typeof hoverTemporarilyDisabled !== 'undefined') hoverTemporarilyDisabled = true;
             };
+
+            cardDiv.onmousedown = startDrag;
+            cardDiv.ontouchstart = (e) => {
+                if (e.cancelable) e.preventDefault();
+                startDrag(e);
+            };
+
+            // マウスが動いたら「動いた」とみなす
+            cardDiv.onmousemove = () => { if(isDraggingHandCard) hasMoved = true; };
+            cardDiv.ontouchmove = () => { if(isDraggingHandCard) hasMoved = true; };
+
+            /**
+             * 2026/03/21 修正：扇状モードとグリッドモードの操作分岐
+             * 扇状モード(fan)の場合は、クリック（その場で離す）による使用を廃止し、
+             * 誤操作を防ぎながら「掴んで投げる」ドラッグ操作に一本化します。
+             */
+            cardDiv.onclick = (e) => {
+                e.stopPropagation();
+                
+                // --- 外科手術：モードによる動作の切り分け ---
+                if (mode === 'fan') {
+                    // 扇状モードなら、クリック（離した瞬間）は何もしない
+                    // ※ドラッグ終了判定は game_core.js の handleGlobalUp で行うため
+                    isDraggingHandCard = false;
+                    draggedCardIndex = null;
+                    cardDiv.classList.remove('dragging');
+                    return; 
+                } else {
+                    // グリッドモードなら、従来通りクリックでモーダルを出す
+                    if (isPeekingMode || isHandEffectProcessing) return;
+                    handleHandClick(index); 
+                }
+            };
+        
         } else {
             cardDiv.onclick = (e) => {
                 e.stopPropagation();

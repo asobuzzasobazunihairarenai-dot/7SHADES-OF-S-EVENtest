@@ -985,12 +985,16 @@ function showSelectionModal(title, dummy, source, back, count, onComplete, isBli
     
     // 以降、関数の引数の onComplete を safeOnComplete に差し替えて処理... 
     
-    // --- 外科手術：操作主がCPU(IDが1以外)なら、モーダルを出さずに自動選択へ飛ばす ---
-    const selector = actingPlayer || players[turn];
+    // --- 2026/03/21 修正：未初期化時の selector エラーを防止 ---
+    // actingPlayer がない場合、かつ players が未作成なら仮の System オブジェクトを使用します
+    const selector = actingPlayer || (players && players.length > 0 ? players[turn] : { name: "System", id: 1 });
     const isHumanSelector = (selector && selector.id === 1);
 
     if (!isHumanSelector) {
-        addLog(`[Auto] ${selector.name} が ${title} を選択中...`);
+        // selector が存在し name を持っている場合のみログを出す（念押しガード）
+        if (selector && selector.name) {
+            addLog(`[Auto] ${selector.name} が ${title} を選択中...`);
+        }
         const validSource = source.filter(item => !item.disabled);
         const finalCount = Math.min(count, validSource.length);
         const shuffled = [...validSource].sort(() => Math.random() - 0.5);
@@ -4269,11 +4273,25 @@ function handleGuestStart() {
         }
     );
 
-    // 3. キャンセルボタンのテキスト変更とスタイル復旧
+    /**
+     * 2026/03/21 修正：ボタンテキストの改行禁止対応
+     * whitespace-nowrap クラスを追加することで、ボタン内の文字が
+     * 勝手に2行に分かれるのを防ぎ、1行でスッキリ表示させます。
+     */
+    // OKボタン（リスクを承知で開始）側の改行も禁止する
+    const okBtn = document.getElementById('detail-ok-btn');
+    if (okBtn) {
+        okBtn.classList.add('whitespace-nowrap');
+        okBtn.style.minWidth = 'max-content'; // 幅を文字に合わせる
+    }
+
+    // 3. キャンセルボタン（Googleログインへ）のテキスト変更とスタイル復旧
     const cnl = document.getElementById('detail-cancel-btn');
     if (cnl) {
         cnl.textContent = "Googleログインへ";
-        cnl.style.display = 'block'; // 消えていた場合に備えて
+        cnl.classList.add('whitespace-nowrap'); // 改行を禁止
+        cnl.style.minWidth = 'max-content';      // 幅を文字に合わせる
+        cnl.style.display = 'block'; 
         cnl.classList.remove('hidden');
     }
 }

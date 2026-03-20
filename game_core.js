@@ -2363,11 +2363,18 @@ function processInvasionQueue() { if (!invasionQueue || invasionQueue.length ===
  * 2026/03/11 修正
  * ゲート侵攻時の手札強奪を可視化。奪ったカードをモーダルで全員に通知します。
  */
+/**
+ * 2026/03/21 修正：ゲート侵攻中の「戻る」ボタン排除
+ * isHandEffectProcessing フラグを一時的に立てることで、
+ * showSelectionModal 内部の判定により「閉じる」ボタンを非表示にします。
+ */
 function processHandSteal(invader, victim) { 
     const vHand = hands[victim.id] || []; 
     const sCount = Math.floor(vHand.length / 2); 
 
     if (sCount > 0) {
+        isHandEffectProcessing = true; // ボタン非表示フラグを立てる
+        /* 2026/03/13 修正：引数の順番を showSelectionModal の定義に完全一致させる */
         /* 2026/03/13 修正：引数の順番を showSelectionModal の定義に完全一致させる */
         showSelectionModal(
             "HAND STEAL", 
@@ -2967,25 +2974,93 @@ function skipToPositionSelection() {
 }, null, null, true, null, false, null, null, null, players[0]);
 }
 
+/**
+ * 2026/03/21 修正：テスト開始シーケンスのUI制御
+ * 1. 人数選択が終わるまで構築画面(test-mode-modal)を隠さない、
+ * または initGameInternal を呼ぶ直前まで UI リセットを遅延させます。
+ */
+/**
+ * 2026/03/21 修正：テストモード画面の再表示保証
+ * タイトル画面等から戻ってきた際、hiddenが付いている可能性があるため
+ * 処理の冒頭で確実に表示状態にします。
+ */
+/**
+ * 2026/03/21 修正：テスト開始シーケンスのUI制御
+ * 1. 人数選択が終わるまで構築画面(test-mode-modal)を隠さない、
+ * または initGameInternal を呼ぶ直前まで UI リセットを遅延させます。
+ */
 async function startTestGame() { 
-    if(!testSelectedCards || testSelectedCards.length === 0) { showToast("カードを選んでください"); return; } 
-    
-    // 1. モーダルを隠す
-    const testEl = document.getElementById('test-mode-modal'); 
-    if(testEl) testEl.classList.add('hidden'); 
+    if(!testSelectedCards || testSelectedCards.length === 0) { 
+        showToast("テスト用の山札（カード）を1枚以上選んでください"); 
+        return; 
+    } 
     
     // --- 【追加】テスト人数を選択させる ---
+    // ここではまだ test-mode-modal を隠さず、人数選択を上に重ねます
+    /**
+     * 2026/03/21 修正：引数構造の完全準拠
+     * showSelectionModal の引数を全11項目（または12項目）の定義に合わせ、
+     * 途中のオプション引数(isBlind, cancelCallback等)を明示的に埋めることで
+     * 内部でのデータ読み取りエラーを防止します。
+     */
+    /**
+     * 2026/03/21 修正：showSelectionModal の引数完全適合
+     * 内部で selector = arguments[12] (第13引数) を期待している構造に合わせ、
+     * 引数の数を正確に調整して呼び出します。
+     */
+    /**
+     * 2026/03/21 修正：人数選択呼び出しの安定化
+     * game_ui_modal.js 側の修正と合わせ、第11引数(actingPlayer)として
+     * ID:1（人間扱い）のオブジェクトを渡すことで、自動スキップを回避し確実に画面を出します。
+     */
     const waitForNumber = () => {
         return new Promise((resolve) => {
-            showSelectionModal("TEST PLAYERS", "テストする人数を選んでください", [
+            const playerOptions = [
                 { id: 2, name: "2人戦", type: "PLAYER_SELECT" },
                 { id: 3, name: "3人戦", type: "PLAYER_SELECT" },
                 { id: 4, name: "4人戦", type: "PLAYER_SELECT" }
-            ], "card-back-pattern", 1, (result) => resolve(result[0].id));
+            ];
+            showSelectionModal(
+                "TEST PLAYERS", 
+                "テストする人数を選んでください", 
+                playerOptions, 
+                "card-back-pattern", 
+                1, 
+                (result) => resolve(result[0].id),
+                false, null, null, null,
+                { name: "テスト管理者", id: 1 } // 第11引数：actingPlayer
+            );
         });
     };
 
+    /**
+     * 2026/03/21 修正：画面遷移の順序入れ替え
+     * 人数選択モーダルが構築画面(test-mode-modal)の後ろに隠れないよう、
+     * 先に構築画面を非表示にしてから人数選択を呼び出します。
+     */
+    // 1. まず現在のテストデッキ構築画面を隠す
+    const testEl = document.getElementById('test-mode-modal'); 
+    if(testEl) {
+        testEl.classList.add('hidden');
+        testEl.style.display = 'none'; // 念押しで非表示
+    }
+
+    // 2. その後に人数選択を開始する
     const playerNum = await waitForNumber();
+
+    /**
+     * 2026/03/21 修正：背面画面の即時隠蔽
+     * 人数決定直後、カード選択に入る前に「開発用セットアップ画面」などを完全に隠します。
+     * これにより、次のモーダルが出るまでの隙間に不要な画面が見えるのを防ぎます。
+     */
+    ['setup-overlay', 'cpu-setup-overlay', 'home-screen', 'title-overlay'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.classList.add('hidden');
+            el.style.display = 'none';
+        }
+    });
+    
     await new Promise(r => setTimeout(r, 400));
 
     const firstCards = CARD_DATABASE.filter(c => c.type === 'FIRST');
@@ -2993,14 +3068,21 @@ async function startTestGame() {
     testFirstCards = []; 
     testInitialLocks = []; // 人数分用意するので初期化
 
-    // 共通の選択ヘルパー
+    /**
+     * 2026/03/21 修正：ヘルパー関数の引数構造を同期
+     * ヘルパー経由の呼び出しでも第13引数まで正確に届くように修正します。
+     */
     const waitForSelection = (title, desc, source, back, count) => {
         return new Promise((resolve) => {
-            showSelectionModal(title, desc, source, back, count, (result) => {
-                resolve(result);
-            }, false, () => {
-                resolve([]);
-            }, "ランダム/スキップ");
+            showSelectionModal(
+                title, desc, source, back, count, 
+                (result) => resolve(result), 
+                false, 
+                () => resolve([]), 
+                "ランダム/スキップ",
+                null, null, null,
+                { name: "テスト管理者", id: 1, color: { hex: "#fff" } }
+            );
         });
     };
 
@@ -3030,41 +3112,20 @@ async function startTestGame() {
 
     await new Promise(r => setTimeout(r, 800));
 
-    /**
-     * 2026/03/19 21:20 修正
-     * テストモードでP2以降が勝手に決まる不具合を修正。
-     * startSelectionMode に渡す「操作主(actingPlayer)」を一時的に「人間(P1)」に固定することで、
-     * システムによるCPU自動選択の発動を完全にブロックし、人間のクリックを待機させます。
-     */
-    /**
-     * 2026/03/19 21:40 修正：テストモード初期位置選択の強制手動化
-     * 1. システム全体の自動行動フラグ(isAutoAction)を一時的に強制オフにします。
-     * 2. 操作主を強制的にP1に固定し、システムがP2をCPUと誤認するのを防ぎます。
-     */
-    const originalAutoAction = isAutoAction; // 現在のオート設定を記憶
-    isAutoAction = false; // 強制停止
-    
-    /**
-     * 2026/03/19 22:00 修正：テストモード初期位置選択の確実な手動化
-     * ID判定による自動実行を避けるため、選択中だけ一時的にプレイヤーIDを「1」にします。
-     */
-    // 2026/03/19 22:30 修正：game_ui_modal.js 側のガードに任せ、シンプルなループに戻します
+    // 全員の初期位置を順番に選ぶループ
     for (let i = 0; i < playerNum; i++) {
         const p = players[i];
         await new Promise((resolve) => {
             startSelectionMode('select_cell', 1, `test_pos_p${p.id}`, `${p.name}の開始位置を選択してください`, (sel) => {
                 if (sel && sel.length > 0) {
                     p.x = sel[0].x; p.y = sel[0].y; p.startPos = {...sel[0]};
-                    p.prevX = sel[0].x; p.prevY = sel[0].y;
                     renderBoard();
                 }
                 resolve();
-            }, null, null, true, null, false, null, null, null, p); 
+            }, null, null, true, null, false, null, null, null, p);
         });
         await new Promise(r => setTimeout(r, 300));
     }
-
-    isAutoAction = originalAutoAction; // ループ終了後にオート設定を元に戻す
 
     addLog("すべての準備が整いました。テスト開始！");
     showOpeningLogo(() => {
@@ -3714,13 +3775,18 @@ function showVictoryUI(pid) {
              * showResultModal が内部で stats.time や stats.turns を参照しているため、
              * オブジェクトの構造を完全に一致させ、未定義による表示消滅を防ぎます。
              */
+            /**
+             * 2026/03/21 修正：リザルトデータ転送の確実化
+             * オブジェクトの各項目が undefined にならないよう、安全装置（|| 0 等）を追加。
+             * これによりリザルト画面の集計項目が正常に描画されます。
+             */
             if (typeof showResultModal === 'function') {
                 showResultModal(pid, {
-                    time: window.currentPlayTime || 0,
-                    turns: typeof totalTurnCount !== 'undefined' ? totalTurnCount : 0,
-                    colorStats: colorResults,
-                    lockHistory: typeof lockHistory !== 'undefined' ? lockHistory : [],
-                    mvp: mvpName
+                    time: parseInt(window.currentPlayTime) || 0,
+                    turns: parseInt(totalTurnCount) || 0,
+                    colorStats: colorResults || [],
+                    lockHistory: lockHistory || [],
+                    mvp: mvpName || "なし"
                 });
             }
         };

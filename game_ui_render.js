@@ -960,8 +960,17 @@ function renderStatus() {
                 slotEl.style.borderColor = color.hex; 
                 slotEl.classList.add("border-b-2"); 
                 slotEl.style.backgroundImage = 'none';
+                /**
+                 * 2026/03/21 修正：未定義変数 isHuman によるエラーを解消
+                 * 空のスロットをクリックした際に、条件なしでプレイヤー詳細モーダルを開くように修正します。
+                 */
                 slotEl.className = `mini-slot rounded-sm border border-gray-600 bg-gray-800 relative flex items-center justify-center`;
-                slotEl.onclick = (e) => { e.stopPropagation(); if(!isHuman) openPlayerDetailModal(p.id); };
+                slotEl.onclick = (e) => { 
+                    e.stopPropagation(); 
+                    if (typeof openPlayerDetailModal === 'function') {
+                        openPlayerDetailModal(p.id); 
+                    }
+                };
             } 
         });
     }); 

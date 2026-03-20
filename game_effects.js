@@ -2455,22 +2455,27 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         const pIdx = players.indexOf(p);
         const ordered = [];
         for(let i=0; i<players.length; i++) ordered.push(players[(pIdx + i) % players.length]);
-        /* * 2026/03/21 修正：富裕層の気まぐれの対象判定
-         * 到達効果（マスを踏んだ）なら手札枚数はそのまま3枚以上。
-         * 手札効果（カードを消費した）なら、自分は消費後なので2枚以上あれば、
-         * 発動前は3枚持っていたことになるため対象に含める。
+        /**
+         * 2026/03/21 修正：富裕層の気まぐれの厳密な枚数判定
+         * 到達効果の場合：このカード自体はまだ場にあり、手札に加わる前なので、今の枚数が3枚以上である必要がある。
+         * 手札効果の場合：このカード自体を消費した直後なので、今の枚数が2枚以上あれば、発動時は3枚だったとみなす。
          */
-        const isHandEffect = (contextCard && contextCard.id === 25); // 手札からの発動か判定
+        // 到達効果か手札効果かを、コンテキスト（isNewRevealがあるか、またはactiveHandCardか）で判別
+        const isHandTrigger = (typeof activeHandCard !== 'undefined' && activeHandCard === contextCard);
 
         const wealthyPlayers = ordered.filter(pl => {
             const hCount = (hands[pl.id] || []).length;
             if (pl.id === p.id) {
-                // 自分自身の場合
-                // 手札効果なら使用後なので「2枚以上」あれば、使用前は「3枚以上」だったとみなす
-                // 到達効果なら手札は減っていないので、そのまま「3枚以上」で判定
-                return isHandEffect ? (hCount >= 2) : (hCount >= 3);
+                // 自分自身（発動者）の判定
+                if (isHandTrigger) {
+                    // 手札から使用した場合：消費後の今、2枚以上なら対象
+                    return hCount >= 2;
+                } else {
+                    // 盤面で到達した場合：獲得前の今、3枚以上なら対象
+                    return hCount >= 3;
+                }
             }
-            // 他人は常に3枚以上
+            // 自分以外は常に今の枚数が3枚以上なら対象
             return hCount >= 3;
         });
         

@@ -196,8 +196,17 @@ body {
 }
 .animate-fade-in-down { animation: fade-in-down 0.3s ease-out forwards; }
 
-/* 雷エフェクト */
-.lightning-overlay { position: fixed; inset: 0; z-index: 999; pointer-events: none; }
+/**
+ * 2026/03/21 修正：雷エフェクトの表示階層を最上位へ
+ * 他のUI（z-index: 30000等）よりも前面に表示されるよう、
+ * 数値を 100000 に引き上げ、画面全体への演出を保証します。
+ */
+.lightning-overlay { 
+    position: fixed; 
+    inset: 0; 
+    z-index: 100000; 
+    pointer-events: none; 
+}
 .bolt-path { stroke: #fff; stroke-width: 4; fill: none; stroke-dasharray: 600; animation: bolt-grow 1s ease-out forwards; filter: drop-shadow(0 0 15px #60a5fa) drop-shadow(0 0 5px white); }
 
 @keyframes arrival-flash {
@@ -331,10 +340,9 @@ body {
     z-index: 20; /* 盤面(z-10)より少し上に */
 }
 
-/* 選択可能状態の時も、駒(translateZ(15px) + 浮き)を追い越さない高さに制限 */
+/* 選択可能状態の時はさらに手前に浮かせて、絶対にクリックを逃さないようにする */
 .selection-active .cell.selectable {
-    /* 20px だと駒を貫通する可能性があるため、駒の接地高さに合わせる */
-    transform: translateZ(10px) !important; 
+    transform: translateZ(20px) !important;
     z-index: 100 !important;
 }
 
@@ -641,11 +649,7 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     position: absolute;
     inset: 0;
     margin: auto;
-    /* translateZはいじらず、z-index と 3Dレンダリングの優先順位のみを確定 */
-    z-index: 99999 !important; 
-    transform-style: preserve-3d;
-    /* モバイルブラウザでの描画順を安定させるためのマジックプロパティ */
-    -webkit-transform-style: preserve-3d; 
+    z-index: 9999 !important; 
     pointer-events: none;
     transform-style: preserve-3d;
     transform-origin: bottom center;
@@ -654,15 +658,10 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     transition: left 0.6s linear, top 0.6s linear, transform 0.4s ease-out;
 }
 
-/**
- * 2026/03/21 修正：駒の存在マスの優先度を最高値へ
- * 演出用ハイライト(z-index: 100)を確実に上回るよう数値を引き上げます。
- */
+/* 駒が乗っているマス（cell）自体の優先度も上げ、周囲のハイライトに埋もれないようにする */
 .cell:has(.player-marker) {
-    z-index: 5000 !important; /* 周囲のハイライト(100〜200)に勝つための数値 */
+    z-index: 200 !important;
     transform-style: preserve-3d;
-    /* 奥のカードが手前に描画されないよう、親要素での隔離を強化 */
-    isolation: isolate; 
 }
 
 /* 2. 移動中：絶対にカードの裏に行かず、直線的にスライドさせる設定 */
@@ -2488,8 +2487,11 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 }
 
 /* 選択モード時のハイライト（黄色い枠）を 3D空間で手前に浮かせる */
+/* * 2026/03/21 修正：駒（15px）との衝突を避けるため、ハイライトの浮きを 10px に調整。
+ * これにより、ハイライトはカードより上に、駒はハイライトより上に表示されます。
+ */
 .cell.selectable {
-    transform: translateZ(15px) !important; /* 15px 手前に浮かせる */
+    transform: translateZ(10px) !important; 
     z-index: 50 !important;
     cursor: pointer;
 }
@@ -2739,8 +2741,12 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
  * 1. 緑色のハイライトを 3D空間で手前に浮かせ、カード画像に埋もれないようにする。
  * 2. 脈動するアニメーションを追加して視認性を劇的に向上。
  */
+/**
+ * 2026/03/21 修正：駒（15px）の下に潜り込ませるための階層調整
+ * 通常ハイライトを 8px、強調ハイライトを 12px に設定し、駒を追い越さないようにします。
+ */
 .ring-green-400 {
-    transform: translateZ(20px) !important; /* カードより手前に浮かす */
+    transform: translateZ(8px) !important; 
     z-index: 100 !important;
     animation: highlight-pulse-green 1.5s infinite ease-in-out;
     border-radius: 2px;
@@ -2753,7 +2759,7 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 
 /* 選択済み（黄色）はさらに手前に浮かせて差別化 */
 .ring-yellow-500 {
-    transform: translateZ(25px) !important;
+    transform: translateZ(12px) !important;
     z-index: 110 !important;
     animation: highlight-pulse-yellow 1.0s infinite ease-in-out;
 }
@@ -2768,10 +2774,14 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
  * 2026/03/20 23:30 見えない壁を強制的に無効化するパッチ
  */
 
-/* 1. 雷エフェクト層が邪魔をしている可能性を排除 */
+/**
+ * 2026/03/21 修正：雷エフェクトの表示設定を正規化
+ * 以前のデバッグで 0 に設定されていた z-index を 100000 に戻し、
+ * 物理的に「一番上にあるが、触れない」状態を徹底します。
+ */
 #lightning-overlay {
     pointer-events: none !important;
-    z-index: 0 !important;
+    z-index: 100000 !important;
 }
 
 /* 2. 背景コンテナに「クリックを絶対に拾わない」設定をダメ押し */

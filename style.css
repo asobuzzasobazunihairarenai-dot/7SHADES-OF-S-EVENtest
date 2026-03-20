@@ -658,13 +658,18 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
  * 1. VS Codeのアラート（vendorPrefix）に対応。
  * -webkit-transform-style に加え、標準プロパティ transform-style を追加。
  */
+/**
+ * 2026/03/21 00:15 修正
+ * ハイライト枠（z-index: 110付近）よりも確実に前面に出るよう、
+ * 重なり順位を最上位で固定します。
+ */
 .player-marker {
     width: 30px; 
     height: 30px;
     position: absolute;
     inset: 0;
     margin: auto;
-    z-index: 9999 !important; 
+    z-index: 50000 !important; 
     pointer-events: none;
     /* iPhoneでの3D階層維持を強化（標準プロパティも併記） */
     -webkit-transform-style: preserve-3d;
@@ -1090,12 +1095,17 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
  * 1. VS Codeのアラート（vendorPrefix）に対応。
  * -webkit-transform-style に加え、標準プロパティ transform-style を追加。
  */
+/**
+ * 2026/03/21 00:15 修正
+ * 駒の埋没を解消するため transform-style を preserve-3d に戻し、
+ * 立体的な重なりを許可します。
+ */
 #board-grid > div {
     position: relative;
     z-index: 1 !important; 
-    /* iPhoneでの重なり順を安定させるための設定（標準プロパティも併記） */
-    -webkit-transform-style: flat;
-    transform-style: flat;
+    /* 駒がカードの上に立てるように立体構造を維持 */
+    -webkit-transform-style: preserve-3d;
+    transform-style: preserve-3d;
 }
 
 /* 3D空間の設定 */

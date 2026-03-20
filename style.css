@@ -643,6 +643,21 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
  * 2026/03/20 修正：駒の下部欠け（潜り込み）を解消
  * translateZ を -20px から +15px に変更し、接地感を出すために translateY を追加
  */
+/**
+ * 2026/03/20 23:45 修正
+ * iPhoneにおける駒の潜り込み防止パッチ。
+ * translateZ は維持し、-webkit-transform-style を明示的に追加して階層を保護。
+ */
+/**
+ * 2026/03/20 23:55 修正
+ * 1. VS Codeのアラート（vendorPrefix）に対応。
+ * -webkit-transform-style と併記して標準の transform-style を追加。
+ */
+/**
+ * 2026/03/20 23:58 修正
+ * 1. VS Codeのアラート（vendorPrefix）に対応。
+ * -webkit-transform-style に加え、標準プロパティ transform-style を追加。
+ */
 .player-marker {
     width: 30px; 
     height: 30px;
@@ -651,40 +666,34 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     margin: auto;
     z-index: 9999 !important; 
     pointer-events: none;
+    /* iPhoneでの3D階層維持を強化（標準プロパティも併記） */
+    -webkit-transform-style: preserve-3d;
     transform-style: preserve-3d;
+    /* 物理的な重なり順を強制 */
+    -webkit-font-smoothing: antialiased;
     transform-origin: bottom center;
-    /* scaleY(1.1) を追加して、3D遠近法による高さの減少をあらかじめ補正 */
+    /* ★ translateZ(15px) は変更せず、見た目の位置を維持します */
     transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(15px) translateY(-40px) scaleY(1.1);
     transition: left 0.6s linear, top 0.6s linear, transform 0.4s ease-out;
 }
 
-/**
- * 2026/03/21 23:45 修正
- * 駒が乗っているマスの z-index を最大化し、移動開始・終了時の潜り込みを防止。
- */
+/* 駒が乗っているマス（cell）自体の優先度も上げ、周囲のハイライトに埋もれないようにする */
 .cell:has(.player-marker) {
-    z-index: 500 !important; /* 200から500へ引き上げ */
+    z-index: 200 !important;
     transform-style: preserve-3d;
-    /* 3D空間での描画順序をOS/ブラウザレベルで安定させる */
-    backface-visibility: hidden;
 }
 
-/**
- * 2026/03/21 23:45 修正
- * 移動中の駒が盤面のあらゆる要素（z-index: 100000の雷等）に隠れないよう設定。
- */
+/* 2. 移動中：絶対にカードの裏に行かず、直線的にスライドさせる設定 */
 .moving-unit-glow {
-    /* translateZ(60px) は維持しつつ、位置固定を確実にするため transform-origin を調整 */
+    /* translateZ(60px) で物理的に高く浮かせ、z-index との二段構えで潜り込みを阻止 */
     transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(60px) !important;
-    z-index: 110000 !important; /* 雷オーバーレイ(100000)よりさらに上へ */
-    
-    /* 3D空間のスタックを強制 */
-    transform-style: preserve-3d !important;
+    z-index: 99999 !important;
     
     /* linear に固定することで弧を描く動きを抑制 */
     transition: left 0.6s linear, top 0.6s linear !important;
     
     animation: unit-orange-glow 0.4s ease-in-out infinite;
+    transform-style: preserve-3d !important;
 }
 
 /* 1. 駒本体：自ターンでも絶対に transform を動かさない（!importantで保護） */
@@ -1069,18 +1078,24 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 
 
 /**
- * 2026/03/21 23:45 修正
- * 盤面要素の基本 z-index を 0 にリセットし、駒(z-index: 500~)との差を明確化。
+ * 2026/03/20 23:45 修正
+ * カード側の z-index を最小化し、駒（z-index: 9999）との距離を明確化。
  */
 .cell div, .cell {
-    z-index: 0; /* 1から0へ */
+    z-index: 1 !important;
 }
 
+/**
+ * 2026/03/21 00:05 修正
+ * 1. VS Codeのアラート（vendorPrefix）に対応。
+ * -webkit-transform-style に加え、標準プロパティ transform-style を追加。
+ */
 #board-grid > div {
     position: relative;
-    z-index: 0; /* 1から0へ */
-    /* 3D空間で背後に回らないよう保護 */
-    transform-style: preserve-3d;
+    z-index: 1 !important; 
+    /* iPhoneでの重なり順を安定させるための設定（標準プロパティも併記） */
+    -webkit-transform-style: flat;
+    transform-style: flat;
 }
 
 /* 3D空間の設定 */

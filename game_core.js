@@ -3709,13 +3709,17 @@ function showVictoryUI(pid) {
                 });
             }
 
-            // 3. リザルトモーダルの呼び出し
+            /**
+             * 2026/03/21 修正：リザルトデータ転送の正規化
+             * showResultModal が内部で stats.time や stats.turns を参照しているため、
+             * オブジェクトの構造を完全に一致させ、未定義による表示消滅を防ぎます。
+             */
             if (typeof showResultModal === 'function') {
                 showResultModal(pid, {
                     time: window.currentPlayTime || 0,
-                    turns: totalTurnCount,
+                    turns: typeof totalTurnCount !== 'undefined' ? totalTurnCount : 0,
                     colorStats: colorResults,
-                    lockHistory: lockHistory,
+                    lockHistory: typeof lockHistory !== 'undefined' ? lockHistory : [],
                     mvp: mvpName
                 });
             }
@@ -3861,11 +3865,17 @@ function updateProfileAfterGame(winnerId) {
     // 2. 今回の対局データ(p1Usage)を「通算」に確実に加算
     const p1MatchStats = window.cardUsageStats ? (window.cardUsageStats[1] || window.cardUsageStats['p1']) : null;
     
+    /**
+     * 2026/03/21 修正：統計数値の型保証
+     * 文字列として結合されるのを防ぎ、リザルト画面で NaN や 0 になる問題を解消します。
+     */
     if (p1MatchStats) {
         for (const cardName in p1MatchStats) {
-            const matchCount = Number(p1MatchStats[cardName]) || 0;
-            // 加算（既存がなければ 0 からスタート）
-            userProfile.stats.cardUsageCount[cardName] = (Number(userProfile.stats.cardUsageCount[cardName]) || 0) + matchCount;
+            const matchCount = parseInt(p1MatchStats[cardName]) || 0;
+            if (!userProfile.stats.cardUsageCount) userProfile.stats.cardUsageCount = {};
+            // 加算処理を厳密な数値で行う
+            const currentTotal = parseInt(userProfile.stats.cardUsageCount[cardName]) || 0;
+            userProfile.stats.cardUsageCount[cardName] = currentTotal + matchCount;
 
             // 通算カラー傾向もあわせて加算
             const cardData = CARD_DATABASE.find(c => c.name === cardName);
@@ -4513,6 +4523,43 @@ const handleGlobalMove = (e) => {
     const rect = handEl.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
+
+    /**
+     * 2026/03/21 修正：ドラッグ中のマナ粒子放出エフェクト
+     * 掴んでいるカードの色を取得し、ホーム画面と同様の粒子を散らばらせます。
+     */
+    /**
+     * 2026/03/21 修正：ReferenceError: displayTurn is not defined の解消
+     * 外部から参照可能な turn 変数を使用してプレイヤーを特定します。
+     */
+    if (typeof createCardParticle === 'function') {
+        // displayTurn の代わりにグローバルの turn 変数を使用
+        const p = players[turn]; 
+        
+        if (p && hands[p.id]) {
+            const card = hands[p.id][draggedCardIndex];
+            if (card) {
+                /**
+                 * 2026/03/21 修正：「なないろの欠片」専用のマルチカラー演出
+                 * カード名が一致する場合、粒子の色を7色からランダムに選択します。
+                 */
+                const isRainbowCard = (card.name === "なないろの欠片");
+                const rainbowColors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#ec4899', '#a855f7'];
+
+                for (let i = 0; i < 2; i++) {
+                    const offsetX = (Math.random() * 40 - 20);
+                    const offsetY = (Math.random() * 40 - 20);
+                    
+                    // なないろの欠片ならランダム、それ以外はカード固有の色を使用
+                    const pColor = isRainbowCard 
+                        ? rainbowColors[Math.floor(Math.random() * rainbowColors.length)]
+                        : (card.hex || '#ffffff');
+
+                    createCardParticle(clientX + offsetX, clientY + offsetY, pColor);
+                }
+            }
+        }
+    }
 
     draggedEl.style.position = 'absolute'; // 手札エリア内での相対位置を維持
     draggedEl.style.left = `${x}px`;

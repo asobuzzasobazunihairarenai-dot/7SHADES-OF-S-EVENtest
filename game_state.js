@@ -37,7 +37,9 @@ window.FORCED_CPU_MODE = false;
 // 2026/03/21 修正：手札の表示モード設定を追加
 let isSkipSelectionOnAuto = false; 
 let autoMode = 'EASY'; 
-let handDisplayMode = 'fan'; // ★テスト用に 'fan' に書き換え
+// 2026/03/21 修正：手札の扇状回転角度を保持する変数を追加
+let handDisplayMode = 'fan'; 
+let handFanRotation = 0; // 手札全体の回転角
 
 /**
  * 2026/03/06 修正

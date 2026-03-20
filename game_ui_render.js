@@ -619,25 +619,27 @@ function renderHand() {
         cardDiv.className = `hand-card w-16 h-16 rounded border-2 border-white ${faceClass} flex flex-col items-center justify-center shadow-lg cursor-pointer transition-all relative overflow-hidden shrink-0 ${isSelected ? 'ring-4 ring-yellow-400' : ''} ${!canPlay ? 'card-dimmed opacity-60 grayscale cursor-not-allowed' : ''} ${card.fromViridian ? 'viridian-temp-card' : ''}`;
         
         /**
-         * 2026/03/21 修正：扇状モードの微調整パラメーター化
+         * 2026/03/21 修正：扇状モードの回転ハンドル対応
          */
         if (mode === 'fan') {
             const total = pHand.length;
 
-            // --- 【調整ポイント1：扇の広がり（枚数連動型）】 ---
-            // 1枚あたりのずらし角度を固定します。
-            // 8〜10くらいにすると枚数が減った時にキュッとまとまり、歯抜けになりません。
-            const stepDeg = 8; 
+            // 重なり具合の上限を 5度 に設定（これより狭くなる場合にハンドルを出す）
+            const baseStep = 8;
+            const maxTotalAngle = 100;
+            let stepDeg = Math.min(baseStep, maxTotalAngle / Math.max(1, total - 1));
+            
+            // 2026/03/21 修正：ハンドル出現条件を10枚以上に緩和し、操作性を向上
+            const needsHandle = total >= 10;
+
+            // 1枚あたりのずらし角度を少し広めに確保（重なりすぎ防止）
+            if (total >= 10) stepDeg = Math.max(stepDeg, 6); 
+
             const arcAngle = (total - 1) * stepDeg;
             const startAngle = -arcAngle / 2;
-            const angle = startAngle + (index * stepDeg);
+            const angle = startAngle + (index * stepDeg) + (typeof handFanRotation !== 'undefined' ? handFanRotation : 0);
             
-            // --- 【調整ポイント2：アーチの緩やかさ（半径）】 ---
-            // 150 を 300 や 500 に大きくすると、アーチがどんどん平ら（緩やか）になります。
             const radius = 300; 
-            
-            // --- 【調整ポイント3：全体の上下位置】 ---
-            // ここの -50 を -100 や -150 にすると、手札全体がさらに上（盤面側）へ移動します。
             const verticalPosition = -15; 
 
             const rad = (angle - 90) * (Math.PI / 180);
@@ -648,6 +650,28 @@ function renderHand() {
             cardDiv.style.transform = baseTransform;
             cardDiv.style.setProperty('--base-transform', baseTransform);
             cardDiv.style.zIndex = index;
+
+            // 最後のカードの処理時にハンドルを生成/表示
+            if (index === total - 1 && needsHandle) {
+                const handleId = 'hand-fan-handle';
+                let handleWrap = document.getElementById(handleId);
+                if (!handleWrap) {
+                    handleWrap = document.createElement('div');
+                    handleWrap.id = handleId;
+                    handleWrap.className = 'fan-handle-container';
+                    handleWrap.innerHTML = `
+                        <button class="fan-nav-btn left">◀</button>
+                        <button class="fan-nav-btn right">▶</button>
+                    `;
+                    handEl.parentElement.appendChild(handleWrap);
+                    
+                    handleWrap.querySelector('.left').onclick = () => { handFanRotation += 15; renderHand(); };
+                    handleWrap.querySelector('.right').onclick = () => { handFanRotation -= 15; renderHand(); };
+                }
+            } else if (index === total - 1 && !needsHandle) {
+                const handleWrap = document.getElementById('hand-fan-handle');
+                if (handleWrap) handleWrap.remove();
+            }
         }
 
         const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);

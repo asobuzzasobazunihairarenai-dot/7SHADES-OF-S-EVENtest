@@ -331,9 +331,10 @@ body {
     z-index: 20; /* 盤面(z-10)より少し上に */
 }
 
-/* 選択可能状態の時はさらに手前に浮かせて、絶対にクリックを逃さないようにする */
+/* 選択可能状態の時も、駒(translateZ(15px) + 浮き)を追い越さない高さに制限 */
 .selection-active .cell.selectable {
-    transform: translateZ(20px) !important;
+    /* 20px だと駒を貫通する可能性があるため、駒の接地高さに合わせる */
+    transform: translateZ(10px) !important; 
     z-index: 100 !important;
 }
 
@@ -640,7 +641,11 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     position: absolute;
     inset: 0;
     margin: auto;
-    z-index: 9999 !important; 
+    /* translateZはいじらず、z-index と 3Dレンダリングの優先順位のみを確定 */
+    z-index: 99999 !important; 
+    transform-style: preserve-3d;
+    /* モバイルブラウザでの描画順を安定させるためのマジックプロパティ */
+    -webkit-transform-style: preserve-3d; 
     pointer-events: none;
     transform-style: preserve-3d;
     transform-origin: bottom center;
@@ -649,10 +654,15 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     transition: left 0.6s linear, top 0.6s linear, transform 0.4s ease-out;
 }
 
-/* 駒が乗っているマス（cell）自体の優先度も上げ、周囲のハイライトに埋もれないようにする */
+/**
+ * 2026/03/21 修正：駒の存在マスの優先度を最高値へ
+ * 演出用ハイライト(z-index: 100)を確実に上回るよう数値を引き上げます。
+ */
 .cell:has(.player-marker) {
-    z-index: 200 !important;
+    z-index: 5000 !important; /* 周囲のハイライト(100〜200)に勝つための数値 */
     transform-style: preserve-3d;
+    /* 奥のカードが手前に描画されないよう、親要素での隔離を強化 */
+    isolation: isolate; 
 }
 
 /* 2. 移動中：絶対にカードの裏に行かず、直線的にスライドさせる設定 */
@@ -2865,4 +2875,42 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     opacity: 1 !important; /* 透明化を絶対に許さない */
     pointer-events: none;  /* 指の動きを邪魔しない */
     filter: drop-shadow(0 15px 30px rgba(0,0,0,0.8)); /* 浮いている影をつける */
+}
+
+
+
+/**
+ * 2026/03/21 修正：扇状モード用回転ハンドルのスタイル
+ */
+.fan-handle-container {
+    position: absolute;
+    bottom: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 60px; /* カードを避けて左右に配置 */
+    z-index: 200;
+    pointer-events: none;
+}
+
+.fan-nav-btn {
+    pointer-events: auto;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 50%;
+    width: 35px;
+    height: 35px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: all 0.2s;
+}
+
+.fan-nav-btn:active {
+    transform: scale(0.9);
+    background: rgba(234, 179, 8, 0.8);
 }

@@ -658,23 +658,33 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
     transition: left 0.6s linear, top 0.6s linear, transform 0.4s ease-out;
 }
 
-/* 駒が乗っているマス（cell）自体の優先度も上げ、周囲のハイライトに埋もれないようにする */
+/**
+ * 2026/03/21 23:45 修正
+ * 駒が乗っているマスの z-index を最大化し、移動開始・終了時の潜り込みを防止。
+ */
 .cell:has(.player-marker) {
-    z-index: 200 !important;
+    z-index: 500 !important; /* 200から500へ引き上げ */
     transform-style: preserve-3d;
+    /* 3D空間での描画順序をOS/ブラウザレベルで安定させる */
+    backface-visibility: hidden;
 }
 
-/* 2. 移動中：絶対にカードの裏に行かず、直線的にスライドさせる設定 */
+/**
+ * 2026/03/21 23:45 修正
+ * 移動中の駒が盤面のあらゆる要素（z-index: 100000の雷等）に隠れないよう設定。
+ */
 .moving-unit-glow {
-    /* translateZ(60px) で物理的に高く浮かせ、z-index との二段構えで潜り込みを阻止 */
+    /* translateZ(60px) は維持しつつ、位置固定を確実にするため transform-origin を調整 */
     transform: rotateX(var(--rotate-x, -50deg)) rotateY(var(--rotate-y, 0deg)) translateZ(60px) !important;
-    z-index: 99999 !important;
+    z-index: 110000 !important; /* 雷オーバーレイ(100000)よりさらに上へ */
+    
+    /* 3D空間のスタックを強制 */
+    transform-style: preserve-3d !important;
     
     /* linear に固定することで弧を描く動きを抑制 */
     transition: left 0.6s linear, top 0.6s linear !important;
     
     animation: unit-orange-glow 0.4s ease-in-out infinite;
-    transform-style: preserve-3d !important;
 }
 
 /* 1. 駒本体：自ターンでも絶対に transform を動かさない（!importantで保護） */
@@ -1058,15 +1068,19 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 
 
 
-/* 盤面のカード自体の重なり優先度を下げる */
+/**
+ * 2026/03/21 23:45 修正
+ * 盤面要素の基本 z-index を 0 にリセットし、駒(z-index: 500~)との差を明確化。
+ */
 .cell div, .cell {
-    z-index: 1;
+    z-index: 0; /* 1から0へ */
 }
 
-/* 盤面の各マス（カードを含む）の基本階層を低く固定 */
 #board-grid > div {
     position: relative;
-    z-index: 1; /* カードは常に 1 */
+    z-index: 0; /* 1から0へ */
+    /* 3D空間で背後に回らないよう保護 */
+    transform-style: preserve-3d;
 }
 
 /* 3D空間の設定 */

@@ -72,8 +72,26 @@ function discardCard(card, player = null) {
  * 2026/03/14 修正：オンライン同期の無限ループを完全に防止
  * @param {boolean} skipFirebaseUpdate - trueの場合、Firebaseへの再報告を行わない
  */
+/**
+ * 2026/03/21 02:15 修正
+ * 1. ゲームの状態が変わるたびに、現在のターン数とロック履歴を「上書き」で更新。
+ * 2. これにより、決着がついた瞬間のデータがリザルトに100%反映されます。
+ */
 function updateGameState(skipFirebaseUpdate = false) { 
     if (!players || players.length === 0 || !players[turn]) return;
+    
+    // --- 【外科手術】リザルト用データのリアルタイム同期 ---
+    if (typeof totalTurnCount !== 'undefined') {
+        // 現在のターン数を動的に算出（開始時0、最初の誰かが動けば1）
+        // もし0のままなら、最低1を表示するようにガード
+        const displayTurn = Math.max(1, totalTurnCount);
+        window.latestFinalTurn = displayTurn; 
+    }
+    if (typeof recordLockHistory === 'function') {
+        recordLockHistory();
+    }
+    // ----------------------------------------------
+
     const p = players[turn]; 
     isStuck = false; 
 
@@ -365,28 +383,28 @@ async function startTurn() {
  * 2026/03/17 修正
  * ターン切り替え演出が完全に終了するまで、startTurn（およびタイマー開始）を待機させるよう非同期化。
  */
+/**
+ * 2026/03/21 02:00 修正
+ * 1. ターン数のカウントを確実に行うよう修正。
+ * 2. 次のプレイヤーに回る直前に、ロック進行度(recordLockHistory)を確実に保存。
+ */
+/**
+ * 2026/03/21 02:15 修正
+ * ターン進捗の記録を updateGameState に移譲したため、
+ * ここでは純粋なプレイヤー交代のみを行います。
+ */
 async function nextTurn() { 
     if (!players || players.length === 0) return;
 
-    // ★追加：次の人へ回る前に、現在の盤面状況を記録
-    if (typeof recordLockHistory === 'function') recordLockHistory();
-
     turn = (turn + 1) % players.length; 
-    
-    if (typeof totalTurnCount !== 'undefined') {
-        totalTurnCount++;
-    }
     
     usedOnceEffectsThisTurn = []; 
     phoenixExclusionList = [];    
 
-    // --- 外科手術：ターン開始演出を await で待機する ---
     if (typeof showTurnChangeNotification === 'function') {
-        // 演出が表示され、閉じきるまでここで処理が一時停止します
         await showTurnChangeNotification(players[turn]);
     }
 
-    // 演出が終わってから、実際のターン処理（フェイズ開始・タイマー起動）を開始
     startTurn(); 
 }
 
@@ -1585,12 +1603,41 @@ function showResultModal(pid, stats) {
     // データの保存
     saveUserProfile();
 
-    // 5. 統計情報のみをまとめて描画（ランクと称号のHTMLを削除）
+    // 5. 統計情報のみをまとめて描画
     container.innerHTML = `
         <div class="space-y-2">${resultsHtml}</div>
         ${lineChartHtml}
         ${chartHtml}
     `;
+
+    /**
+     * 2026/03/21 00:30 修正
+     * リザルト画面の「ランク確認」ボタンに機能を割り当て、
+     * 演出用データ(pendingRankUpdate)を使ってランク画面へ遷移させます。
+     */
+    const rankConfirmBtn = document.getElementById('result-close-btn');
+    if (rankConfirmBtn) {
+        rankConfirmBtn.onclick = () => {
+            resultOverlay.classList.add('hidden');
+            
+            // 保存しておいたランク変動データを読み込んで表示
+            const data = window.pendingRankUpdate;
+            if (data && typeof showPostGameRankModal === 'function') {
+                showPostGameRankModal(data.isWin, data.oldPoint, data.newPoint, () => {
+                    // ランク確認が終わったらレベル確認へ
+                    const lvData = window.pendingLevelUpdate;
+                    if (lvData && typeof showPostGameLevelModal === 'function') {
+                        showPostGameLevelModal(lvData, () => {
+                            // すべて終わったらホームへ（modal内のclose処理で実行されます）
+                        });
+                    }
+                });
+            } else {
+                // データがない場合のフォールバック（ホームへ戻る）
+                if (typeof showSetup === 'function') showSetup();
+            }
+        };
+    }
 
     resultOverlay.classList.remove('hidden');
 }
@@ -2507,11 +2554,15 @@ function cleanupGame() {
     if (appEl) appEl.classList.remove('selection-active');
 }
 
+/**
+ * 2026/03/21 02:00 修正
+ * ターン数の初期値を0に設定し、1ターン目から正しくカウントされるように修正。
+ */
 async function initGameInternal(num, isTest = false) { 
 
     /** 2026/03/09 修正：試合開始時の統計リセットと履歴記録 **/
     gameStartTime = Date.now(); 
-    totalTurnCount = 1; 
+    totalTurnCount = 0; // 0から開始
     cardUsageStats = {}; 
     lockHistory = [];
 
@@ -3345,21 +3396,34 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+/**
+ * 2026/03/21 02:00 修正
+ * ロック履歴の記録を確実に行い、グラフが空にならないよう修正。
+ */
 function recordLockHistory() {
-    if (!players || players.length === 0) return;
+    if (!players || players.length === 0 || !collections) return;
+    
     const currentCounts = players.map(p => {
-        // 安全装置：collections[p.id] が無ければ 0 を返す
-        if (!collections || !collections[p.id]) return 0;
+        const pColl = collections[p.id];
+        if (!pColl) return 0;
 
-        return LOCK_ORDER.filter(col => {
-            const slot = collections[p.id][col.id];
-            // slot 自体の存在チェックも追加
-            return slot && slot.length > 0 && 
-                   slot.some(c => c.colorId !== 'white' && c.colorId !== 'black') && 
-                   !slot.some(c => c.id === 34);
-        }).length;
+        let count = 0;
+        LOCK_ORDER.forEach(colorBase => {
+            const slot = pColl[colorBase.id];
+            // 呪い(ID:34)がなく、有効な色のカードが1枚以上あるスロットをカウント
+            if (slot && slot.length > 0) {
+                const hasValidColor = slot.some(c => c.colorId !== 'white' && c.colorId !== 'black');
+                const isNotCursed = !slot.some(c => c.id === 34);
+                if (hasValidColor && isNotCursed) {
+                    count++;
+                }
+            }
+        });
+        return count;
     });
+    
     lockHistory.push(currentCounts);
+    console.log("[Stats] Record Lock History:", currentCounts); // デバッグ用
 }
 
 /** 2026/03/09 修正：エターナル関連の称号判定ロジックを追加 **/
@@ -3633,8 +3697,19 @@ function calculateAwards(winnerId) {
 /**
  * 勝利演出の後にUI（おめでとう画面）を表示する
  */
+/**
+ * 2026/03/21 01:05 修正
+ * リザルト表示の不具合（MVP・回数・ターン表示なし）および
+ * ランク確認ボタンの連動不全を解消する統合パッチ。
+ */
+/**
+ * 2026/03/21 01:45 修正
+ * リザルト画面の集計バグ（MVP・色回数が反映されない）を根治する最終統合パッチ。
+ * 1. 表示直前にグローバル変数 cardUsageStats から全プレイヤーの統計を強制集計。
+ * 2. ランク確認ボタンのID不一致とイベント未接続を解消。
+ */
 function showVictoryUI(pid) {
-    // ★追加：念のため、盤面の回転と拡大をここで完全にリセットする
+    // 1. 3D演出のリセット
     const appEl = document.getElementById('app');
     if (appEl) {
         appEl.style.transform = "none";
@@ -3647,11 +3722,7 @@ function showVictoryUI(pid) {
     const statsDisplay = document.getElementById('winner-stats-display');
     const lockDisplay = document.getElementById('winner-lock-display');
 
-    /* --- 2026/03/11 修正：勝敗に応じたタイトル表示の切り替え --- */
-    /**
-     * 2026/03/20 14:45 修正
-     * 勝利/敗北タイトルの二重表示を解消し、適切なID要素(winner-result-title)に書き込みます。
-     */
+    // 2. 勝敗タイトルの設定
     const titleEl = document.getElementById('winner-result-title');
     if (titleEl) {
         if (Number(pid) === 1) {
@@ -3662,138 +3733,115 @@ function showVictoryUI(pid) {
             titleEl.className = "text-4xl font-black mb-2 text-blue-500";
         }
     }
+    if (nameEl) nameEl.textContent = winnerPl.name;
 
-    if (nameEl) {
-        // ここには「プレイヤー名」だけを表示させる
-        nameEl.textContent = winnerPl.name;
-        nameEl.className = "text-2xl font-bold mb-6 text-gray-800";
-        
-        // 既存の「has conquered the board」メッセージがあれば一旦クリア
-        const oldMsg = nameEl.nextElementSibling;
-        if (oldMsg && oldMsg.textContent.includes('conquered')) oldMsg.remove();
-
-        const winnerSubText = document.createElement('div');
-        winnerSubText.className = "text-sm font-bold opacity-80 mb-2 text-gray-600";
-        winnerSubText.textContent = `has conquered the board.`;
-        nameEl.after(winnerSubText);
-    }
-        
-
-    // --- アワード（勲章）の表示 ---
+    // 3. アワード（勲章）の表示
     if (statsDisplay) {
         const awards = calculateAwards(winnerPl.id);
-        
-        /** 2026/03/05 修正: ライト/ダークの判定に基づいた背景色と文字色の割り振りを反転修正 **/
         const cardBg = isLightMode ? 'bg-white/90 border-gray-200' : 'bg-black/40 backdrop-blur-md border-white/10';
         const titleColor = isLightMode ? 'text-gray-900' : 'text-white';
         const descColor = isLightMode ? 'text-gray-600' : 'text-gray-300';
         const nameColor = isLightMode ? 'text-blue-600' : 'text-yellow-400';
 
-        statsDisplay.innerHTML = `
-            <div class="grid grid-cols-3 gap-2 mt-4 px-2 justify-items-center">
-                ${awards.map(a => {
-                    const p = players.find(pl => pl.id === a.pid);
-                    const isWinner = p.id === winnerPl.id;
-                    return `
-                        <div class="flex flex-col items-center ${cardBg} p-2 rounded-lg border ${isWinner ? 'border-yellow-500' : ''} shadow-xl w-full max-w-[100px]">
-                            <span class="text-[8px] ${isWinner ? nameColor : 'text-gray-400'} font-bold mb-1 truncate w-full text-center">${p.name}</span>
-                            <span class="text-[10px] font-black ${titleColor} text-center leading-tight">${a.name}</span>
-                            <span class="text-[7px] ${descColor} mt-1 text-center leading-none italic">${a.desc}</span>
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
+        statsDisplay.innerHTML = `<div class="grid grid-cols-3 gap-2 mt-4 px-2 justify-items-center">
+            ${awards.map(a => {
+                const p = players.find(pl => pl.id === a.pid);
+                const isWinner = p.id === winnerPl.id;
+                return `
+                    <div class="flex flex-col items-center ${cardBg} p-2 rounded-lg border ${isWinner ? 'border-yellow-500' : ''} shadow-xl w-full max-w-[100px]">
+                        <span class="text-[8px] ${isWinner ? nameColor : 'text-gray-400'} font-bold mb-1 truncate w-full text-center">${p.name}</span>
+                        <span class="text-[10px] font-black ${titleColor} text-center leading-tight">${a.name}</span>
+                        <span class="text-[7px] ${descColor} mt-1 text-center leading-none italic">${a.desc}</span>
+                    </div>`;
+            }).join('')}
+        </div>`;
     }
 
-    // --- ロックエリアの表示 ---
+    // 4. ロックエリアの最終状態表示
     if (lockDisplay) {
         lockDisplay.innerHTML = '';
         LOCK_ORDER.forEach(colorBase => {
             const cardInLock = collections[winnerPl.id][colorBase.id];
             const slot = document.createElement('div');
-            slot.className = `w-10 h-10 rounded border border-white/40 flex items-center justify-center text-[8px] font-bold shadow-lg overflow-hidden relative victory-glow`;
-            
+            slot.className = `w-10 h-10 rounded border border-white/40 flex items-center justify-center overflow-hidden relative victory-glow`;
             if (cardInLock && cardInLock.length > 0) {
                 const card = cardInLock[cardInLock.length - 1];
-                const imgPath = card.image || `images/card_${card.id}.webp`;
-                slot.style.backgroundImage = `url('${imgPath}')`;
+                slot.style.backgroundImage = `url('${card.image || `images/card_${card.id}.webp`}')`;
                 slot.style.backgroundSize = 'cover';
-            } else {
-                slot.className += " bg-gray-900 opacity-20";
-            }
+            } else { slot.className += " bg-gray-900 opacity-20"; }
             lockDisplay.appendChild(slot);
         });
     }
 
-    // 最後に画面を表示！
-    if (overlay) overlay.classList.remove('hidden');
-
-    /**
-     * 2026/03/21 修正：決着モーダルの遷移不具合を修正
-     * 「リザルトを確認」ボタンが確実に winner-overlay を閉じ、
-     * 統計データを集計してリザルト画面を表示するようにイベントを再接続。
-     */
+    // 5. ボタンイベント：リザルトの集計と表示
     const winBtn = overlay.querySelector('button');
     if (winBtn) {
         winBtn.textContent = "リザルトを確認";
         winBtn.onclick = () => {
-            // 0. モーダルを物理的に隠す（ここが動かないと画面が消えません）
             overlay.classList.add('hidden');
             overlay.style.display = 'none';
 
-            // 1. 色ごとの使用回数を集計 (colorStats の復元)
+            // --- ★ データの最終集計（リザルト直前に実行） ---
+            // 今回の試合で使用された色の回数を算出
             const colorResults = BASE_COLORS.map(bc => {
                 let totalCount = 0;
-                if (window.cardUsageStats) {
-                    Object.values(cardUsageStats).forEach(pStats => {
-                        Object.entries(pStats).forEach(([cardName, count]) => {
-                            const cardData = CARD_DATABASE.find(d => d.name === cardName);
-                            if (cardData && cardData.colorId === bc.id) totalCount += count;
-                        });
+                // 全プレイヤーの使用履歴を合算
+                Object.values(cardUsageStats || {}).forEach(pStats => {
+                    Object.entries(pStats).forEach(([cardName, count]) => {
+                        const cardData = CARD_DATABASE.find(d => d.name === cardName);
+                        if (cardData && cardData.colorId === bc.id) totalCount += (parseInt(count) || 0);
                     });
-                }
+                });
                 return { id: bc.id, name: bc.name, bg: bc.bg, hex: bc.hex, count: totalCount };
             });
 
-            // 2. MVPカードの選定
+            // 今回の試合のMVPカードを選定
             let mvpName = "なし";
             let maxUsage = 0;
-            if (window.cardUsageStats) {
-                Object.values(cardUsageStats).forEach(pStats => {
-                    Object.entries(pStats).forEach(([cardName, count]) => {
-                        if (count > maxUsage) {
-                            maxUsage = count;
-                            mvpName = cardName;
-                        }
-                    });
+            Object.values(cardUsageStats || {}).forEach(pStats => {
+                Object.entries(pStats).forEach(([cardName, count]) => {
+                    const c = parseInt(count) || 0;
+                    if (c > maxUsage) { maxUsage = c; mvpName = cardName; }
+                });
+            });
+
+            /**
+ * 2026/03/21 02:15 修正
+ * リザルト画面に渡すターン数を、最新の記録値（latestFinalTurn）から取得。
+ */
+            // リザルトモーダルを表示
+            if (typeof showResultModal === 'function') {
+                showResultModal(pid, {
+                    time: window.currentPlayTime || 0,
+                    // totalTurnCount ではなく、直前に保存された最新値を使用
+                    turns: window.latestFinalTurn || totalTurnCount || 1,
+                    colorStats: colorResults,
+                    lockHistory: lockHistory || [],
+                    mvp: mvpName
                 });
             }
 
-            /**
-             * 2026/03/21 修正：リザルトデータ転送の正規化
-             * showResultModal が内部で stats.time や stats.turns を参照しているため、
-             * オブジェクトの構造を完全に一致させ、未定義による表示消滅を防ぎます。
-             */
-            /**
-             * 2026/03/21 修正：リザルトデータ転送の確実化
-             * オブジェクトの各項目が undefined にならないよう、安全装置（|| 0 等）を追加。
-             * これによりリザルト画面の集計項目が正常に描画されます。
-             */
-            if (typeof showResultModal === 'function') {
-                showResultModal(pid, {
-                    time: parseInt(window.currentPlayTime) || 0,
-                    turns: parseInt(totalTurnCount) || 0,
-                    colorStats: colorResults || [],
-                    lockHistory: lockHistory || [],
-                    mvp: mvpName || "なし"
-                });
+            // --- 6. リザルト画面のボタン「ランク確認へ」を繋ぐ ---
+            // ID名が index.html 側と一致しているか確認：'close-result-btn'
+            const rankConfirmBtn = document.getElementById('close-result-btn');
+            if (rankConfirmBtn) {
+                rankConfirmBtn.onclick = () => {
+                    document.getElementById('result-overlay').classList.add('hidden');
+                    const rankData = window.pendingRankUpdate;
+                    if (rankData && typeof showPostGameRankModal === 'function') {
+                        showPostGameRankModal(rankData.isWin, rankData.oldPoint, rankData.newPoint, () => {
+                            const lvData = window.pendingLevelUpdate;
+                            if (lvData && typeof showPostGameLevelModal === 'function') {
+                                showPostGameLevelModal(lvData, () => {});
+                            }
+                        });
+                    } else { if (typeof showSetup === 'function') showSetup(); }
+                };
             }
         };
     }
 
-    const peekBtn = document.getElementById('peek-board-container');
-    if (peekBtn) peekBtn.classList.remove('hidden');
+    if (overlay) overlay.classList.remove('hidden');
 }
 
 

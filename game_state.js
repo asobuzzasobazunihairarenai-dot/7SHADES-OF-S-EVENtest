@@ -31,8 +31,10 @@ let isAutoProcessing = false;
 /** 2026/03/04 追加：CPU戦強制モードフラグ **/
 window.FORCED_CPU_MODE = false; 
 
-let isSkipSelectionOnAuto = false; // ★追加：自動処理時に選択モーダルをスキップするか
-let autoMode = 'EASY'; // ★追加：自動処理の賢さ ('EASY' または 'NORMAL')
+// 2026/03/21 修正：手札の表示モード設定を追加
+let isSkipSelectionOnAuto = false; 
+let autoMode = 'EASY'; 
+let handDisplayMode = 'fan'; // ★テスト用に 'fan' に書き換え
 
 /**
  * 2026/03/06 修正

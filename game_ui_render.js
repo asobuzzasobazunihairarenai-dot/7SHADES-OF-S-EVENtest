@@ -551,37 +551,42 @@ function renderBoard() {
     });
 }
 
+/**
+ * 2026/03/21 修正：手札の扇状レイアウト（Fan Mode）対応
+ */
 function renderHand() {
     const handEl = document.getElementById('current-hand');
     const handCountEl = document.getElementById('hand-count');
-    const handInstruction = document.getElementById('hand-instruction'); // ラベル書き換え用
+    const handInstruction = document.getElementById('hand-instruction');
     
-    /* 2026/03/13 修正：観戦モード時は手番プレイヤーの手札を表示 */
     const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
     
     let displayTurn;
     if (isForcedCpu) {
-        // 観戦モードなら、いま動いている人（turn）をそのまま表示
         displayTurn = turn;
-        // ラベルを "YOUR HAND" から "CURRENT HAND" または "CPU'S HAND" に変えると親切です
         if (handInstruction && players[turn]) {
             handInstruction.textContent = `${players[turn].name}'S HAND`;
         }
     } else {
-        // 通常モード（人間がいる時）は、設定に従ってP1(0)か現在の手番(turn)を決める
         displayTurn = (typeof isP1HandOnlyView !== 'undefined' && isP1HandOnlyView) ? 0 : turn;
         if (handInstruction) handInstruction.textContent = "YOUR HAND";
     }
 
     if (!handEl || !players || !players[displayTurn]) return;
     const p = players[displayTurn];
-
     const pHand = hands[p.id] || [];
     
     if (handCountEl) handCountEl.textContent = `${pHand.length}枚`;
     handEl.innerHTML = '';
 
-    // ステータスエリアの枚数更新
+    // 表示モード（grid または fan）に応じてクラスを切り替え
+    const mode = (typeof handDisplayMode !== 'undefined') ? handDisplayMode : 'grid';
+    if (mode === 'fan') {
+        handEl.classList.add('hand-fan-mode');
+    } else {
+        handEl.classList.remove('hand-fan-mode');
+    }
+
     players.forEach(player => {
         const countSpan = document.getElementById(`p${player.id}-hand-count`);
         if (countSpan) countSpan.textContent = (hands[player.id] || []).length;
@@ -592,19 +597,14 @@ function renderHand() {
         const isSelected = (activeHandCard === card);
         
         let canPlay = true;
-
-        // 修正箇所：カード自体が封印(sealed)されている場合は、フェイズに関わらず使用不可
         if (card.sealed) {
             canPlay = false;
         } else if (currentPhase === PHASE.HAND) {
             canPlay = typeof canPlayHandEffect === 'function' ? canPlayHandEffect(card, p) : true;
         } else if (currentPhase === PHASE.LOCK) {
             const isSpecialColor = ['white', 'black', 'rainbow'].includes(card.colorId);
-            
-            // 2026/03/14 修正：collections[p.id] がない場合に備えて空配列を保証
             const pColl = collections[p.id] || {};
             const slotCards = pColl[card.colorId] || [];
-            
             const hasCurse = slotCards.length > 0 ? slotCards.some(c => c.id === 34) : false;
             const isAlreadyLocked = !isSpecialColor && slotCards.length > 0 && !(hasCurse && slotCards.length < 3);
 
@@ -616,9 +616,27 @@ function renderHand() {
         let txtCls = card.colorId === 'white' ? 'text-gray-800' : (card.colorId === 'black' ? 'text-gray-200' : 'text-white');
         let faceClass = card.type === "ETERNAL" ? "eternal-card-face" : card.bg;
         
-        // 修正箇所：既存のクラス判定に card.fromViridian のチェックを追加
-        cardDiv.className = `hand-card w-16 h-16 rounded border-2 border-white ${faceClass} flex flex-col items-center justify-center shadow-lg cursor-pointer transition-all hover:-translate-y-1 relative overflow-hidden shrink-0 ${isSelected ? 'ring-4 ring-yellow-400 -translate-y-2' : ''} ${!canPlay ? 'card-dimmed opacity-60 grayscale cursor-not-allowed' : ''} ${card.fromViridian ? 'viridian-temp-card' : ''}`;
+        cardDiv.className = `hand-card w-16 h-16 rounded border-2 border-white ${faceClass} flex flex-col items-center justify-center shadow-lg cursor-pointer transition-all relative overflow-hidden shrink-0 ${isSelected ? 'ring-4 ring-yellow-400' : ''} ${!canPlay ? 'card-dimmed opacity-60 grayscale cursor-not-allowed' : ''} ${card.fromViridian ? 'viridian-temp-card' : ''}`;
         
+        // 扇状モード時の位置計算
+        if (mode === 'fan') {
+            const total = pHand.length;
+            const angleStep = total <= 1 ? 0 : Math.min(60 / (total - 1), 15); 
+            const startAngle = (total <= 1) ? 0 : -(angleStep * (total - 1)) / 2;
+            const angle = startAngle + (index * angleStep);
+            
+            // 2026/03/21 修正：扇のカーブを深くし、両端が浮かないように調整
+            const xOffset = (index - (total - 1) / 2) * Math.min(40, 400 / total);
+            // 0.5 だった係数を 0.8〜1.0 程度に上げると、端がグッと下がって綺麗なアーチになります
+            const yOffset = Math.abs(angle) * 0.9;
+
+            // 2026/03/21 修正：ホバー時に元の角度を維持するため、変数をCSSに渡す
+            const baseTransform = `translateX(${xOffset}px) translateY(${yOffset}px) rotate(${angle}deg)`;
+            cardDiv.style.transform = baseTransform;
+            cardDiv.style.setProperty('--base-transform', baseTransform);
+            cardDiv.style.zIndex = index;
+        }
+
         const imgPath = card.image || (card.id ? `images/card_${card.id}.webp` : null);
         if (imgPath) {
             cardDiv.style.backgroundImage = `url('${imgPath}')`;
@@ -638,14 +656,12 @@ function renderHand() {
 
         if (canPlay) {
             cardDiv.onclick = () => {
-                // 【修正】isHandEffectProcessing が true なら、何もしない（クリックを無視）
                 if (isPeekingMode || isLongPressActive || isHandEffectProcessing) return;
                 handleHandClick(index); 
             };
         } else {
             cardDiv.onclick = (e) => {
                 e.stopPropagation();
-                // 修正箇所：封印時のメッセージを追加
                 if (card.sealed) {
                     if (typeof showToast === 'function') showToast("このカードは今ターンは使えません");
                 } else if (currentPhase === PHASE.LOCK) {
@@ -657,14 +673,10 @@ function renderHand() {
         handEl.appendChild(cardDiv);
     });
 
-    /* 2026/03/14 修正：自分の手札枚数をオンライン同期 */
     if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        // 自分が操作しているプレイヤーのIDを特定
         const myID = window.MULTIPLAY.playerNumber;
         const myHandCount = (hands[myID] || []).length;
-        
         const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-        // "handCount_1" または "handCount_2" という名前で枚数だけを保存
         roomRef.update({
             [`handCount_${myID}`]: myHandCount,
             "lastUpdate": Date.now()

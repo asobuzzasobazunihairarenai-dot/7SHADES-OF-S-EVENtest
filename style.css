@@ -2782,3 +2782,49 @@ img, .card-shape, .hand-card, .cell, .mini-slot {
 #board-grid {
     pointer-events: auto !important; /* 盤面マスは触れる */
 }
+
+
+/**
+ * 2026/03/21 修正：扇状手札レイアウト（Fan Mode）の定義
+ */
+
+/* 扇状表示時のコンテナ設定 */
+#current-hand.hand-fan-mode {
+    display: flex !important;
+    justify-content: center;
+    align-items: flex-end;
+    position: relative;
+    height: 120px; /* 扇の高さ分を確保 */
+    width: 100%;
+    perspective: 1000px;
+    padding-bottom: 20px;
+    overflow: visible !important; /* カードがはみ出しても見せる */
+}
+
+/* 扇状表示時のカード個別スタイル */
+#current-hand.hand-fan-mode .hand-card {
+    position: absolute;
+    bottom: 0;
+    transform-origin: bottom center;
+    transition: transform 0.3s ease, box-shadow 0.3s ease, margin 0.3s ease;
+    margin-bottom: 0;
+}
+
+/**
+ * 2026/03/21 修正：扇状モードのホバー挙動を「その場で浮上」に変更
+ * rotate(0deg) を削除し、もともと計算されている回転角を維持したまま、
+ * 自身の向きに合わせて少し上に浮き上がるように調整。
+ */
+#current-hand.hand-fan-mode .hand-card:hover:not(.card-dimmed) {
+    z-index: 100 !important;
+    /* translate(0, -30px) を追加することで、カード自身の向きのまま少し浮かせます */
+    /* scale は 1.4 から 1.2 に少し抑えて安定感を高めています */
+    transform: var(--base-transform) translate(0, -30px) scale(1.2) !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+}
+
+/* ドラッグ中のカードは扇の法則から外す */
+#current-hand.hand-fan-mode .hand-card.dragging {
+    transition: none !important;
+    z-index: 9999 !important;
+}

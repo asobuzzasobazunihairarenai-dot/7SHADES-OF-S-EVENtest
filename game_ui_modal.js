@@ -4081,50 +4081,73 @@ function confirmResetStats() {
  * 戦歴リセット時に総ゲーム数やMVPカードが残る不具合を解消。
  * ローカルストレージ内の全関連データを一掃し、メモリ上の変数も初期化します。
  */
-function executeResetStats() {
+/**
+ * 2026/03/21 03:15 修正
+ * Googleログイン中であっても、クラウド(Firebase)側のデータを初期値で上書きすることで
+ * リセットが正しく反映されるように修正。
+ */
+async function executeResetStats() {
     // 1. エラー防止（タイマー関連の干渉を遮断）
     window.gainTime = () => {}; 
 
-    // 2. ローカルストレージから「全関連キー」を個別に削除
-    // 想定されるすべての保存キーをリストアップして消去します
+    // 2. 初期化用データの定義
+    const initialProfile = {
+        name: "P1",
+        rank: 1,
+        rankPoint: 0,
+        level: 1,
+        totalWins: 0,
+        stats: {
+            totalGames: 0,
+            mvpCard: null,
+            cardUsageCount: {},
+            colorUsage: { red: 0, orange: 0, yellow: 0, green: 0, blue: 0, pink: 0, purple: 0 }
+        },
+        unlockedTitles: ["駆け出しの旅人"],
+        selectedTitle: "駆け出しの旅人",
+        usedCardIds: [],
+        usedIconPaths: []
+    };
+
+    // 3. クラウド(Firebase)のリセット（ログイン中のみ）
+    if (userProfile && userProfile.isLoggedIn && userProfile.uid) {
+        try {
+            addLog("[System] クラウドデータを初期化中...");
+            const db = firebase.firestore();
+            await db.collection("users").doc(userProfile.uid).set({
+                ...initialProfile,
+                // アイコンとログイン状態だけは維持
+                icon: userProfile.icon,
+                isLoggedIn: true,
+                uid: userProfile.uid,
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            addLog("クラウドデータのリセットに成功しました。");
+        } catch (e) {
+            console.error("Cloud Reset Error:", e);
+            alert("クラウドのリセットに失敗しました。オフラインデータのみ消去します。");
+        }
+    }
+
+    // 4. ローカルストレージの削除
     const keysToDelete = [
         'shades_seven_profile',
-        'shades_seven_stats',       // 統計が別送りの場合用
-        'shades_seven_dev_configs', // 開発設定
-        'shades_seven_ai_scores',   // AI設定
-        'shades_light_mode'         // ライトモード設定
+        'shades_seven_stats',
+        'shades_seven_dev_configs',
+        'shades_seven_ai_scores',
+        'shades_light_mode'
     ];
     keysToDelete.forEach(key => localStorage.removeItem(key));
 
-    // 3. メモリ上のグローバル変数を初期状態に強制リセット
-    // これにより、リロードまでの短い時間にデータが再保存されるのを防ぎます
-    if (typeof userProfile !== 'undefined') {
-        window.userProfile = {
-            name: "P1",
-            rank: 1,
-            rankPoint: 0,
-            level: 1,
-            totalWins: 0,
-            stats: {
-                totalGames: 0,
-                mvpCard: null,
-                cardUsageCount: {},
-                colorUsage: {}
-            },
-            unlockedTitles: ["駆け出しの旅人"],
-            selectedTitle: "駆け出しの旅人",
-            usedCardIds: [],
-            usedIconPaths: []
-        };
-    }
+    // 5. メモリ上の変数をリセット
+    window.userProfile = { ...initialProfile, isLoggedIn: userProfile.isLoggedIn, uid: userProfile.uid, icon: userProfile.icon };
 
     addLog("すべてのデータを物理的に一掃しました。再起動します。");
 
-    // 4. ブラウザを強制リロード
-    // キャッシュを無視してサーバーから最新の状態を読み込ませます
+    // 6. ブラウザを強制リロード
     setTimeout(() => {
         window.location.href = window.location.pathname + "?reset=" + Date.now();
-    }, 100);
+    }, 500);
 }
 
 // ページ読み込み完了時や初期化時にアイコンを最新にする

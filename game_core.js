@@ -77,20 +77,34 @@ function discardCard(card, player = null) {
  * 1. ゲームの状態が変わるたびに、現在のターン数とロック履歴を「上書き」で更新。
  * 2. これにより、決着がついた瞬間のデータがリザルトに100%反映されます。
  */
+/**
+ * 2026/03/21 02:30 修正
+ * 1. ターン数のカウントアップとリアルタイム同期を強化。
+ * 2. 開発用デバッグログを追加し、ターン推移を可視化。
+ */
+/**
+ * 2026/03/21 02:45 修正
+ * ターン数の自動固定（0を1にする処理）を削除し、
+ * 各フェイズ完了時に加算された正しい値を保持するように修正。
+ */
 function updateGameState(skipFirebaseUpdate = false) { 
     if (!players || players.length === 0 || !players[turn]) return;
     
-    // --- 【外科手術】リザルト用データのリアルタイム同期 ---
-    if (typeof totalTurnCount !== 'undefined') {
-        // 現在のターン数を動的に算出（開始時0、最初の誰かが動けば1）
-        // もし0のままなら、最低1を表示するようにガード
-        const displayTurn = Math.max(1, totalTurnCount);
-        window.latestFinalTurn = displayTurn; 
-    }
+    // --- 【外科手術】リザルト用データの同期 ---
+    // 現在の totalTurnCount をリザルト用に退避
+    window.latestFinalTurn = totalTurnCount;
+
+    // 開発用ログ
+    console.log(`[DEBUG] updateGameState - totalTurnCount: ${totalTurnCount}`);
+
+    // 開発用ログ（画面には出さずコンソールと内部ログへ）
+    console.log(`[DEBUG] Turn Count Check: ${totalTurnCount}`);
+    addLog(`[DEBUG] 現在の総ターン数: ${totalTurnCount}`, true);
+
     if (typeof recordLockHistory === 'function') {
         recordLockHistory();
     }
-    // ----------------------------------------------
+  
 
     const p = players[turn]; 
     isStuck = false; 
@@ -393,10 +407,22 @@ async function startTurn() {
  * ターン進捗の記録を updateGameState に移譲したため、
  * ここでは純粋なプレイヤー交代のみを行います。
  */
+/**
+ * 2026/03/21 02:30 修正
+ * プレイヤー交代時に総ターン数をカウントアップし、デバッグログを出力。
+ */
+/**
+ * 2026/03/21 02:45 修正
+ * ターン加算は endTurn で行うため、ここではプレイヤーの交代のみに専念。
+ */
 async function nextTurn() { 
     if (!players || players.length === 0) return;
 
+    // プレイヤーを次へ
     turn = (turn + 1) % players.length; 
+    
+    usedOnceEffectsThisTurn = []; 
+    phoenixExclusionList = []; 
     
     usedOnceEffectsThisTurn = []; 
     phoenixExclusionList = [];    
@@ -520,8 +546,18 @@ function endTurn() {
         }
     }
 
+    /**
+ * 2026/03/21 02:45 修正
+ * 行動終了(endTurn)の瞬間に総ターン数をカウントアップします。
+ * これにより勝利が決まった最後のターンも正確に集計されます。
+ */
     /* --- 2. オフライン戦（CPU戦・1人テスト）のルート --- */
-    isEndingTurn = true; // 通行止め開始
+    isEndingTurn = true; 
+    
+    // ★追加：行動完了を1ターン（1手番）としてカウント
+    totalTurnCount++; 
+    addLog(`[DEBUG] 手番完了: 総ターン数 ${totalTurnCount} に更新`, true);
+
     if(timerInterval) { clearInterval(timerInterval); timerInterval = null; } 
     
     // ヴァーディアンの後処理
@@ -3809,12 +3845,18 @@ function showVictoryUI(pid) {
  * 2026/03/21 02:15 修正
  * リザルト画面に渡すターン数を、最新の記録値（latestFinalTurn）から取得。
  */
+            /**
+ * 2026/03/21 02:30 修正
+ * リザルト画面表示直前に、最終確定したターン数をログに出力。
+ */
+            const finalTurnResult = window.latestFinalTurn || totalTurnCount || 1;
+            addLog(`[DEBUG] リザルト確定: 総ターン数 ${finalTurnResult}`, true);
+
             // リザルトモーダルを表示
             if (typeof showResultModal === 'function') {
                 showResultModal(pid, {
                     time: window.currentPlayTime || 0,
-                    // totalTurnCount ではなく、直前に保存された最新値を使用
-                    turns: window.latestFinalTurn || totalTurnCount || 1,
+                    turns: finalTurnResult,
                     colorStats: colorResults,
                     lockHistory: lockHistory || [],
                     mvp: mvpName

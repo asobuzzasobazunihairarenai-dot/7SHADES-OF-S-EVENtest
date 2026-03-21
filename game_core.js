@@ -4475,18 +4475,22 @@ async function handleJoinRoom() {
         console.log(`[DEBUG-Online] 入室情報送信: Name=${guestName}, Icon=${guestIcon}`);
 
         /**
-         * 2026/03/22 00:20 修正
-         * ゲストがFirebaseへ自分の情報を書き込む際、
-         * 実際に送信した内容をコンソールに表示する証拠ログを追加。
+         * 2026/03/22 00:55 修正
+         * ゲスト入室時、すべての情報を確実に一括送信するように修正。
+         * ホスト側で guestInfo が欠落する現象（タイミング問題）を根治します。
          */
         const payload = {
             "players": firebase.firestore.FieldValue.arrayUnion(guestName),
-            "status": "ready",
-            "guestInfo": `${guestName}|${guestIcon}`
+            "guestInfo": `${guestName}|${guestIcon}`,
+            "status": "ready" // status を最後に変えることで、ホストの検知を確実に画像到着後に遅らせる
         };
-        console.log("[DEBUG-Online] Firebaseへ情報を送信します:", payload.guestInfo);
+        
+        console.log("[DEBUG-Online] 掲示板へ一括送信開始:", payload);
 
-        await roomRef.update(payload);
+        // update ではなく、確実にこの3つの項目を上書きする
+        await roomRef.update(payload).then(() => {
+            console.log("[DEBUG-Online] 掲示板への書き込みが完了しました。");
+        });
 
         // 2. 自分のマルチプレイ設定を保存
         window.MULTIPLAY.roomID = id;

@@ -361,14 +361,14 @@ function renderBoard() {
     if (!players || !players.length) return;
 
     /**
-     * 2026/03/21 21:00 修正：オンライン視点同期の最強化
-     * 自分のプレイヤーオブジェクトを pl.isMe または pl.id で厳密に特定します。
+     * 2026/03/22 修正：ログイン名による確実な視点判定
      */
     let myId = 1;
-    const me = players.find(pl => pl.isMe === true) || players.find(pl => pl.id === (typeof isOnline !== 'undefined' && isOnline && !window.isHost ? 2 : 1));
-    if (me) myId = me.id;
+    const currentUserName = (typeof userProfile !== 'undefined') ? userProfile.name : "";
+    const me = players.find(pl => pl.name === currentUserName) || players[0];
+    myId = me.id;
 
-    console.log(`[View Check] Render Focus: Player ${myId} (${me ? me.name : 'Unknown'})`);
+    console.log(`[View Check] Render Focus: Player ${myId} (${me.name})`);
 
     const p = players.find(pl => pl.id === myId) || players[0];
     
@@ -741,13 +741,13 @@ function renderStatus() {
     if(!players || !players.length) return;
 
     /**
-     * 2026/03/22 00:05 修正：自分自身の判定ロジックを pl.isMe に一本化
-     * game_core.js で付与された isMe フラグを元に、確実に自分のステータスを手前に配置。
+     * 2026/03/22 修正：ログイン名による確実なUI配置判定
      */
-    const me = players.find(pl => pl.isMe === true);
-    const myId = me ? me.id : (window.isHost ? 1 : 2);
+    const currentUserName = (typeof userProfile !== 'undefined') ? userProfile.name : "";
+    const me = players.find(pl => pl.name === currentUserName) || players[0];
+    const myId = me.id;
 
-    console.log(`[Status View] UI Sync - MyID: ${myId}, Name: ${me ? me.name : 'Unknown'}`);
+    console.log(`[Status View] UI Aligning for: Player ${myId} (${me.name})`);
 
     // 表示順の整理：自分を先頭（index 0）に、それ以外を順番に並べる
     const sortedPlayers = [...players].sort((a, b) => {

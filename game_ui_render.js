@@ -354,79 +354,67 @@ function generateUI() {
     });
 }
 
-/**
- * 2026/03/21 14:00 修正
- * オンライン対戦時、自分のプレイヤー番号に基づいて「自分が手前」に来るよう
- * UIの座席位置を動的にシフトする処理を追加。
- */
 function renderBoard() {
     const boardEl = document.getElementById('board-grid');
     if (!boardEl) return;
     boardEl.innerHTML = '';
-    if (!players || !players.length || !players[turn]) return;
+    if (!players || !players.length) return;
 
-    // --- 【外科手術】オンライン対戦時の視点切り替え（自分を下にする） ---
-    let myNumber = 1; // デフォルト（オフライン時）は自分がP1
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        myNumber = window.MULTIPLAY.playerNumber || 1;
+    // 自分自身のプレイヤーオブジェクトを特定（FirebaseのUIDまたはID:1を基準に判定）
+    // ※オンライン時は自分のIDが p.id として設定されている前提
+    const myId = (typeof userProfile !== 'undefined' && userProfile.uid) ? 
+                 players.find(pl => pl.uid === userProfile.uid)?.id || 1 : 1;
+
+    // コンソールログの強化（視点のデバッグ用）
+    if (window.IS_DEV_LOG_FORCED) {
+        console.log(`[Render] Current View: Player ${myId} (Bottom)`);
     }
 
-    // 自分の番号に応じて、表示上の座席位置をシフト
-    // P1が自分なら [P1, P2, P3, P4] のまま
-    // P2が自分なら [P2, P3, P4, P1] にずらす
-    const shiftCount = myNumber - 1;
-    const seatOrder = ["area-p3", "area-p2", "area-p1", "area-p4"]; // 下, 右, 上, 左 の順
-    
-    // 表示上の座席IDを割り当て直す
-    players.forEach((player, idx) => {
-        // 元のID(1~4)から、自分の視点に基づいた「表示位置」を計算
-        const displayPos = (idx - shiftCount + players.length) % players.length;
-        player.currentSeatId = seatOrder[displayPos];
-    });
-    // ------------------------------------------------------------
-
-    const p = (players && players.length > 0 && players[turn]) ? players[turn] : null;
+    const p = players.find(pl => pl.id === myId) || players[0];
 
     // --- 修正箇所：条件付き監視ロジック ---
-    // 選択モード中でなく、かつ自分が移動処理中でない時のみ、足元の未処理カードをチェック
     if (!selectionState.active && !isProcessingMove) { 
         players.forEach(pObj => {
             if (pObj.x === -1 || pObj.y === -1) return;
             const cell = board[pObj.y][pObj.x];
-            
-            // カードが存在し、表向きで、かつまだそのプレイヤーがそのカードの効果を処理していない場合
             if (cell && !cell.empty && cell.revealed && pObj.processedArrivalCard !== cell.color) {
                 pObj.processedArrivalCard = cell.color;
-                
-                // 演出が重ならないようわずかに遅延させて実行
                 setTimeout(() => {
                     handleArrivalLogic(cell, pObj, null, cell.color, false);
                 }, 50);
             }
         });
     }
-    // --- 修正箇所ここまで ---
-    
-    board.forEach((row, y) => {
-        row.forEach((cell, x) => {
+
+    // 自分のIDが 1 でない（ゲスト側）場合、盤面を180度回転させて描画するフラグ
+    const isInverted = (myId !== 1);
+
+    // 描画ループ
+    for (let i = 0; i < GRID_SIZE; i++) {
+        for (let j = 0; j < GRID_SIZE; j++) {
+            // インバート（反転）時は座標を逆転させる
+            const y = isInverted ? (GRID_SIZE - 1 - i) : i;
+            const x = isInverted ? (GRID_SIZE - 1 - j) : j;
+            
+            const cell = board[y][x];
             const div = document.createElement('div');
             let cls = "cell relative rounded-sm flex items-center justify-center transition-all duration-300 w-full h-full hover-zoom ";
+            
             const owner = players.find(pl => pl.startPos.x === x && pl.startPos.y === y);
             let gateOverlay = '';
             if (owner) {
-                const borderColor = owner.color.hex; gateOverlay = `<div class="gate-glow-overlay" style="border: 2px solid ${borderColor}; box-shadow: 0 0 5px ${borderColor};"></div>`;
+                const borderColor = owner.color.hex; 
+                gateOverlay = `<div class="gate-glow-overlay" style="border: 2px solid ${borderColor}; box-shadow: 0 0 5px ${borderColor};"></div>`;
             }
             
             let cardDisplay = '';
-            // ★修正：cell.color が null（配置中）の場合でもエラーにならないようガード
             if (cell && !cell.empty && cell.color) {
                 if (cell.revealed) { 
                     const label = cell.color.image ? "" : `<span class="z-10">${cell.color.name[0]}</span>`;
                     cardDisplay = `<div class="w-full h-full border border-white/5 flex items-center justify-center shadow-sm pointer-events-none relative overflow-hidden" style="font-size: 8px; ${cell.color.image ? `background-image: url('${cell.color.image}'); background-size: cover; background-position: center;` : `background-color: ${cell.color.hex};`}">
                         ${label}
                     </div>`; 
-                } 
-                else {
+                } else {
                     cardDisplay = `<div class="w-full h-full rounded-sm card-back-pattern border border-gray-500/30 flex items-center justify-center pointer-events-none"><span class="text-white opacity-20 text-[8px] font-bold">?</span></div>`;
                 }
                 const stackCount = (cell.stack || []).filter(c => c).length;
@@ -435,24 +423,12 @@ function renderBoard() {
                 cls += "bg-transparent "; 
             }
 
-            /**
- * 2026/03/19 修正：選択モード時のハイライト表示の確実化
- */
-            /**
- * 2026/03/19 14:00 修正
- * 1. 選択可能マスのハイライトを緑色 (ring-green-400) に統一。
- * 2. 移動先のハイライトも黄色から緑色へ変更。
- * 3. 選択済みマスの強調 (ring-yellow-500) を維持し、3D空間で浮かせるための z-50 を付与。
- */
             if (p && selectionState.active) {
                 const isSelectable = isCellSelectable(x, y);
                 if (isSelectable) {
-                    // 選択可能：緑色でハイライト
                     cls += "selectable ring-2 ring-green-400 opacity-100 z-50 "; 
                     div.onclick = () => { if(!isLongPressActive) handleSelection(x, y); };
-                    
                     if (selectionState.selected.some(s => s.x === x && s.y === y)) {
-                        // 選択済み：黄色（金）でさらに強調
                         cls += "ring-4 ring-yellow-500 "; 
                         if (selectionState.count > 1) {
                             const selIdx = selectionState.selected.findIndex(s => s.x === x && s.y === y);
@@ -479,100 +455,73 @@ function renderBoard() {
                             if (!p.konohanaPenalty) { cls += "ring-2 ring-red-500 cursor-pointer z-50 "; showRing = true; } 
                         }
                         else { 
-                            // 修正：移動先のハイライトを黄色(yellow-400)から緑色(green-400)に統一
                             if (!p.marmegoPenalty) { cls += "ring-2 ring-green-400 cursor-pointer z-50 "; showRing = true; } 
                         }
                         if (showRing) div.onclick = () => { if(!isLongPressActive) handleBoardClick(x, y); };
                     } else cls += "opacity-50 cursor-not-allowed "; 
                 } else cls += "opacity-90 ";
-            } else {
-                cls += "opacity-90 "; // p がいない初期化中
             }
 
-            // --- 1. セルの基本設定 ---
             div.className = cls; 
             div.innerHTML = cardDisplay + gateOverlay; 
 
-            // --- 2. 特殊演出（気まぐれ）の適用 ---
             const whimInfo = richWhimHistory.find(h => h.pos.x === x && h.pos.y === y);
             if (whimInfo) {
                 div.classList.add('rich-whim-highlight');
                 div.style.setProperty('--player-color', whimInfo.player.color.hex);
                 const label = document.createElement('div');
                 label.className = 'whim-label';
-                
-                // After: 名前を最大3文字に制限。4文字以上の場合は末尾に ".." を付加して省略。
                 const originalName = whimInfo.player.name || "";
-                label.textContent = originalName.length > 3 
-                    ? originalName.substring(0, 3) + ".." 
-                    : originalName;
-                
+                label.textContent = originalName.length > 3 ? originalName.substring(0, 3) + ".." : originalName;
                 div.appendChild(label);
             }
 
-            // --- 3. プレイヤー駒の描画（5面体構造 ＆ 演出パーツの分離） ---
             const pOnCellMarker = players.find(pl => x === pl.x && y === pl.y && x !== -1); 
             if (pOnCellMarker) { 
-                const isActive = p && (turn === players.indexOf(pOnCellMarker)); 
+                const isActive = (turn === players.indexOf(pOnCellMarker)); 
                 const pDiv = document.createElement('div'); 
                 pDiv.id = `p${pOnCellMarker.id}-marker`; 
                 pDiv.className = `player-marker`; 
                 
-                // 2026/03/20 修正：駒の潜り込み防止のため translateZ をプラスに変更し接地位置を調整
-                // 2026/03/21 修正：奥（y=0付近）に行くほど背が縮むため、y座標に応じて垂直方向に拡大(scaleY)をかける
                 const rotateX = -50;
-                const rotateY = 0;
                 pDiv.style.setProperty('--rotate-x', `${rotateX}deg`);
-                pDiv.style.setProperty('--rotate-y', `${rotateY}deg`);
+                pDiv.style.setProperty('--rotate-y', `0deg`);
                 
-                // y=0(最奥)で約1.2倍、y=6(最前)で1.0倍になるように計算
+                // 視点が反転している場合、駒の向きも180度変える必要があるか検討が必要ですが、
+                // まずは盤面の座標のみを反転させます。
                 const verticalScale = 1.2 - (y * 0.03); 
-                pDiv.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateZ(15px) translateY(-40px) scaleY(${verticalScale})`;                
-                const markerImage = pOnCellMarker.pieceImage;
-
-                if (markerImage) {
-                    // ★外科手術：立方体本体（5面）を作成
+                pDiv.style.transform = `rotateX(${rotateX}deg) translateZ(15px) translateY(-40px) scaleY(${verticalScale})`;                
+                
+                if (pOnCellMarker.pieceImage) {
                     const faces = ['front', 'top', 'left', 'right', 'back'];
                     faces.forEach(name => {
                         const f = document.createElement('div');
                         f.className = `cube-face face-${name}`;
-                        f.style.backgroundImage = `url('${markerImage}')`;
+                        f.style.backgroundImage = `url('${pOnCellMarker.pieceImage}')`;
                         pDiv.appendChild(f);
                     });
-
-                    // ★新規：演出用オーラパーツを「立方体の外側」に独立して作成
                     if (isActive) {
                         const aura = document.createElement('div');
                         aura.className = 'cube-aura-layer';
-                        // オーラの色をセット
                         aura.style.setProperty('--aura-color', pOnCellMarker.color.hex || '#fff');
                         pDiv.appendChild(aura);
                     }
-                } else {
-                    pDiv.className += ` ${pOnCellMarker.css} rounded-sm`;
                 }
 
-                /**
- * 2026/03/19 修正：駒がいるマスの視認性確保
- */
                 if (isActive) {
                     div.classList.add('player-active'); 
                     pDiv.style.setProperty('--player-color-glow', pOnCellMarker.color.hex || '#fff');
-                    // 駒がいるマスのハイライト不透明度をわずかに下げ、駒を際立たせる
                     div.style.opacity = "1";
                 }
                 div.appendChild(pDiv); 
             }
 
-            // --- 4. ホバーイベントの登録（ご質問の箇所：ここに残します） ---
             if (cell && !cell.empty && cell.color && cell.revealed) {
                 attachHoverEvents(div, cell.color, true);
             }
-
-            // --- 5. セルを盤面に追加 ---
             boardEl.appendChild(div);
-        });
-    });
+        }
+    }
 }
 
 /**
@@ -794,20 +743,11 @@ function renderHand() {
     }
 }
 
-/**
- * 2026/03/21 14:00 修正
- * 自分の視点に基づいた座席ID（currentSeatId）を使用して、
- * プレイヤー情報を正しい画面位置（上下左右）に描画するように修正。
- */
 function renderStatus() { 
     if(!players) return;
     players.forEach(p => { 
-        // 固定の p1-status ではなく、視点シフトで決まった位置の箱を取得
-        // もし currentSeatId がなければ従来の p${p.id} を使う（安全策）
-        const targetContainerId = p.currentSeatId || `p${p.id}`;
-        const container = document.getElementById(`${targetContainerId}-status`);
-        const isMyTurn = (turn === players.indexOf(p));
- 
+        const container = document.getElementById(`p${p.id}-status`);
+        const isMyTurn = (turn === players.indexOf(p)); 
 
         if (container) {
             if (isMyTurn) container.classList.add("player-active-box"); 

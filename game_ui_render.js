@@ -741,9 +741,27 @@ function renderHand() {
 }
 
 function renderStatus() { 
-    if(!players) return;
-    players.forEach(p => { 
-        const container = document.getElementById(`p${p.id}-status`);
+    if(!players || !players.length) return;
+
+    // 自分自身のIDを特定（renderBoardと同じロジック）
+    let myId = 1;
+    const profileUid = (typeof userProfile !== 'undefined') ? userProfile.uid : null;
+    const me = players.find(pl => (profileUid && pl.uid === profileUid) || pl.name === "Guest");
+    if (me) myId = me.id;
+
+    // プレイヤーリストを「自分」が先頭に来るように並び替えた一時的な配列を作成
+    // これにより、players[0]が誰であっても、自分自身の情報が p1-status の位置に描画されるようになります
+    const sortedPlayers = [...players].sort((a, b) => {
+        if (a.id === myId) return -1;
+        if (b.id === myId) return 1;
+        return a.id - b.id;
+    });
+
+    sortedPlayers.forEach((p, index) => { 
+        // 修正ポイント：p.id ではなく index（0, 1, 2...）を元にHTML要素を特定する
+        // これにより、自分のデータ(sortedPlayers[0])が id="p1-status" 等の要素に流し込まれます
+        const targetElementId = index + 1; 
+        const container = document.getElementById(`p${targetElementId}-status`);
         const isMyTurn = (turn === players.indexOf(p)); 
 
         if (container) {
@@ -751,31 +769,24 @@ function renderStatus() {
             else container.classList.remove("player-active-box"); 
         }
         
-        /* 2026/03/14 追加：プレイヤー名とアイコンを同期反映 */
-        const nameEl = document.getElementById(`p${p.id}-name`);
+        const nameEl = document.getElementById(`p${targetElementId}-name`);
         if (nameEl) {
-            // Firebaseから届いた名前に書き換える
             nameEl.textContent = p.name || `Player ${p.id}`;
         }
 
-        const rightsEl = document.getElementById(`p${p.id}-rights`);
+        const rightsEl = document.getElementById(`p${targetElementId}-rights`);
         if (rightsEl) {
             rightsEl.innerHTML = '';
             rightsEl.className = "flex items-center gap-1 mt-0.5"; 
 
-            // 1. プロフィール画像の反映
             const profImg = document.createElement('img');
-            // Firebaseから届いたアイコンパスを使用（なければデフォルト）
             const iconPath = p.icon || `images/character_00${p.id}.webp`;
             profImg.src = iconPath;
             profImg.className = "w-6 h-6 rounded-full border border-gray-500 shadow-sm object-cover";
             rightsEl.appendChild(profImg);
 
-            // 2. 手札枚数の追加
             const handInfo = document.createElement('div');
-            //ステータスエリアの手札枚数のフォントサイズ
             handInfo.className = "flex items-center text-[12px] font-bold text-gray-300 mr-1";
-            // 2. 手札枚数の反映（同期された枚数を使う）
             const handCount = (hands[p.id] || []).length;
             handInfo.innerHTML = `
              <div class="w-4 h-4 mr-1 border border-gray-500 rounded-[2px] overflow-hidden shadow-sm opacity-80" 
@@ -785,18 +796,15 @@ function renderStatus() {
              `;
             rightsEl.appendChild(handInfo);
 
-            // 3. 既存の追加移動権利（ダッシュアイコン）の表示（既存ロジックを維持）
             if (p.extraMoves > 0) {
                 const dashIcon = document.createElement('div');
                 dashIcon.className = "rounded-sm border border-white relative overflow-hidden bg-red-500 cursor-pointer hover:scale-110 transition-transform shadow-sm flex-shrink-0";
                 dashIcon.style.width = "1.1rem"; dashIcon.style.height = "1.1rem"; dashIcon.style.pointerEvents = "auto"; 
                 dashIcon.style.backgroundImage = `url('images/card_15.webp')`; dashIcon.style.backgroundSize = "cover"; dashIcon.style.backgroundPosition = "center";
-                
                 const badge = document.createElement('div');
                 badge.className = "absolute -bottom-0.5 -right-0.5 bg-black/80 text-white text-[5px] px-0.5 rounded-tl-sm border border-white/20 font-bold z-10";
                 badge.textContent = `x${p.extraMoves}`; 
                 dashIcon.appendChild(badge);
-                
                 dashIcon.onclick = (e) => { 
                     e.stopPropagation(); 
                     if (typeof showToast === 'function') showToast(`追加移動権利が ${p.extraMoves} 回あります`); 
@@ -804,21 +812,15 @@ function renderStatus() {
                 rightsEl.appendChild(dashIcon);
             }
 
-            // 4. ディメンション権利（紫のキューブ：2マス移動）の表示を追加
             if (p.dimensionActive && !p.baseMoveUsed) {
                 const dimIcon = document.createElement('div');
-                // 紫色の背景とボーダー
                 dimIcon.className = "rounded-sm border border-white relative overflow-hidden bg-purple-600 cursor-pointer hover:scale-110 transition-transform shadow-sm flex-shrink-0 animate-pulse";
                 dimIcon.style.width = "1.1rem"; dimIcon.style.height = "1.1rem"; dimIcon.style.pointerEvents = "auto"; 
-                // カードID 14 (ディメンション) の画像を使用
                 dimIcon.style.backgroundImage = `url('images/card_14.webp')`; dimIcon.style.backgroundSize = "cover"; dimIcon.style.backgroundPosition = "center";
-                
-                // バッジの代わりに「2マス」を示すテキスト
                 const dimBadge = document.createElement('div');
                 dimBadge.className = "absolute -bottom-0.5 -right-0.5 bg-purple-900/90 text-white text-[5px] px-0.5 rounded-tl-sm border border-white/20 font-bold z-10";
                 dimBadge.textContent = "2step"; 
                 dimIcon.appendChild(dimBadge);
-                
                 dimIcon.onclick = (e) => { 
                     e.stopPropagation(); 
                     if (typeof showToast === 'function') showToast("ディメンション発動中：2マス移動が可能です"); 
@@ -828,25 +830,20 @@ function renderStatus() {
         }
 
         LOCK_ORDER.forEach(color => {
-            const slotEl = document.getElementById(`p${p.id}-slot-${color.id}`); if(!slotEl) return; 
-            const slotCards = collections[p.id] ? collections[p.id][color.id] : []; slotEl.innerHTML = ''; 
+            // ここも targetElementId を使用するように修正
+            const slotEl = document.getElementById(`p${targetElementId}-slot-${color.id}`); 
+            if(!slotEl) return; 
+            const slotCards = collections[p.id] ? collections[p.id][color.id] : []; 
+            slotEl.innerHTML = ''; 
             slotEl.style.pointerEvents = "auto"; 
             slotEl.style.position = "relative"; 
 
-            /** 2026/03/09 修正：特殊カードの強調クラス付与ロジックを追加 **/
             if (slotCards && slotCards.length > 0) { 
                 const topC = slotCards[slotCards.length - 1];
                 let txtCls = topC.colorId === 'white' ? 'text-gray-800' : (topC.colorId === 'black' ? 'text-gray-200' : 'text-white');
-                
-                // 基本クラスを設定
                 let slotClasses = `mini-slot rounded-sm border border-white relative ${topC.bg}`;
-
-                // --- 特殊カード（ETERNAL/FIRST）の強調判定 ---
                 if (topC.type === "ETERNAL" || topC.type === "FIRST") {
-                    // 他人のターンでも「特別なカード」であることがわかるように常に光らせる
                     slotClasses += " special-lock-active";
-                    
-                    // 自分のターン 且つ ハンドフェイズなら、使用可能であることを示す「 playable 」クラスを追加
                     if (isMyTurn && currentPhase === PHASE.HAND) {
                         slotClasses += " special-lock-playable";
                     }
@@ -868,19 +865,15 @@ function renderStatus() {
                 }
                 slotEl.style.opacity = "1"; 
 
-                // 【外科手術的修正】構文エラーを解消し、論理構造を整理
                 const slotKey = `p${p.id}-${color.id}`;
                 const isExpanded = (expandedLockColor === slotKey);
 
                 slotEl.onclick = (e) => {
                     e.stopPropagation();
                     hideHoverPreview(true);
-
-                    // 1. そのカードの持ち主のターンかつハンドフェイズなら発動確認へ
                     if (isMyTurn && currentPhase === PHASE.HAND && slotCards.length === 1 && (topC.type === "FIRST" || topC.type === "ETERNAL")) {
                         handleHandClick(-1, topC);
                     } 
-                    // 2. それ以外（複数枚ある場合や、他人のターンの場合）は中身を展開して見る
                     else if (slotCards.length > 0) {
                         expandedLockColor = isExpanded ? null : slotKey;
                         renderStatus(); 
@@ -908,7 +901,6 @@ function renderStatus() {
                         pCard.onclick = (ev) => {
                             ev.stopPropagation();
                             hideHoverPreview(true);
-                            // 展開リストからも、持ち主のターンであれば発動可能に
                             if (isMyTurn && currentPhase === PHASE.HAND && (card.type === "FIRST" || card.type === "ETERNAL")) {
                                 handleHandClick(-1, card);
                             }
@@ -925,15 +917,10 @@ function renderStatus() {
                     slotEl.classList.remove('ring-2', 'ring-yellow-500');
                 }
             } else { 
-                // スロットが空の場合
                 slotEl.style.opacity = "0.5"; 
                 slotEl.style.borderColor = color.hex; 
                 slotEl.classList.add("border-b-2"); 
                 slotEl.style.backgroundImage = 'none';
-                /**
-                 * 2026/03/21 修正：未定義変数 isHuman によるエラーを解消
-                 * 空のスロットをクリックした際に、条件なしでプレイヤー詳細モーダルを開くように修正します。
-                 */
                 slotEl.className = `mini-slot rounded-sm border border-gray-600 bg-gray-800 relative flex items-center justify-center`;
                 slotEl.onclick = (e) => { 
                     e.stopPropagation(); 

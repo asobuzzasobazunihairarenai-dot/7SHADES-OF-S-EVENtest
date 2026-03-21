@@ -339,12 +339,14 @@ function generateUI() {
             slotsHTML += `<div id="p${p.id}-slot-${color.id}" class="mini-slot rounded-sm border border-gray-600 bg-gray-800/60 relative flex items-center justify-center"></div>`; 
         });
 
-        const hCount = (hands[p.id] || []).length;
-        // 修正箇所：手札枚数の前にプレイヤーアイコン(icon)を追加
-        // 重複を避けるため、名前以外の情報は renderStatus で動的に生成するように変更
+        /**
+         * 2026/03/21 22:15 修正
+         * ステータスエリアの名前表示部に ID (p${p.id}-name-display) を付与し、
+         * 内部データと同期して確実に書き換えられるように修正。
+         */
         const infoHTML = `
             <div class="flex ${isVertical ? 'flex-col' : 'flex-row'} items-center gap-1 text-[12px] justify-center relative">
-                <span class="font-bold text-gray-300">${p.name}</span>
+                <span id="p${p.id}-name-display" class="font-bold text-gray-300">${p.name}</span>
             </div>
             <div id="p${p.id}-rights" class="flex gap-0.5 mt-0.5 items-center justify-center"></div>`;
 
@@ -781,11 +783,17 @@ function renderStatus() {
             else container.classList.remove("player-active-box"); 
         }
         
-        /* 2026/03/14 追加：プレイヤー名とアイコンを同期反映 */
-        const nameEl = document.getElementById(`p${p.id}-name`);
+        /**
+         * 2026/03/21 22:20 修正
+         * 描画更新時に、内部変数の players[x].name を確実に HTML へ反映させる。
+         * ID の指定ミス (p${p.id}-name vs p${p.id}-name-display) を解消。
+         */
+        const nameEl = document.getElementById(`p${p.id}-name-display`);
         if (nameEl) {
-            // Firebaseから届いた名前に書き換える
-            nameEl.textContent = p.name || `Player ${p.id}`;
+            nameEl.textContent = p.name;
+            // 自手番の場合は少し強調
+            nameEl.classList.toggle('text-yellow-400', isMyTurn);
+            nameEl.classList.toggle('text-gray-300', !isMyTurn);
         }
 
         const rightsEl = document.getElementById(`p${p.id}-rights`);

@@ -4474,11 +4474,19 @@ async function handleJoinRoom() {
 
         console.log(`[DEBUG-Online] 入室情報送信: Name=${guestName}, Icon=${guestIcon}`);
 
-        await roomRef.update({
+        /**
+         * 2026/03/22 00:20 修正
+         * ゲストがFirebaseへ自分の情報を書き込む際、
+         * 実際に送信した内容をコンソールに表示する証拠ログを追加。
+         */
+        const payload = {
             "players": firebase.firestore.FieldValue.arrayUnion(guestName),
             "status": "ready",
             "guestInfo": `${guestName}|${guestIcon}`
-        });
+        };
+        console.log("[DEBUG-Online] Firebaseへ情報を送信します:", payload.guestInfo);
+
+        await roomRef.update(payload);
 
         // 2. 自分のマルチプレイ設定を保存
         window.MULTIPLAY.roomID = id;
@@ -4565,22 +4573,30 @@ async function startOnlineGameHost(num) {
 
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
 
-    // 【外科手術】発送直前に本物の掲示板（Firebase）から最新情報を取得する
-    let realGuestName = "IS";
+    /**
+     * 2026/03/22 00:15 修正
+     * プログラム内に固定されていた名前「IS」を完全に撤去。
+     * Firebase から取得したゲストの本名とアイコンのみを使用するように修正。
+     */
+    let realGuestName = "Guest"; 
     let realGuestIcon = "images/character_002.webp";
     try {
         const freshDoc = await roomRef.get();
         if (freshDoc.exists) {
             const data = freshDoc.data();
+            // guestInfo (名前|アイコン) があればそれを使う
             if (data.guestInfo) {
                 const infoParts = data.guestInfo.split('|');
                 realGuestName = infoParts[0];
                 realGuestIcon = infoParts[1];
-                console.log(`[DEBUG-Online] 本物の掲示板から最新ゲスト情報を取得: ${realGuestName}, ${realGuestIcon}`);
+                console.log(`[DEBUG-Online] Firebaseから本物を取得完了: ${realGuestName}`);
+            } else if (data.players && data.players[1]) {
+                // guestInfoがない場合は、入室リストの2番目の名前を使う
+                realGuestName = data.players[1];
             }
         }
     } catch (e) {
-        console.warn("[DEBUG-Online] 掲示板の再取得に失敗しました。手元のデータを使います。");
+        console.warn("[DEBUG-Online] 掲示板の取得に失敗。");
     }
 
     // 1. 手元で初期化（ここで players が一旦リセットされる）

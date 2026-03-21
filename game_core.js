@@ -131,6 +131,12 @@ function updateGameState(skipFirebaseUpdate = false) {
 
     // 各UIの描画
     if (typeof renderBoard === 'function') renderBoard(); 
+    
+    // ★ 2026/03/21 デバッグ：描画直前の名前チェック
+    if (players && players.length > 0) {
+        console.log("[DEBUG-UI] renderStatus直前のplayers名:", players.map(p => `${p.id}:${p.name}`));
+    }
+    
     if (typeof renderStatus === 'function') renderStatus(); 
     if (typeof renderHand === 'function') renderHand(); 
     if (typeof renderMyLockArea === 'function') renderMyLockArea(); 
@@ -4177,10 +4183,17 @@ function listenRoomUpdate(roomID) {
                  * オンライン同期時、ホストから送られてきた正式なプレイヤー名を
                  * ゲスト側の players 配列に正しく割り当てるよう復元ロジックを修正。
                  */
+                /**
+                 * 2026/03/21 21:35 修正
+                 * 同期データ受信時のプレイヤー復元プロセスに詳細ログを追加。
+                 */
                 if (data.players_flat) {
+                    console.log("[DEBUG-Online] 受信したplayers_flat:", data.players_flat);
                     collections = {};
                     players = data.players_flat.map(pStr => {
                         const [id, icon, name, sx, sy, colId, firstCardId] = pStr.split('|');
+                        console.log(`[DEBUG-Online] 復元中: ID=${id}, Name=${name}`);
+                        
                         const pId = parseInt(id);
                         const pColor = BASE_COLORS.find(c => c.id === colId);
                         
@@ -4194,13 +4207,13 @@ function listenRoomUpdate(roomID) {
 
                         return {
                             id: pId, 
-                            name: name, // ここで正式な名前（AsobuzZ や IS）を代入
+                            name: name, 
                             icon: icon, 
                             x: parseInt(sx), y: parseInt(sy),
                             startPos: { x: parseInt(sx), y: parseInt(sy) },
                             color: pColor, pieceImage: pColor.pieceImage,
                             css: `${pColor.bg} border-2 border-white`,
-                            extraMoves: 0, baseMoveUsed: false // 必須フラグの初期化
+                            extraMoves: 0, baseMoveUsed: false
                         };
                     });
                     
@@ -4540,30 +4553,37 @@ async function startOnlineGameHost(num) {
      * 2026/03/21 21:00 修正
      * オンライン対戦開始時、ホスト・ゲスト双方の正式な名前とアイコンを同期データに含めるよう修正。
      */
+    /**
+     * 2026/03/21 21:30 修正
+     * オンライン対戦開始時のデータ同期に詳細ログを追加し、ゲスト名の取得経路を強化。
+     */
+    console.log("[DEBUG-Online] startOnlineGameHost - RoomData:", window.MULTIPLAY.latestRoomData);
+
     const playersBasic = players.map((p, idx) => {
         const firstCard = collections[p.id][p.color.id][0];
         const firstCardId = firstCard ? firstCard.id : "";
         
-        // P1なら userProfile、P2なら room データの players[1] から正式な名前を取得
         let actualName = p.name;
         let safeIcon = p.icon;
 
         if (p.id === 1) {
             actualName = userProfile.name || "AsobuzZ";
             safeIcon = userProfile.icon || p.icon;
-        } else if (p.id === 2 && window.MULTIPLAY.latestRoomData) {
-            // Firebaseから受信済みのゲスト情報を優先反映
-            const guestInfo = window.MULTIPLAY.latestRoomData.guestInfo;
-            if (guestInfo) {
-                const [gName, gIcon] = guestInfo.split('|');
+        } else if (p.id === 2) {
+            // latestRoomData または data.guestInfo から名前を絞り出す
+            const roomData = window.MULTIPLAY.latestRoomData;
+            if (roomData && roomData.guestInfo) {
+                const [gName, gIcon] = roomData.guestInfo.split('|');
                 actualName = gName;
                 safeIcon = gIcon;
+                console.log(`[DEBUG-Online] ゲスト情報を取得成功: ${actualName}`);
+            } else if (roomData && roomData.players && roomData.players[1]) {
+                actualName = roomData.players[1];
+                console.log(`[DEBUG-Online] players配列からゲスト名を取得: ${actualName}`);
             }
         }
         
-        if (!safeIcon || safeIcon.includes('googleusercontent') || safeIcon.includes('http')) {
-            // HTTPアイコンが壊れるのを防ぐための最低限のガード（必要に応じて）
-        }
+        console.log(`[DEBUG-Online] プレイヤー${p.id}の同期用名前確定: ${actualName}`);
         
         return `${p.id}|${safeIcon}|${actualName}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
     });

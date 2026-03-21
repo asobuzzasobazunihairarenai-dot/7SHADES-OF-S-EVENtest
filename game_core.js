@@ -4603,35 +4603,43 @@ async function startOnlineGameHost(num) {
      */
     console.log("[DEBUG-Online] startOnlineGameHost - RoomData:", window.MULTIPLAY.latestRoomData);
 
+    /**
+     * 2026/03/21 22:50 修正
+     * ホスト・ゲストの情報を確実に紐付け、アイコンURLが漏れないよう
+     * 配列構築ロジックを完全固定化。
+     */
     const playersBasic = players.map((p, idx) => {
         const firstCard = collections[p.id][p.color.id][0];
         const firstCardId = firstCard ? firstCard.id : "";
         
+        // デフォルト値をセット
         let actualName = p.name;
-        let safeIcon = p.icon;
+        let actualIcon = p.icon;
 
         if (p.id === 1) {
+            // ホストの情報
             actualName = userProfile.name || "AsobuzZ";
-            safeIcon = userProfile.icon || p.icon;
-        } else if (p.id === 2) {
-            // latestRoomData または data.guestInfo から名前を絞り出す
+            actualIcon = userProfile.icon || "images/character_001.webp";
+        } else {
+            // ゲストの情報（Firebaseのルームデータから直接引用）
             const roomData = window.MULTIPLAY.latestRoomData;
             if (roomData && roomData.guestInfo) {
-                const [gName, gIcon] = roomData.guestInfo.split('|');
-                actualName = gName;
-                safeIcon = gIcon;
-                console.log(`[DEBUG-Online] ゲスト情報を取得成功: ${actualName}`);
+                const parts = roomData.guestInfo.split('|');
+                actualName = parts[0];
+                actualIcon = parts[1];
             } else if (roomData && roomData.players && roomData.players[1]) {
                 actualName = roomData.players[1];
-                console.log(`[DEBUG-Online] players配列からゲスト名を取得: ${actualName}`);
             }
         }
+
+        // 内部メモリの player オブジェクトもここで最終更新（描画ズレ防止）
+        p.name = actualName;
+        p.icon = actualIcon;
         
-        console.log(`[DEBUG-Online] プレイヤー${p.id}の同期用名前確定: ${actualName}`);
+        console.log(`[DEBUG-Online] 最終同期データ作成 [ID:${p.id}]: Name=${actualName}, Icon=${actualIcon}`);
         
-        // 各項目の間に確実に名前(actualName)が入るように固定
-        const pDataString = [p.id, safeIcon, actualName, p.startPos.x, p.startPos.y, p.color.id, firstCardId].join('|');
-        return pDataString;
+        // パイプライン形式で結合（順番を厳守: ID | ICON | NAME | X | Y | ColorID | FirstCardID）
+        return `${p.id}|${actualIcon}|${actualName}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
     });
 
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);

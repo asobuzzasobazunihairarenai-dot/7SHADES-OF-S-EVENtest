@@ -788,15 +788,30 @@ function renderStatus() {
          * 描画更新時に、内部変数の players[x].name を確実に HTML へ反映させる。
          * ID の指定ミス (p${p.id}-name vs p${p.id}-name-display) を解消。
          */
+        /**
+         * 2026/03/21 22:55 修正
+         * ステータスエリアの名前だけでなく、プレイヤーアイコン（画像）も
+         * 内部データと同期して確実に書き換える。
+         */
         const nameEl = document.getElementById(`p${p.id}-name-display`);
         if (nameEl) {
             nameEl.textContent = p.name;
-            // 自手番の場合は少し強調
             nameEl.classList.toggle('text-yellow-400', isMyTurn);
             nameEl.classList.toggle('text-gray-300', !isMyTurn);
         }
 
-        const rightsEl = document.getElementById(`p${p.id}-rights`);
+        // アイコン画像の強制同期
+        const statusBox = document.getElementById(`p${p.id}-status`);
+        if (statusBox) {
+            const iconImg = statusBox.querySelector('img.rounded-full');
+            if (iconImg && p.icon) {
+                // 画像パスが現在のデータと違う場合のみ更新
+                if (!iconImg.src.includes(p.icon)) {
+                    iconImg.src = p.icon;
+                    console.log(`[DEBUG-UI] Icon Sync [P${p.id}]: ${p.icon}`);
+                }
+            }
+        }
         if (rightsEl) {
             rightsEl.innerHTML = '';
             rightsEl.className = "flex items-center gap-1 mt-0.5"; 

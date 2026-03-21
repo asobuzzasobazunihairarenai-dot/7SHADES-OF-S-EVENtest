@@ -4565,25 +4565,26 @@ async function startOnlineGameHost(num) {
      * ホスト側でのゲーム開始時、ゲストから届いた正式なアイコンを players[1] に再注入する。
      * また、自身のアイコンが Google プロフィール等の場合はそれも維持する。
      */
+    /**
+     * 2026/03/21 23:05 修正
+     * ホスト側でのゲーム開始時、ゲストから届いた正式な「名前とアイコン」を players[1] に確実に再注入。
+     * これにより、リセット直後のデフォルト画像への上書きを阻止します。
+     */
     if (players && players.length >= 2) {
-        // ホスト自身の情報を最新の userProfile から再適用
+        // ホスト（自分）の情報を再固定
         players[0].name = userProfile.name || "AsobuzZ";
         players[0].icon = userProfile.icon || "images/character_001.webp";
         
         const roomData = window.MULTIPLAY.latestRoomData;
-        console.log("[DEBUG-Online] アイコン再注入前の RoomData:", roomData);
-
         if (roomData && roomData.guestInfo) {
-            const [gName, gIcon] = roomData.guestInfo.split('|');
-            players[1].name = gName;
-            players[1].icon = gIcon; // ここでゲストのアイコンパスを確実に適用
-            console.log(`[DEBUG-Online] ゲストアイコンを再適用しました: ${gIcon}`);
-        } else if (roomData && roomData.players) {
-            players[1].name = roomData.players[1] || "IS";
+            const infoParts = roomData.guestInfo.split('|');
+            players[1].name = infoParts[0];
+            players[1].icon = infoParts[1] || "images/character_002.webp";
+            console.log(`[DEBUG-Online] ゲストの本当のアイコンを再注入しました: ${players[1].icon}`);
+        } else if (roomData && roomData.players && roomData.players[1]) {
+            players[1].name = roomData.players[1];
         }
-        
-        console.log("[DEBUG-Online] ホスト側 players 情報を完全固定しました:", 
-                    players.map(p => ({id: p.id, name: p.name, icon: p.icon})));
+        console.log("[DEBUG-Online] ホスト側 players 情報を本物で上書き固定しました:", players.map(p => `${p.name}(${p.icon})`));
     }
     
     // 2. 盤面を1次元の「文字」に変換
@@ -4603,39 +4604,23 @@ async function startOnlineGameHost(num) {
      */
     console.log("[DEBUG-Online] startOnlineGameHost - RoomData:", window.MULTIPLAY.latestRoomData);
 
+    /**
+     * 2026/03/21 23:10 修正
+     * ホストが同期データを送信する際、Googleアイコン(http...)のような長いURLが含まれても
+     * 順番が狂わないよう、配列を介して厳密にパッキングする方式に変更。
+     */
     const playersBasic = players.map((p, idx) => {
         const firstCard = collections[p.id][p.color.id][0];
         const firstCardId = firstCard ? firstCard.id : "";
         
-        let actualName = p.name;
-        let safeIcon = p.icon;
+        // メモリ上の最新情報を取得
+        const actualName = p.name;
+        const actualIcon = p.icon;
 
-        /**
-         * 2026/03/21 22:45 修正
-         * ホストが同期データを送信する際、メモリ上の latestRoomData から
-         * ゲストの正式なアイコン情報を最優先で取得して配列に含めるよう修正。
-         */
-        if (p.id === 1) {
-            actualName = userProfile.name || "AsobuzZ";
-            safeIcon = userProfile.icon || "images/character_001.webp";
-        } else if (p.id === 2) {
-            // ホストのメモリにある最新のルーム情報を参照
-            const rData = window.MULTIPLAY.latestRoomData;
-            if (rData && rData.guestInfo) {
-                const infoParts = rData.guestInfo.split('|');
-                actualName = infoParts[0];
-                safeIcon = infoParts[1] || "images/character_002.webp";
-                console.log(`[DEBUG-Online] 同期データにゲストアイコンを注入: ${safeIcon}`);
-            } else if (rData && rData.players && rData.players[1]) {
-                actualName = rData.players[1];
-            }
-        }
+        console.log(`[DEBUG-Online] パッキング中 P${p.id}: Name=${actualName}, Icon=${actualIcon}`);
         
-        console.log(`[DEBUG-Online] プレイヤー${p.id}の同期用名前確定: ${actualName}`);
-        
-        // 各項目の間に確実に名前(actualName)が入るように固定
-        const pDataString = [p.id, safeIcon, actualName, p.startPos.x, p.startPos.y, p.color.id, firstCardId].join('|');
-        return pDataString;
+        // 1:ID, 2:Icon, 3:Name, 4:StartX, 5:StartY, 6:ColorID, 7:FirstCardID
+        return [p.id, actualIcon, actualName, p.startPos.x, p.startPos.y, p.color.id, firstCardId].join('|');
     });
 
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);

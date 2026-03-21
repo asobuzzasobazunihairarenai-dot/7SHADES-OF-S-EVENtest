@@ -806,6 +806,11 @@ function renderStatus() {
              * アイコン画像要素に ID を付与し、再描画のたびに最新の p.icon (同期データ) 
              * が適用されるように修正。
              */
+            /**
+             * 2026/03/21 23:15 修正
+             * アイコン画像要素に ID (p${p.id}-icon-display) を付与し、
+             * 内部データ(p.icon)と同期して確実に書き換えられるように修正。
+             */
             const profImg = document.createElement('img');
             profImg.id = `p${p.id}-icon-display`;
             const iconPath = p.icon || `images/character_00${p.id}.webp`;

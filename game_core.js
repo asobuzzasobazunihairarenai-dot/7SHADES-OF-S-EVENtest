@@ -4463,15 +4463,20 @@ async function handleJoinRoom() {
             return;
         }
 
-        // 1. 自分の名前を入室リストに追加し、ステータスを "ready" に変える
-        /* 2026/03/14 修正：自分の最新プロフィールをホストへ通知 */
+        /**
+         * 2026/03/21 22:35 修正
+         * ゲスト入室時、現在設定されているアイコン（Googleアイコン含む）を
+         * そのままホストへ伝えるように修正。
+         */
         const guestName = userProfile.name || "GuestPlayer";
-        const guestIcon = (userProfile.icon && !userProfile.icon.includes('googleusercontent')) ? userProfile.icon : `images/character_002.webp`;
+        // 条件分岐を削除し、userProfile.icon をそのまま（または fallback つきで）渡す
+        const guestIcon = userProfile.icon || `images/character_002.webp`;
+
+        console.log(`[DEBUG-Online] 入室情報送信: Name=${guestName}, Icon=${guestIcon}`);
 
         await roomRef.update({
             "players": firebase.firestore.FieldValue.arrayUnion(guestName),
             "status": "ready",
-            // P2の情報を直接書き込む（ホストがこれを読み取ります）
             "guestInfo": `${guestName}|${guestIcon}`
         });
 
@@ -4555,19 +4560,30 @@ async function startOnlineGameHost(num) {
     // 1. 手元で初期化（ここで players が P1, P2 にリセットされる）
     await initGameInternal(num);
 
-    // 1.5 正式な名前の「再注入」
+    /**
+     * 2026/03/21 22:30 修正
+     * ホスト側でのゲーム開始時、ゲストから届いた正式なアイコンを players[1] に再注入する。
+     * また、自身のアイコンが Google プロフィール等の場合はそれも維持する。
+     */
     if (players && players.length >= 2) {
+        // ホスト自身の情報を最新の userProfile から再適用
         players[0].name = userProfile.name || "AsobuzZ";
-        players[0].icon = userProfile.icon;
+        players[0].icon = userProfile.icon || "images/character_001.webp";
         
         const roomData = window.MULTIPLAY.latestRoomData;
+        console.log("[DEBUG-Online] アイコン再注入前の RoomData:", roomData);
+
         if (roomData && roomData.guestInfo) {
-            players[1].name = roomData.guestInfo.split('|')[0];
-            players[1].icon = roomData.guestInfo.split('|')[1];
+            const [gName, gIcon] = roomData.guestInfo.split('|');
+            players[1].name = gName;
+            players[1].icon = gIcon; // ここでゲストのアイコンパスを確実に適用
+            console.log(`[DEBUG-Online] ゲストアイコンを再適用しました: ${gIcon}`);
         } else if (roomData && roomData.players) {
             players[1].name = roomData.players[1] || "IS";
         }
-        console.log("[DEBUG-Online] ホスト側 players 名を再固定しました:", players.map(p => p.name));
+        
+        console.log("[DEBUG-Online] ホスト側 players 情報を完全固定しました:", 
+                    players.map(p => ({id: p.id, name: p.name, icon: p.icon})));
     }
     
     // 2. 盤面を1次元の「文字」に変換

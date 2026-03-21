@@ -4479,17 +4479,27 @@ async function handleJoinRoom() {
          * ゲスト入室時、すべての情報を確実に一括送信するように修正。
          * ホスト側で guestInfo が欠落する現象（タイミング問題）を根治します。
          */
-        const payload = {
-            "players": firebase.firestore.FieldValue.arrayUnion(guestName),
-            "guestInfo": `${guestName}|${guestIcon}`,
-            "status": "ready" // status を最後に変えることで、ホストの検知を確実に画像到着後に遅らせる
-        };
+        /**
+         * 2026/03/22 01:00 修正
+         * ゲスト入室時の「データ消失」を物理的に防ぐ二段構え送信。
+         * 1. 自分の名前とアイコン情報を先に送り、完了を待つ。
+         * 2. その後、ホストへの合図（ready）を最後に送る。
+         */
+        console.log("[DEBUG-Online] STEP1: ゲスト情報を先行送信...", guestIcon);
         
-        console.log("[DEBUG-Online] 掲示板へ一括送信開始:", payload);
+        // まず情報を確実に刻み込む（statusはまだ変えない）
+        await roomRef.update({
+            "players": firebase.firestore.FieldValue.arrayUnion(guestName),
+            "guestInfo": `${guestName}|${guestIcon}`
+        });
 
-        // update ではなく、確実にこの3つの項目を上書きする
-        await roomRef.update(payload).then(() => {
-            console.log("[DEBUG-Online] 掲示板への書き込みが完了しました。");
+        console.log("[DEBUG-Online] STEP2: 入室完了通知を送信...");
+
+        // 情報が届いたことを確信してから、ホストを動かす
+        await roomRef.update({
+            "status": "ready"
+        }).then(() => {
+            console.log("[DEBUG-Online] すべての入室手続きが完了しました。");
         });
 
         // 2. 自分のマルチプレイ設定を保存

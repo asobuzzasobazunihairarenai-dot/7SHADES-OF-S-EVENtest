@@ -4485,21 +4485,32 @@ async function handleJoinRoom() {
          * 1. 自分の名前とアイコン情報を先に送り、完了を待つ。
          * 2. その後、ホストへの合図（ready）を最後に送る。
          */
-        console.log("[DEBUG-Online] STEP1: ゲスト情報を先行送信...", guestIcon);
+        /**
+         * 2026/03/22 01:15 修正
+         * ゲスト側の送信証拠ログを実装。
+         * 掲示板（Firebase）に送る直前の生データを確認できるようにし、
+         * 書き込み完了のタイミングを厳密に記録します。
+         */
+        const infoString = `${guestName}|${guestIcon}`;
+        console.log("%c[GUEST-SEND-LOG] >>> 掲示板への書き込みを開始します", "color: #00ffff; font-weight: bold;");
+        console.log("[GUEST-SEND-LOG] 送信内容(guestInfo):", infoString);
+        console.log("[GUEST-SEND-LOG] 使用中のアイコン変数(guestIcon):", guestIcon);
         
-        // まず情報を確実に刻み込む（statusはまだ変えない）
+        // STEP1: 自分の情報を刻み込む
         await roomRef.update({
             "players": firebase.firestore.FieldValue.arrayUnion(guestName),
-            "guestInfo": `${guestName}|${guestIcon}`
+            "guestInfo": infoString
+        }).then(() => {
+            console.log("%c[GUEST-SEND-LOG] <<< STEP1完了: ゲスト情報の登録に成功しました", "color: #00ff00;");
         });
 
-        console.log("[DEBUG-Online] STEP2: 入室完了通知を送信...");
+        console.log("[GUEST-SEND-LOG] STEP2: ホストへ開始合図を送ります...");
 
-        // 情報が届いたことを確信してから、ホストを動かす
+        // STEP2: 最後にホストを動かす
         await roomRef.update({
             "status": "ready"
         }).then(() => {
-            console.log("[DEBUG-Online] すべての入室手続きが完了しました。");
+            console.log("%c[GUEST-SEND-LOG] <<< STEP2完了: すべての入室手続きが終了しました", "color: #00ff00; font-weight: bold;");
         });
 
         // 2. 自分のマルチプレイ設定を保存

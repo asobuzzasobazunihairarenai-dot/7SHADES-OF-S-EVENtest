@@ -2819,28 +2819,13 @@ async function initGameInternal(num, isTest = false) {
         // プロフィール情報の取得
         const profile = (window.pendingProfiles && window.pendingProfiles[i]) ? window.pendingProfiles[i] : null;
 
-        /**
-         * 2026/03/21 23:30 修正
-         * オンライン対戦時は Firebase から取得したアイコンを優先し、
-         * ここで勝手にデフォルト画像 (character_002等) で上書きしないよう修正。
-         */
-        const isOnline = !!(window.MULTIPLAY && window.MULTIPLAY.roomID);
-        let playerIcon = profile ? profile.icon : `images/character_00${assignedId}.webp`;
-
-        if (isOnline && assignedId === 2) {
-            const rData = window.MULTIPLAY.latestRoomData;
-            if (rData && rData.guestInfo) {
-                playerIcon = rData.guestInfo.split('|')[1] || playerIcon;
-            }
-        }
-
         const player = { 
-            id: assignedId, 
+            id: assignedId, // ★ここが重要：1番を避ける
             x: pos.x, 
             y: pos.y, 
             startPos: {...pos}, 
             name: profile ? profile.name : `P${assignedId}`, 
-            icon: playerIcon, // 決定したアイコンを適用
+            icon: profile ? profile.icon : `images/character_00${assignedId}.webp`,
             pieceImage: pColor.pieceImage, 
             color: pColor, 
             css: `${pColor.bg} border-2 border-white`, 
@@ -4566,89 +4551,75 @@ async function handleJoinRoom() {
  * オンライン戦開始時、initGameInternal でリセットされた players 配列に対し
  * ホストとゲストの正式な名前を即座に再適用して上書きを防ぐ。
  */
+/**
+ * 2026/03/21 23:55 修正
+ * ゲストアイコン消失問題を根本解決するための最終パッチ。
+ * 発送直前に「掲示板(Firebase)」を強制的に読み直し、
+ * 最新のゲスト情報を取得してからパッキングするように構造を強化。
+ */
 async function startOnlineGameHost(num) {
     const homeScreen = document.getElementById('home-screen');
     if(homeScreen) homeScreen.classList.add('hidden');
     const setupOverlay = document.getElementById('setup-overlay');
     if(setupOverlay) setupOverlay.classList.add('hidden');
 
-    // 1. 手元で初期化（ここで players が P1, P2 にリセットされる）
+    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+
+    // 【外科手術】発送直前に本物の掲示板（Firebase）から最新情報を取得する
+    let realGuestName = "IS";
+    let realGuestIcon = "images/character_002.webp";
+    try {
+        const freshDoc = await roomRef.get();
+        if (freshDoc.exists) {
+            const data = freshDoc.data();
+            if (data.guestInfo) {
+                const infoParts = data.guestInfo.split('|');
+                realGuestName = infoParts[0];
+                realGuestIcon = infoParts[1];
+                console.log(`[DEBUG-Online] 本物の掲示板から最新ゲスト情報を取得: ${realGuestName}, ${realGuestIcon}`);
+            }
+        }
+    } catch (e) {
+        console.warn("[DEBUG-Online] 掲示板の再取得に失敗しました。手元のデータを使います。");
+    }
+
+    // 1. 手元で初期化（ここで players が一旦リセットされる）
     await initGameInternal(num);
 
-    /**
-     * 2026/03/21 22:30 修正
-     * ホスト側でのゲーム開始時、ゲストから届いた正式なアイコンを players[1] に再注入する。
-     * また、自身のアイコンが Google プロフィール等の場合はそれも維持する。
-     */
-    /**
-     * 2026/03/21 23:35 修正
-     * ホスト側発送直前の最終ガード。
-     * Firebase上の「guestInfo」が絶対的な正解であるとし、全プレイヤー情報を強制上書きします。
-     */
+    // 1.5 直前に取得した「本物」で上書きし直す
     if (players && players.length >= 2) {
-        // ホスト自身の情報を強制同期
         players[0].name = userProfile.name || "AsobuzZ";
         players[0].icon = userProfile.icon || "images/character_001.webp";
         
-        const roomData = window.MULTIPLAY.latestRoomData;
-        if (roomData && roomData.guestInfo) {
-            const [gName, gIcon] = roomData.guestInfo.split('|');
-            if (gName) players[1].name = gName;
-            if (gIcon) players[1].icon = gIcon; // ここが character_002 になるのを阻止
-        }
-        console.log("[DEBUG-Online] 発送直前：強制アイコン上書き完了", players.map(p => `${p.id}: ${p.icon}`));
+        players[1].name = realGuestName;
+        players[1].icon = realGuestIcon;
+        
+        console.log("[DEBUG-Online] 発送直前の最終名簿を確定:", players.map(p => `${p.name}(${p.icon})`));
     }
     
-    // 2. 盤面を1次元の「文字」に変換
+    // 2. 盤面とデッキの準備
     const boardStrings = serializeBoard(board).map(cell => JSON.stringify(cell));
-    
-    // 3. デッキとプレイヤーをただの「数字/文字の配列」にする
     const deckIDs = (deck || []).map(c => c.id);
-    /* 2026/03/14 修正：プレイヤーの初期ロック情報（ファーストカード）も文字列に含める */
-    /* 2026/03/14 修正：Googleアイコンのエラー防止措置を追加 */
-    /**
-     * 2026/03/21 21:00 修正
-     * オンライン対戦開始時、ホスト・ゲスト双方の正式な名前とアイコンを同期データに含めるよう修正。
-     */
-    /**
-     * 2026/03/21 21:30 修正
-     * オンライン対戦開始時のデータ同期に詳細ログを追加し、ゲスト名の取得経路を強化。
-     */
-    console.log("[DEBUG-Online] startOnlineGameHost - RoomData:", window.MULTIPLAY.latestRoomData);
 
-    /**
-     * 2026/03/21 23:10 修正
-     * ホストが同期データを送信する際、Googleアイコン(http...)のような長いURLが含まれても
-     * 順番が狂わないよう、配列を介して厳密にパッキングする方式に変更。
-     */
-    const playersBasic = players.map((p, idx) => {
+    // 3. 荷造り（パッキング）
+    const playersBasic = players.map((p) => {
         const firstCard = collections[p.id][p.color.id][0];
         const firstCardId = firstCard ? firstCard.id : "";
-        
-        // メモリ上の最新情報を取得
-        const actualName = p.name;
-        const actualIcon = p.icon;
-
-        console.log(`[DEBUG-Online] パッキング中 P${p.id}: Name=${actualName}, Icon=${actualIcon}`);
-        
-        // 1:ID, 2:Icon, 3:Name, 4:StartX, 5:StartY, 6:ColorID, 7:FirstCardID
-        return [p.id, actualIcon, actualName, p.startPos.x, p.startPos.y, p.color.id, firstCardId].join('|');
+        console.log(`[DEBUG-Online] パッキング中 P${p.id}: ${p.name}, ${p.icon}`);
+        return [p.id, p.icon, p.name, p.startPos.x, p.startPos.y, p.color.id, firstCardId].join('|');
     });
 
-    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-    
     try {
-        // 全てを「配列の配列」にせず、バラバラの項目として保存
-        /* 2026/03/14 修正：決定した先手（turn）も同期データに含める */
+        // 4. 発送！
         await roomRef.update({
             "status": "playing",
-            "currentTurn": turn, // ホストがランダムに決めた先手番号
-            "board_flat": boardStrings,     // 文字列の配列
-            "deck_flat": deckIDs,           // 数値の配列
-            "players_flat": playersBasic,   // 文字列の配列
+            "currentTurn": turn,
+            "board_flat": boardStrings,
+            "deck_flat": deckIDs,
+            "players_flat": playersBasic,
             "lastUpdate": Date.now()
         });
-        addLog(`[Online] 盤面を同期しました。`);
+        addLog(`[Online] 盤面と本物のアイコンを同期しました。`);
     } catch (e) {
         console.error("Firebase送信エラー:", e);
         addLog(`[ERROR] 同期失敗: ${e.message}`, true);

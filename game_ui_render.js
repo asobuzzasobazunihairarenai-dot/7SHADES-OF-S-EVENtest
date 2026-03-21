@@ -360,19 +360,26 @@ function renderBoard() {
     boardEl.innerHTML = '';
     if (!players || !players.length) return;
 
-    // 自分自身のプレイヤーオブジェクトを特定（FirebaseのUIDまたはID:1を基準に判定）
-    // ※オンライン時は自分のIDが p.id として設定されている前提
-    const myId = (typeof userProfile !== 'undefined' && userProfile.uid) ? 
-                 players.find(pl => pl.uid === userProfile.uid)?.id || 1 : 1;
-
-    // コンソールログの強化（視点のデバッグ用）
-    if (window.IS_DEV_LOG_FORCED) {
-        console.log(`[Render] Current View: Player ${myId} (Bottom)`);
+    // --- 修正箇所：自分自身の判定を強化 ---
+    // 1. FirebaseのUIDで判定 2. 名前が 'Guest' かどうかで判定 3. デフォルトは ID:1
+    let myId = 1;
+    const profileUid = (typeof userProfile !== 'undefined') ? userProfile.uid : null;
+    
+    const me = players.find(pl => (profileUid && pl.uid === profileUid) || pl.name === "Guest");
+    if (me) {
+        myId = me.id;
     }
 
-    const p = players.find(pl => pl.id === myId) || players[0];
+    // デバッグ用：誰の視点で見ているかコンソールに強制表示
+    console.log(`[View Check] My ID is: ${myId}, My Name is: ${me ? me.name : 'Unknown'}`);
 
-    // --- 修正箇所：条件付き監視ロジック ---
+    const p = players.find(pl => pl.id === myId) || players[0];
+    
+    // 自分のIDが 1 でない（ゲスト側）場合、盤面を反転
+    const isInverted = (myId !== 1);
+    if (isInverted) console.log("[View Check] Board Inverted for Guest view.");
+
+    // --- 条件付き監視ロジック ---
     if (!selectionState.active && !isProcessingMove) { 
         players.forEach(pObj => {
             if (pObj.x === -1 || pObj.y === -1) return;
@@ -386,13 +393,9 @@ function renderBoard() {
         });
     }
 
-    // 自分のIDが 1 でない（ゲスト側）場合、盤面を180度回転させて描画するフラグ
-    const isInverted = (myId !== 1);
-
-    // 描画ループ
+    // 盤面描画ループ（isInvertedがtrueなら逆順にループ）
     for (let i = 0; i < GRID_SIZE; i++) {
         for (let j = 0; j < GRID_SIZE; j++) {
-            // インバート（反転）時は座標を逆転させる
             const y = isInverted ? (GRID_SIZE - 1 - i) : i;
             const x = isInverted ? (GRID_SIZE - 1 - j) : j;
             
@@ -482,13 +485,9 @@ function renderBoard() {
                 const pDiv = document.createElement('div'); 
                 pDiv.id = `p${pOnCellMarker.id}-marker`; 
                 pDiv.className = `player-marker`; 
-                
                 const rotateX = -50;
                 pDiv.style.setProperty('--rotate-x', `${rotateX}deg`);
                 pDiv.style.setProperty('--rotate-y', `0deg`);
-                
-                // 視点が反転している場合、駒の向きも180度変える必要があるか検討が必要ですが、
-                // まずは盤面の座標のみを反転させます。
                 const verticalScale = 1.2 - (y * 0.03); 
                 pDiv.style.transform = `rotateX(${rotateX}deg) translateZ(15px) translateY(-40px) scaleY(${verticalScale})`;                
                 
@@ -507,7 +506,6 @@ function renderBoard() {
                         pDiv.appendChild(aura);
                     }
                 }
-
                 if (isActive) {
                     div.classList.add('player-active'); 
                     pDiv.style.setProperty('--player-color-glow', pOnCellMarker.color.hex || '#fff');
@@ -515,7 +513,6 @@ function renderBoard() {
                 }
                 div.appendChild(pDiv); 
             }
-
             if (cell && !cell.empty && cell.color && cell.revealed) {
                 attachHoverEvents(div, cell.color, true);
             }

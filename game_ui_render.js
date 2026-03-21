@@ -360,24 +360,21 @@ function renderBoard() {
     boardEl.innerHTML = '';
     if (!players || !players.length) return;
 
-    // --- 修正箇所：自分自身の判定を強化 ---
-    // 1. FirebaseのUIDで判定 2. 名前が 'Guest' かどうかで判定 3. デフォルトは ID:1
+    /**
+     * 2026/03/21 21:00 修正：オンライン視点同期の最強化
+     * 自分のプレイヤーオブジェクトを pl.isMe または pl.id で厳密に特定します。
+     */
     let myId = 1;
-    const profileUid = (typeof userProfile !== 'undefined') ? userProfile.uid : null;
-    
-    const me = players.find(pl => (profileUid && pl.uid === profileUid) || pl.name === "Guest");
-    if (me) {
-        myId = me.id;
-    }
+    const me = players.find(pl => pl.isMe === true) || players.find(pl => pl.id === (typeof isOnline !== 'undefined' && isOnline && !window.isHost ? 2 : 1));
+    if (me) myId = me.id;
 
-    // デバッグ用：誰の視点で見ているかコンソールに強制表示
-    console.log(`[View Check] My ID is: ${myId}, My Name is: ${me ? me.name : 'Unknown'}`);
+    console.log(`[View Check] Render Focus: Player ${myId} (${me ? me.name : 'Unknown'})`);
 
     const p = players.find(pl => pl.id === myId) || players[0];
     
-    // 自分のIDが 1 でない（ゲスト側）場合、盤面を反転
+    // 自分が Guest (通常はID:2) なら盤面を反転
     const isInverted = (myId !== 1);
-    if (isInverted) console.log("[View Check] Board Inverted for Guest view.");
+    if (isInverted) console.log("[View Check] Guest Perspective: Inverting Board UI.");
 
     // --- 条件付き監視ロジック ---
     if (!selectionState.active && !isProcessingMove) { 
@@ -743,26 +740,15 @@ function renderHand() {
 function renderStatus() { 
     if(!players || !players.length) return;
 
-    // --- 修正箇所：自分自身の特定ロジックを最強化 ---
-    let myId = 1;
-    // 1. プロフィール名を取得
-    const myProfileName = (typeof userProfile !== 'undefined') ? userProfile.name : null;
-    
-    // 2. プレイヤーリストから自分を探す（名前の一致、またはGuest判定）
-    const me = players.find(pl => 
-        (myProfileName && pl.name === myProfileName) || 
-        (pl.name === "Guest" && myProfileName === "Guest")
-    );
+    /**
+     * 2026/03/21 23:45 修正：ステータスUIの視点同期バグを完全解消
+     * pl.isMe フラグ（Firebase同期用）を最優先でチェックし、
+     * 自分自身の情報を必ず p1-status (手前) に表示させます。
+     */
+    const me = players.find(pl => pl.isMe === true) || players.find(pl => pl.id === (typeof isOnline !== 'undefined' && isOnline && !window.isHost ? 2 : 1));
+    const myId = me ? me.id : 1;
 
-    if (me) {
-        myId = me.id;
-    } else {
-        // 見つからない場合、オンラインでなければ P1 (ID:1) を自分とする
-        myId = (typeof isOnline !== 'undefined' && isOnline) ? 2 : 1; 
-    }
-
-    // デバッグログ：ここが正しい名前になっていれば成功です
-    console.log(`[Status View] Identified Myself as ID: ${myId}, Name: ${me ? me.name : 'Fallback'}`);
+    console.log(`[Status View] UI Aligning for: Player ${myId} (${me ? me.name : 'Unknown'})`);
 
     // 表示順の整理：自分を先頭（index 0）に、それ以外を順番に並べる
     const sortedPlayers = [...players].sort((a, b) => {

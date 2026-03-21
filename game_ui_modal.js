@@ -4086,17 +4086,24 @@ function confirmResetStats() {
  * Googleログイン中であっても、クラウド(Firebase)側のデータを初期値で上書きすることで
  * リセットが正しく反映されるように修正。
  */
+/**
+ * 2026/03/21 03:45 修正
+ * クラウドデータリセットの確実化とデバッグログの追加。
+ * リロード前の待機時間を延ばし、Firebaseへの書き込み完了を保証します。
+ */
 async function executeResetStats() {
-    // 1. エラー防止（タイマー関連の干渉を遮断）
+    console.log("[DEBUG] executeResetStats 開始");
+    // 1. エラー防止
     window.gainTime = () => {}; 
 
-    // 2. 初期化用データの定義
+    // 2. 初期化用データの定義（構造を完全に固定）
     const initialProfile = {
-        name: "P1",
+        name: userProfile.name || "P1", // 名前は維持
         rank: 1,
         rankPoint: 0,
         level: 1,
         totalWins: 0,
+        totalEternalGets: 0,
         stats: {
             totalGames: 0,
             mvpCard: null,
@@ -4105,6 +4112,7 @@ async function executeResetStats() {
         },
         unlockedTitles: ["駆け出しの旅人"],
         selectedTitle: "駆け出しの旅人",
+        seenTitles: ["駆け出しの旅人"],
         usedCardIds: [],
         usedIconPaths: []
     };
@@ -4112,24 +4120,31 @@ async function executeResetStats() {
     // 3. クラウド(Firebase)のリセット（ログイン中のみ）
     if (userProfile && userProfile.isLoggedIn && userProfile.uid) {
         try {
-            addLog("[System] クラウドデータを初期化中...");
+            console.log(`[DEBUG] クラウド上書き実行対象UID: ${userProfile.uid}`);
+            addLog("[System] クラウドデータをリセット中...");
+            
             const db = firebase.firestore();
-            await db.collection("users").doc(userProfile.uid).set({
+            const userRef = db.collection("users").doc(userProfile.uid);
+            
+            // { merge: false } と同等の set 操作で、既存の stats 等を完全に破壊して初期値で埋める
+            await userRef.set({
                 ...initialProfile,
-                // アイコンとログイン状態だけは維持
                 icon: userProfile.icon,
                 isLoggedIn: true,
                 uid: userProfile.uid,
                 lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
             });
-            addLog("クラウドデータのリセットに成功しました。");
+            
+            console.log("[DEBUG] Firebase set完了");
+            addLog("クラウドデータのリセットが完了しました。");
         } catch (e) {
-            console.error("Cloud Reset Error:", e);
-            alert("クラウドのリセットに失敗しました。オフラインデータのみ消去します。");
+            console.error("[DEBUG] クラウド不具合詳細:", e);
+            alert("クラウドのリセットに失敗しました。");
         }
     }
 
-    // 4. ローカルストレージの削除
+    // 4. ローカルストレージの削除（念入りに全キーを消去）
+    console.log("[DEBUG] LocalStorage 削除実行");
     const keysToDelete = [
         'shades_seven_profile',
         'shades_seven_stats',
@@ -4144,10 +4159,11 @@ async function executeResetStats() {
 
     addLog("すべてのデータを物理的に一掃しました。再起動します。");
 
-    // 6. ブラウザを強制リロード
+    // 6. ブラウザを強制リロード（書き込みがFirebaseに反映される時間を稼ぐため1秒に延長）
+    console.log("[DEBUG] 1000ms後にリロードします");
     setTimeout(() => {
         window.location.href = window.location.pathname + "?reset=" + Date.now();
-    }, 500);
+    }, 1000);
 }
 
 // ページ読み込み完了時や初期化時にアイコンを最新にする

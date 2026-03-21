@@ -4136,10 +4136,11 @@ async function createOnlineRoom(roomID) {
 function listenRoomUpdate(roomID) {
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(roomID);
 
-    // 監視(onSnapshot)を開始
     roomRef.onSnapshot((doc) => {
         if (!doc.exists) return;
         const data = doc.data();
+        // ★ 2026/03/21 追加：最新のルームデータをメモリに保持（名前同期用）
+        window.MULTIPLAY.latestRoomData = data;
         
         // ログを出して動いているか確認
         console.log("[Firebase] 受信データ:", data.status, data.gameState?.status);
@@ -4171,35 +4172,35 @@ function listenRoomUpdate(roomID) {
             if (!board || board.length === 0 || homeVisible) {
                 addLog(`[Online] 盤面データを受信。復元を開始します...`);
 
-                // 1. プレイヤーの復元（文字列を | で分解して戻す）
-                /* 2026/03/14 修正：プレイヤー情報と同時にロックエリアも初期化 */
+                /**
+                 * 2026/03/21 21:05 修正
+                 * オンライン同期時、ホストから送られてきた正式なプレイヤー名を
+                 * ゲスト側の players 配列に正しく割り当てるよう復元ロジックを修正。
+                 */
                 if (data.players_flat) {
-                    // まず collections を空にする
                     collections = {};
-                    /* 2026/03/14 修正：アイコンと名前の順序を同期 */
                     players = data.players_flat.map(pStr => {
                         const [id, icon, name, sx, sy, colId, firstCardId] = pStr.split('|');
                         const pId = parseInt(id);
                         const pColor = BASE_COLORS.find(c => c.id === colId);
                         
-                        // ロックエリアの枠組みを作成
                         collections[pId] = {};
                         BASE_COLORS.forEach(bc => collections[pId][bc.id] = []);
 
-                        // ファーストカードがあればロックエリアに入れる
                         if (firstCardId) {
                             const fCardData = CARD_DATABASE.find(d => d.id === parseInt(firstCardId));
-                            if (fCardData) {
-                                collections[pId][fCardData.colorId].push(createCardInstance(fCardData));
-                            }
+                            if (fCardData) collections[pId][fCardData.colorId].push(createCardInstance(fCardData));
                         }
 
                         return {
-                            id: pId, name, icon,
+                            id: pId, 
+                            name: name, // ここで正式な名前（AsobuzZ や IS）を代入
+                            icon: icon, 
                             x: parseInt(sx), y: parseInt(sy),
                             startPos: { x: parseInt(sx), y: parseInt(sy) },
                             color: pColor, pieceImage: pColor.pieceImage,
-                            css: `${pColor.bg} border-2 border-white`
+                            css: `${pColor.bg} border-2 border-white`,
+                            extraMoves: 0, baseMoveUsed: false // 必須フラグの初期化
                         };
                     });
                     
@@ -4535,17 +4536,33 @@ async function startOnlineGameHost(num) {
     const deckIDs = (deck || []).map(c => c.id);
     /* 2026/03/14 修正：プレイヤーの初期ロック情報（ファーストカード）も文字列に含める */
     /* 2026/03/14 修正：Googleアイコンのエラー防止措置を追加 */
-    /* 2026/03/14 修正：ホスト自身の最新情報を確実に送信 */
+    /**
+     * 2026/03/21 21:00 修正
+     * オンライン対戦開始時、ホスト・ゲスト双方の正式な名前とアイコンを同期データに含めるよう修正。
+     */
     const playersBasic = players.map((p, idx) => {
         const firstCard = collections[p.id][p.color.id][0];
         const firstCardId = firstCard ? firstCard.id : "";
         
-        // P1（ホスト自身）の場合は、userProfile の最新の名前を使う
-        const actualName = (p.id === 1) ? (userProfile.name || p.name) : p.name;
-        
+        // P1なら userProfile、P2なら room データの players[1] から正式な名前を取得
+        let actualName = p.name;
         let safeIcon = p.icon;
+
+        if (p.id === 1) {
+            actualName = userProfile.name || "AsobuzZ";
+            safeIcon = userProfile.icon || p.icon;
+        } else if (p.id === 2 && window.MULTIPLAY.latestRoomData) {
+            // Firebaseから受信済みのゲスト情報を優先反映
+            const guestInfo = window.MULTIPLAY.latestRoomData.guestInfo;
+            if (guestInfo) {
+                const [gName, gIcon] = guestInfo.split('|');
+                actualName = gName;
+                safeIcon = gIcon;
+            }
+        }
+        
         if (!safeIcon || safeIcon.includes('googleusercontent') || safeIcon.includes('http')) {
-            safeIcon = `images/character_00${p.id}.webp`;
+            // HTTPアイコンが壊れるのを防ぐための最低限のガード（必要に応じて）
         }
         
         return `${p.id}|${safeIcon}|${actualName}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;

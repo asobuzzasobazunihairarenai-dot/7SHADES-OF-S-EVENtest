@@ -2591,7 +2591,6 @@ function cleanupGame() {
 }
 
 /**
- * 2026/03/21 02:00 修正
  * ターン数の初期値を0に設定し、1ターン目から正しくカウントされるように修正。
  */
 async function initGameInternal(num, isTest = false) { 
@@ -2818,6 +2817,10 @@ async function initGameInternal(num, isTest = false) {
             x: pos.x, 
             y: pos.y, 
             startPos: {...pos}, 
+            /**
+             * 2026/03/22 修正：オンライン対戦時の「自分」判定を確定
+             */
+            isMe: (profile && userProfile.uid && profile.uid === userProfile.uid) || (profile && profile.name === "Guest" && !window.isHost),
             name: profile ? profile.name : `P${assignedId}`, 
             icon: profile ? profile.icon : `images/character_00${assignedId}.webp`,
             pieceImage: pColor.pieceImage, 

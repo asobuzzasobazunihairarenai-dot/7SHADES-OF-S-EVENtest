@@ -361,17 +361,16 @@ function renderBoard() {
     if (!players || !players.length) return;
 
     /**
-     * 2026/03/22 修正：ログイン名による確実な視点判定
+     * 2026/03/22 修正：isMeフラグを最優先とした視点判定
      */
-    let myId = 1;
-    const currentUserName = (typeof userProfile !== 'undefined') ? userProfile.name : "";
-    const me = players.find(pl => pl.name === currentUserName) || players[0];
-    myId = me.id;
-
-    console.log(`[View Check] Render Focus: Player ${myId} (${me.name})`);
-
-    const p = players.find(pl => pl.id === myId) || players[0];
+    const me = players.find(pl => pl.isMe === true) || 
+               players.find(pl => pl.name && pl.name.trim().toLowerCase() === ((typeof userProfile !== 'undefined' && userProfile.name) ? userProfile.name.trim().toLowerCase() : ""));
     
+    const p = me || (window.isHost ? players.find(pl => pl.id === 1) : players.find(pl => pl.id === 2)) || players[0];
+    const myId = p.id;
+
+    // 視点に関する詳細なログを強制出力
+    console.log(`[View Check] isMeFound: ${!!players.find(pl => pl.isMe)}, FocusID: ${myId}, PlayerName: ${p.name}, isHost: ${window.isHost}`);    
     // 自分が Guest (通常はID:2) なら盤面を反転
     const isInverted = (myId !== 1);
     if (isInverted) console.log("[View Check] Guest Perspective: Inverting Board UI.");
@@ -741,13 +740,14 @@ function renderStatus() {
     if(!players || !players.length) return;
 
     /**
-     * 2026/03/22 修正：ログイン名による確実なUI配置判定
+     * 2026/03/22 修正：isMeフラグを最優先としたUI並び替え
      */
-    const currentUserName = (typeof userProfile !== 'undefined') ? userProfile.name : "";
-    const me = players.find(pl => pl.name === currentUserName) || players[0];
-    const myId = me.id;
+    const me = players.find(pl => pl.isMe === true) || 
+               players.find(pl => pl.name && pl.name.trim().toLowerCase() === ((typeof userProfile !== 'undefined' && userProfile.name) ? userProfile.name.trim().toLowerCase() : ""));
+    
+    const myId = me ? me.id : (window.isHost ? 1 : 2);
 
-    console.log(`[Status View] UI Aligning for: Player ${myId} (${me.name})`);
+    console.log(`[Status Align] MyID identified as: ${myId}`);
 
     // 表示順の整理：自分を先頭（index 0）に、それ以外を順番に並べる
     const sortedPlayers = [...players].sort((a, b) => {

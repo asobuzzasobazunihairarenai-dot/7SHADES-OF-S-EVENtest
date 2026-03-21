@@ -354,13 +354,37 @@ function generateUI() {
     });
 }
 
+/**
+ * 2026/03/21 14:00 修正
+ * オンライン対戦時、自分のプレイヤー番号に基づいて「自分が手前」に来るよう
+ * UIの座席位置を動的にシフトする処理を追加。
+ */
 function renderBoard() {
     const boardEl = document.getElementById('board-grid');
     if (!boardEl) return;
     boardEl.innerHTML = '';
     if (!players || !players.length || !players[turn]) return;
 
-    // ★修正：プレイヤー配列が空、または現在のプレイヤーが未定義の場合（初期化中）への対策
+    // --- 【外科手術】オンライン対戦時の視点切り替え（自分を下にする） ---
+    let myNumber = 1; // デフォルト（オフライン時）は自分がP1
+    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
+        myNumber = window.MULTIPLAY.playerNumber || 1;
+    }
+
+    // 自分の番号に応じて、表示上の座席位置をシフト
+    // P1が自分なら [P1, P2, P3, P4] のまま
+    // P2が自分なら [P2, P3, P4, P1] にずらす
+    const shiftCount = myNumber - 1;
+    const seatOrder = ["area-p3", "area-p2", "area-p1", "area-p4"]; // 下, 右, 上, 左 の順
+    
+    // 表示上の座席IDを割り当て直す
+    players.forEach((player, idx) => {
+        // 元のID(1~4)から、自分の視点に基づいた「表示位置」を計算
+        const displayPos = (idx - shiftCount + players.length) % players.length;
+        player.currentSeatId = seatOrder[displayPos];
+    });
+    // ------------------------------------------------------------
+
     const p = (players && players.length > 0 && players[turn]) ? players[turn] : null;
 
     // --- 修正箇所：条件付き監視ロジック ---
@@ -770,11 +794,20 @@ function renderHand() {
     }
 }
 
+/**
+ * 2026/03/21 14:00 修正
+ * 自分の視点に基づいた座席ID（currentSeatId）を使用して、
+ * プレイヤー情報を正しい画面位置（上下左右）に描画するように修正。
+ */
 function renderStatus() { 
     if(!players) return;
     players.forEach(p => { 
-        const container = document.getElementById(`p${p.id}-status`);
-        const isMyTurn = (turn === players.indexOf(p)); 
+        // 固定の p1-status ではなく、視点シフトで決まった位置の箱を取得
+        // もし currentSeatId がなければ従来の p${p.id} を使う（安全策）
+        const targetContainerId = p.currentSeatId || `p${p.id}`;
+        const container = document.getElementById(`${targetContainerId}-status`);
+        const isMyTurn = (turn === players.indexOf(p));
+ 
 
         if (container) {
             if (isMyTurn) container.classList.add("player-active-box"); 

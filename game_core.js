@@ -2819,13 +2819,28 @@ async function initGameInternal(num, isTest = false) {
         // プロフィール情報の取得
         const profile = (window.pendingProfiles && window.pendingProfiles[i]) ? window.pendingProfiles[i] : null;
 
+        /**
+         * 2026/03/21 23:30 修正
+         * オンライン対戦時は Firebase から取得したアイコンを優先し、
+         * ここで勝手にデフォルト画像 (character_002等) で上書きしないよう修正。
+         */
+        const isOnline = !!(window.MULTIPLAY && window.MULTIPLAY.roomID);
+        let playerIcon = profile ? profile.icon : `images/character_00${assignedId}.webp`;
+
+        if (isOnline && assignedId === 2) {
+            const rData = window.MULTIPLAY.latestRoomData;
+            if (rData && rData.guestInfo) {
+                playerIcon = rData.guestInfo.split('|')[1] || playerIcon;
+            }
+        }
+
         const player = { 
-            id: assignedId, // ★ここが重要：1番を避ける
+            id: assignedId, 
             x: pos.x, 
             y: pos.y, 
             startPos: {...pos}, 
             name: profile ? profile.name : `P${assignedId}`, 
-            icon: profile ? profile.icon : `images/character_00${assignedId}.webp`,
+            icon: playerIcon, // 決定したアイコンを適用
             pieceImage: pColor.pieceImage, 
             color: pColor, 
             css: `${pColor.bg} border-2 border-white`, 
@@ -4566,25 +4581,22 @@ async function startOnlineGameHost(num) {
      * また、自身のアイコンが Google プロフィール等の場合はそれも維持する。
      */
     /**
-     * 2026/03/21 23:05 修正
-     * ホスト側でのゲーム開始時、ゲストから届いた正式な「名前とアイコン」を players[1] に確実に再注入。
-     * これにより、リセット直後のデフォルト画像への上書きを阻止します。
+     * 2026/03/21 23:35 修正
+     * ホスト側発送直前の最終ガード。
+     * Firebase上の「guestInfo」が絶対的な正解であるとし、全プレイヤー情報を強制上書きします。
      */
     if (players && players.length >= 2) {
-        // ホスト（自分）の情報を再固定
+        // ホスト自身の情報を強制同期
         players[0].name = userProfile.name || "AsobuzZ";
         players[0].icon = userProfile.icon || "images/character_001.webp";
         
         const roomData = window.MULTIPLAY.latestRoomData;
         if (roomData && roomData.guestInfo) {
-            const infoParts = roomData.guestInfo.split('|');
-            players[1].name = infoParts[0];
-            players[1].icon = infoParts[1] || "images/character_002.webp";
-            console.log(`[DEBUG-Online] ゲストの本当のアイコンを再注入しました: ${players[1].icon}`);
-        } else if (roomData && roomData.players && roomData.players[1]) {
-            players[1].name = roomData.players[1];
+            const [gName, gIcon] = roomData.guestInfo.split('|');
+            if (gName) players[1].name = gName;
+            if (gIcon) players[1].icon = gIcon; // ここが character_002 になるのを阻止
         }
-        console.log("[DEBUG-Online] ホスト側 players 情報を本物で上書き固定しました:", players.map(p => `${p.name}(${p.icon})`));
+        console.log("[DEBUG-Online] 発送直前：強制アイコン上書き完了", players.map(p => `${p.id}: ${p.icon}`));
     }
     
     // 2. 盤面を1次元の「文字」に変換

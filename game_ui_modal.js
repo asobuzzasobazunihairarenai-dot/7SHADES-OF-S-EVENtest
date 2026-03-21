@@ -1287,9 +1287,20 @@ function showSelectionResult(cards, onComplete, effectName, cancelCallback = nul
     const cancelBtn = document.getElementById('selection-cancel-btn'); // モーダル最下部のボタン
     const autoBtn = document.getElementById('selection-auto-btn');
     
+    /**
+ * 2026/03/21 12:45 修正
+ * エターナル選択（ETERNAL SELECTION）など、やり直し不可のイベント時は
+ * 結果確認画面の「戻る」ボタンを非表示にするよう修正。
+ */
     // 1. 本来の場所にある「戻る」ボタン(backBtn)に機能を付与
     if (backBtn) {
-        backBtn.classList.remove('hidden'); 
+        // エターナル選択時は「戻る」を隠し、それ以外（手札破棄など）は表示する
+        if (effectName === "ETERNAL SELECTION") {
+            backBtn.classList.add('hidden');
+        } else {
+            backBtn.classList.remove('hidden'); 
+        }
+        
         backBtn.onclick = () => {
             area.classList.add('hidden'); // 結果エリアを隠す
             document.getElementById('selection-container').classList.remove('hidden'); // 選択肢を出す

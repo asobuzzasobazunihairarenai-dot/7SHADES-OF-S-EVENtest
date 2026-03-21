@@ -21,8 +21,13 @@ function canPlayHandEffect(card, p) {
     // 【追加】封印状態（このターン使えない効果等）のカードは使用不可
     if (card.sealed) return false;
 
-    // 「1ターンに1度」制限があるカードID（11:ヴァーディアンなど）の判定
-    const oncePerTurnIDs = [11]; 
+    /**
+ * 2026/03/21 12:30 修正
+ * ドムス-ネロ(ID:3)を1ターンに1度制限の対象に追加し、
+ * 使用後の「使用する」ボタンのグレーアウトを実現。
+ */
+    // 「1ターンに1度」制限があるカードID（3:ドムス-ネロ、11:ヴァーディアン）の判定
+    const oncePerTurnIDs = [3, 11]; 
 
     // ★追加：NORMALモード時の温存ロジック
     // ★修正：NORMALモード時の温存ロジック（判定条件を強化）
@@ -547,11 +552,25 @@ function runAction(act, p, onSuccess, contextCard = null, isNewReveal = false) {
         }
     }
 
-    // ★既存：発動回数の記録
+    /**
+ * 2026/03/21 04:00 修正
+ * 1. カード使用統計の記録先を window.cardUsageStats に統一し、読み取りミスを防止。
+ * 2. 開発用ログを追加し、使用回数が正しくカウントされているか可視化。
+ */
+    // --- 【外科手術】使用統計の確実な記録 ---
     if (contextCard && contextCard.name) {
-        if (!cardUsageStats[p.id]) cardUsageStats[p.id] = {};
-        cardUsageStats[p.id][contextCard.name] = (cardUsageStats[p.id][contextCard.name] || 0) + 1;
+        // window直下のオブジェクトを使用するように統一
+        if (!window.cardUsageStats) window.cardUsageStats = {};
+        if (!window.cardUsageStats[p.id]) window.cardUsageStats[p.id] = {};
+        
+        // カウントアップ
+        window.cardUsageStats[p.id][contextCard.name] = (window.cardUsageStats[p.id][contextCard.name] || 0) + 1;
+        
+        // 開発用ログを出力
+        console.log(`[DEBUG-STAT] ${p.name} use: ${contextCard.name} (Now: ${window.cardUsageStats[p.id][contextCard.name]} times)`);
+        addLog(`[DEBUG] 統計記録: ${contextCard.name} (${window.cardUsageStats[p.id][contextCard.name]}回目)`, true);
     }
+    // --------------------------------------
 
     const forceNoCancel = true;
 

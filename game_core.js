@@ -2596,10 +2596,15 @@ function cleanupGame() {
  */
 async function initGameInternal(num, isTest = false) { 
 
+    /**
+ * 2026/03/21 04:00 修正
+ * 試合開始時に統計用の窓口（window.cardUsageStats）を完全にリセット。
+ */
     /** 2026/03/09 修正：試合開始時の統計リセットと履歴記録 **/
     gameStartTime = Date.now(); 
-    totalTurnCount = 0; // 0から開始
-    cardUsageStats = {}; 
+    totalTurnCount = 0; 
+    window.cardUsageStats = {}; // window側をリセット
+    cardUsageStats = {};        // 予備もリセット
     lockHistory = [];
 
     // --- 称号判定用カウンター(matchStats)の初期化 ---
@@ -3817,29 +3822,48 @@ function showVictoryUI(pid) {
             overlay.classList.add('hidden');
             overlay.style.display = 'none';
 
-            // --- ★ データの最終集計（リザルト直前に実行） ---
-            // 今回の試合で使用された色の回数を算出
+            /**
+ * 2026/03/21 04:15 修正
+ * リザルト画面のMVP・カラー統計表示の不具合を解消。
+ * 統一された window.cardUsageStats から全プレイヤーの合算値を正確に抽出します。
+ */
+            // --- ★ データの最終集計（統一された window.cardUsageStats を使用） ---
             const colorResults = BASE_COLORS.map(bc => {
                 let totalCount = 0;
-                // 全プレイヤーの使用履歴を合算
-                Object.values(cardUsageStats || {}).forEach(pStats => {
-                    Object.entries(pStats).forEach(([cardName, count]) => {
-                        const cardData = CARD_DATABASE.find(d => d.name === cardName);
-                        if (cardData && cardData.colorId === bc.id) totalCount += (parseInt(count) || 0);
+                if (window.cardUsageStats) {
+                    // 全プレイヤー(P1~P4)のデータをループして合算
+                    Object.values(window.cardUsageStats).forEach(pStats => {
+                        Object.entries(pStats).forEach(([cardName, count]) => {
+                            const cardData = CARD_DATABASE.find(d => d.name === cardName);
+                            if (cardData && cardData.colorId === bc.id) {
+                                totalCount += parseInt(count) || 0;
+                            }
+                        });
                     });
-                });
+                }
                 return { id: bc.id, name: bc.name, bg: bc.bg, hex: bc.hex, count: totalCount };
             });
 
-            // 今回の試合のMVPカードを選定
+            // 今回の試合のMVPカードを選定（全プレイヤー合計で最多のもの）
             let mvpName = "なし";
             let maxUsage = 0;
-            Object.values(cardUsageStats || {}).forEach(pStats => {
-                Object.entries(pStats).forEach(([cardName, count]) => {
-                    const c = parseInt(count) || 0;
-                    if (c > maxUsage) { maxUsage = c; mvpName = cardName; }
+            if (window.cardUsageStats) {
+                const combinedStats = {};
+                Object.values(window.cardUsageStats).forEach(pStats => {
+                    Object.entries(pStats).forEach(([name, count]) => {
+                        combinedStats[name] = (combinedStats[name] || 0) + (parseInt(count) || 0);
+                    });
                 });
-            });
+                for (const [name, count] of Object.entries(combinedStats)) {
+                    if (count > maxUsage) {
+                        maxUsage = count;
+                        mvpName = name;
+                    }
+                }
+            }
+            
+            console.log(`[DEBUG-RESULT] Combined MVP: ${mvpName} (${maxUsage} times)`);
+            console.log(`[DEBUG-RESULT] Color Stats:`, colorResults);
 
             /**
  * 2026/03/21 02:15 修正
@@ -3892,96 +3916,112 @@ function showVictoryUI(pid) {
  * @param {string} winnerId - 勝利したプレイヤーのID
  */
 /** 2026/03/05 10:35 修正：winnerId が数値(1)で渡されるケースに対応し、自分の勝利を正しく判定 **/
+/**
+ * 2026/03/21 03:30 修正
+ * プロフィール統計（MVP回数・Color Style）が反映されない不具合を修正。
+ * 1. プレイヤーIDの判定を数値と文字列の両方に対応させ、集計漏れを防止。
+ * 2. 統計構造の初期化を強化し、計算エラー(NaNや-1)を根絶。
+ * 3. 開発用詳細ログを追加。
+ */
 function updateProfileAfterGame(winnerId) {
-    // 確実に最新のプロフィールをロードしてから更新を開始する
+    console.log("[DEBUG] updateProfileAfterGame 開始");
     if (typeof loadUserProfile === 'function') loadUserProfile();
 
     const isWin = (Number(winnerId) === 1); 
-    const oldPoint = userProfile.rankPoint; // 変動前のポイントを記憶
+    const oldPoint = userProfile.rankPoint;
 
-    // 統計の基本更新（総試合数）
     userProfile.stats.totalGames++;
 
-    /** 2026/03/05 11:45 修正：獲得ポイントの表示数値を実際の加算値と同期 **/
-    let pointGained = 0; // 今回獲得（または減少）したポイント
+    // --- 1. 統計構造の健全性チェック ---
+    if (!userProfile.stats) userProfile.stats = {};
+    if (!userProfile.stats.cardUsageCount) userProfile.stats.cardUsageCount = {};
+    if (!userProfile.stats.colorUsage) userProfile.stats.colorUsage = { red: 0, orange: 0, yellow: 0, green: 0, blue: 0, pink: 0, purple: 0 };
 
+    /**
+ * 2026/03/21 04:00 修正
+ * データの取得元を修正し、game_effects.js で記録した統計を確実に読み込むように修正。
+ */
+    // --- 2. 今回の対局データの取得 (P1) ---
+    // プレイヤーID: 1 のデータを確実に取得
+    let p1MatchStats = {};
+    if (window.cardUsageStats) {
+        // 数値の 1、または文字列の "1" や "p1" すべてをチェック
+        p1MatchStats = window.cardUsageStats[1] || window.cardUsageStats["1"] || window.cardUsageStats["p1"] || {};
+    }
+    
+    console.log("[DEBUG] 集計対象データ(P1):", p1MatchStats);
+    
+    console.log("[DEBUG] 今回のP1カード使用統計:", p1MatchStats);
+
+    // --- 3. 累計データへの加算処理 ---
+    for (const cardName in p1MatchStats) {
+        const matchCount = parseInt(p1MatchStats[cardName]) || 0;
+        if (matchCount <= 0) continue;
+
+        // 通算使用回数の加算
+        const currentTotal = parseInt(userProfile.stats.cardUsageCount[cardName]) || 0;
+        userProfile.stats.cardUsageCount[cardName] = currentTotal + matchCount;
+
+        // Color Style (通算カラー傾向) の加算
+        const cardData = CARD_DATABASE.find(c => c.name === cardName);
+        if (cardData && cardData.colorId && userProfile.stats.colorUsage.hasOwnProperty(cardData.colorId)) {
+            const currentColorTotal = parseInt(userProfile.stats.colorUsage[cardData.colorId]) || 0;
+            userProfile.stats.colorUsage[cardData.colorId] = currentColorTotal + matchCount;
+            console.log(`[DEBUG] Color加算: ${cardData.colorId} +${matchCount} (計:${userProfile.stats.colorUsage[cardData.colorId]})`);
+        }
+    }
+
+    // --- 4. MVPカードの再特定 ---
+    let topCardName = null;
+    let maxUsageVal = 0;
+    const totalHistory = userProfile.stats.cardUsageCount;
+
+    for (const name in totalHistory) {
+        const usage = parseInt(totalHistory[name]) || 0;
+        if (usage > maxUsageVal) {
+            maxUsageVal = usage;
+            topCardName = name;
+        }
+    }
+    
+    if (topCardName) {
+        userProfile.stats.mvpCard = topCardName;
+        console.log(`[DEBUG] 新MVP確定: ${topCardName} (${maxUsageVal}回)`);
+    }
+
+    // --- 5. 勝敗・ランク・レベル処理 (既存ロジック維持) ---
     if (isWin) {
         userProfile.totalWins++;
-        // ランク3以下は2pt、それ以外は1pt
-        pointGained = (userProfile.rank <= 3) ? 2 : 1;
+        let pointGained = (userProfile.rank <= 3) ? 2 : 1;
         userProfile.rankPoint += pointGained;
 
-        /** 2026/03/05 14:10 修正：ランクアップ演出の実行タイミングを遅延させるための変更 **/
         if (userProfile.rankPoint >= 7 && userProfile.rank < 8) {
             userProfile.rank++;
             userProfile.rankPoint = 0; 
-            addLog(`【RANK UP】ランク ${userProfile.rank} に到達しました！`);
-            
-            // 演出用データをwindowオブジェクトに予約（後でゲージ満タン時に使用）
             const rankNames = ["なし", "Red Apprentice", "Orange Survivor", "Yellow Seeker", "Green Guardian", "Blue Tactician", "Pink Specialist", "Purple Master", "SEVEN"];
             window.pendingRankUpEffect = { type: 'RANK', value: rankNames[userProfile.rank] };
         }
 
-        // --- レベルの計算 (累積勝利数ベース) ---
-        // 公式: レベル = floor(sqrt(累計勝利数 * 2)) + 1
-        /** 2026/03/05 14:40 修正：レベルアップ演出を即時実行せず、進捗ゲージ表示用に予約 **/
         const oldLevel = userProfile.level;
         const newLevel = Math.floor(Math.sqrt(userProfile.totalWins * 2)) + 1;
-        
-        // 次のレベルに必要な累積勝利数を逆算 (n = ceil((L^2)/2))
         const getRequiredWins = (lv) => Math.ceil((Math.pow(lv, 2)) / 2);
-        const currentExp = userProfile.totalWins;
-        const nextLvExp = getRequiredWins(newLevel);
-        const prevLvExp = getRequiredWins(oldLevel);
 
         window.pendingLevelUpdate = {
-            oldLevel,
-            newLevel,
-            currentWins: currentExp,
-            neededWins: nextLvExp,
-            baseWins: prevLvExp,
+            oldLevel, newLevel,
+            currentWins: userProfile.totalWins,
+            neededWins: getRequiredWins(newLevel),
+            baseWins: getRequiredWins(oldLevel),
             isLevelUp: newLevel > oldLevel
         };
 
-        if (newLevel > oldLevel) {
-            userProfile.level = newLevel;
-            addLog(`【LEVEL UP】Lv.${newLevel} になりました！`);
-        }
+        if (newLevel > oldLevel) userProfile.level = newLevel;
     } else {
         userProfile.rankPoint = Math.max(0, userProfile.rankPoint - 1);
     }
 
-    /** 2026/03/05 11:15 修正：演出用モーダルに渡す勝敗フラグを isWin に固定 **/
-    /** 2026/03/05 13:10 修正：ランクモーダルの自動表示を停止。リザルト後に表示するためデータをwindowに保管 **/
-    const newPoint = userProfile.rankPoint;
-    window.pendingRankUpdate = { isWin, oldPoint, newPoint }; // リザルト終了時に使うためのデータを一時保存
+    window.pendingRankUpdate = { isWin, oldPoint, newPoint: userProfile.rankPoint };
 
-
-    /** 2026/03/10 修正：Color Style（カラー傾向）が集計されないバグを修正 **/
-    
-    // 1. 集計用データの準備
-    if (!userProfile.stats.colorUsage) userProfile.stats.colorUsage = {};
-    const p1Stats = window.cardUsageStats ? (window.cardUsageStats[1] || window.cardUsageStats['p1']) : null;
-
-    if (p1Stats) {
-        for (const cardName in p1Stats) {
-            const cardData = CARD_DATABASE.find(c => c.name === cardName);
-            if (cardData && cardData.colorId) {
-                // 使用回数を数値として加算
-                const useCount = Number(p1Stats[cardName]) || 0;
-                userProfile.stats.colorUsage[cardData.colorId] = (userProfile.stats.colorUsage[cardData.colorId] || 0) + useCount;
-            }
-        }
-        console.log("Color Style Updated:", userProfile.stats.colorUsage);
-    }
-
-    // --- ここで称号判定やMVP特定を既に行っているはずなので、最後に一度だけ保存 ---
-    saveUserProfile();
-    console.log("All Profile Stats Saved.");
-
-    // データの保存（game_state.jsで定義した関数を呼び出し）
-    // --- 外科手術的修正：新しく獲得した称号を保存する ---
-    // 称号獲得の判定： pid が数値の 1 か、文字列の 'p1' かを両方許容する
+    // --- 6. 称号獲得判定 (既存ロジック維持) ---
     const currentAwards = calculateAwards(winnerId);
     currentAwards.forEach(award => {
         const isMyAward = (award.pid === 1 || award.pid === 'p1');
@@ -3991,87 +4031,11 @@ function updateProfileAfterGame(winnerId) {
         }
     });
 
-    // --- 外科手術的修正：通算MVPカードの特定 ---
-    // MVPカードの判定：今回の対局結果をマージする前に、stats構造が存在するか確認
-    if (!userProfile.stats) userProfile.stats = {};
-    if (!userProfile.stats.cardUsageCount) userProfile.stats.cardUsageCount = {};
-
-    // --- カラー傾向(Color Style)の更新箇所 ---
-    if (window.cardUsageStats) {
-        // IDが 1 (数値) または 'p1' (文字列) のどちらでも取得できるように修正
-        const p1Usage = window.cardUsageStats[1] || window.cardUsageStats['p1'];
-        if (p1Usage) {
-            for (const cardName in p1Usage) {
-                const card = CARD_DATABASE.find(c => c.name === cardName);
-                if (card && card.colorId) {
-                    userProfile.stats.colorUsage[card.colorId] = (userProfile.stats.colorUsage[card.colorId] || 0) + p1Usage[cardName];
-                }
-            }
-        }
-    }
-
-    /* 2026/03/12 修正：MVP通算回数が反映されない不具合を修正 */
-    // 1. 構造の初期化を徹底
-    /* 2026/03/13 修正：通算MVPカードと使用回数の同期を確実に実行 */
-    // 1. 構造の初期化を徹底（データ消失防止）
-    if (!userProfile.stats) userProfile.stats = {};
-    if (!userProfile.stats.cardUsageCount) userProfile.stats.cardUsageCount = {};
-    if (!userProfile.stats.colorUsage) userProfile.stats.colorUsage = {};
-
-    // 2. 今回の対局データ(p1Usage)を「通算」に確実に加算
-    const p1MatchStats = window.cardUsageStats ? (window.cardUsageStats[1] || window.cardUsageStats['p1']) : null;
-    
-    /**
-     * 2026/03/21 修正：統計数値の型保証
-     * 文字列として結合されるのを防ぎ、リザルト画面で NaN や 0 になる問題を解消します。
-     */
-    if (p1MatchStats) {
-        for (const cardName in p1MatchStats) {
-            const matchCount = parseInt(p1MatchStats[cardName]) || 0;
-            if (!userProfile.stats.cardUsageCount) userProfile.stats.cardUsageCount = {};
-            // 加算処理を厳密な数値で行う
-            const currentTotal = parseInt(userProfile.stats.cardUsageCount[cardName]) || 0;
-            userProfile.stats.cardUsageCount[cardName] = currentTotal + matchCount;
-
-            // 通算カラー傾向もあわせて加算
-            const cardData = CARD_DATABASE.find(c => c.name === cardName);
-            if (cardData && cardData.colorId) {
-                userProfile.stats.colorUsage[cardData.colorId] = (Number(userProfile.stats.colorUsage[cardData.colorId]) || 0) + matchCount;
-            }
-        }
-    }
-
-    // 3. 「加算済み」の通算データから、改めてトップ（MVP）を特定
-    let topCardName = userProfile.stats.mvpCard || null;
-    let maxUsageVal = -1;
-
-    // 通算カード使用履歴をループ
-    const totalHistory = userProfile.stats.cardUsageCount;
-    for (const name in totalHistory) {
-        const usage = Number(totalHistory[name]);
-        if (usage > maxUsageVal) {
-            maxUsageVal = usage;
-            topCardName = name;
-        }
-    }
-    
-    // 4. 特定されたMVPと回数を確定反映
-    if (topCardName) {
-        userProfile.stats.mvpCard = topCardName;
-        // console.log(`[MVP Sync] ${topCardName} (Total: ${maxUsageVal}回)`);
-    }
-    
-    /* 2026/03/17 修正：未定義の変数 overallMaxCount を maxUsageVal に修正し、リファレンスエラーを解消 */
-    // 5. ローカルに保存
+    // --- 7. 保存とクラウド同期 ---
     saveUserProfile();
+    if (typeof syncProfileToCloud === 'function') syncProfileToCloud();
     
-    // 特定された最高使用回数(maxUsageVal)を使用してログを出力
-    console.log(`[Stats Update] MVP: ${userProfile.stats.mvpCard}, Total: ${maxUsageVal}回`);
-
-    // 6. クラウドに同期（ログイン済みの場合のみ内部で実行されます）
-    if (typeof syncProfileToCloud === 'function') {
-        syncProfileToCloud();
-    }
+    console.log("[DEBUG] updateProfileAfterGame 完了。統計が保存されました。");
 }
 
 /**
@@ -4257,11 +4221,21 @@ function listenRoomUpdate(roomID) {
                     }, 1000); 
                 }
 
+                /**
+                 * 2026/03/21 13:15 修正
+                 * ゲスト側の画面遷移不備を解消。
+                 * 盤面復元時にホーム画面(home-screen)を物理的にも隠すことで、
+                 * ゲーム画面が正しく表示されるように修正。
+                 */
                 // 2. UIの生成（マス目を作る）
                 if (typeof generateUI === 'function') generateUI(); 
-                ['setup-overlay', 'home-screen', 'title-overlay'].forEach(id => {
+                ['setup-overlay', 'home-screen', 'title-overlay', 'online-menu-overlay'].forEach(id => {
                     const el = document.getElementById(id);
-                    if (el) el.classList.add('hidden');
+                    if (el) {
+                        el.classList.add('hidden');
+                        // 外科手術：displayスタイルも物理的に消去して確実に隠す
+                        el.style.display = 'none';
+                    }
                 });
 
                 // 3. 盤面の復元（JSON文字列をオブジェクトに戻す）

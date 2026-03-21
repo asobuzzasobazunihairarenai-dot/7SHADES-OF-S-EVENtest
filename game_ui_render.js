@@ -743,14 +743,28 @@ function renderHand() {
 function renderStatus() { 
     if(!players || !players.length) return;
 
-    // 自分自身のIDを特定（renderBoardと同じロジック）
+    // --- 修正箇所：自分自身の特定ロジックを最強化 ---
     let myId = 1;
-    const profileUid = (typeof userProfile !== 'undefined') ? userProfile.uid : null;
-    const me = players.find(pl => (profileUid && pl.uid === profileUid) || pl.name === "Guest");
-    if (me) myId = me.id;
+    // 1. プロフィール名を取得
+    const myProfileName = (typeof userProfile !== 'undefined') ? userProfile.name : null;
+    
+    // 2. プレイヤーリストから自分を探す（名前の一致、またはGuest判定）
+    const me = players.find(pl => 
+        (myProfileName && pl.name === myProfileName) || 
+        (pl.name === "Guest" && myProfileName === "Guest")
+    );
 
-    // プレイヤーリストを「自分」が先頭に来るように並び替えた一時的な配列を作成
-    // これにより、players[0]が誰であっても、自分自身の情報が p1-status の位置に描画されるようになります
+    if (me) {
+        myId = me.id;
+    } else {
+        // 見つからない場合、オンラインでなければ P1 (ID:1) を自分とする
+        myId = (typeof isOnline !== 'undefined' && isOnline) ? 2 : 1; 
+    }
+
+    // デバッグログ：ここが正しい名前になっていれば成功です
+    console.log(`[Status View] Identified Myself as ID: ${myId}, Name: ${me ? me.name : 'Fallback'}`);
+
+    // 表示順の整理：自分を先頭（index 0）に、それ以外を順番に並べる
     const sortedPlayers = [...players].sort((a, b) => {
         if (a.id === myId) return -1;
         if (b.id === myId) return 1;
@@ -758,10 +772,9 @@ function renderStatus() {
     });
 
     sortedPlayers.forEach((p, index) => { 
-        // 修正ポイント：p.id ではなく index（0, 1, 2...）を元にHTML要素を特定する
-        // これにより、自分のデータ(sortedPlayers[0])が id="p1-status" 等の要素に流し込まれます
-        const targetElementId = index + 1; 
-        const container = document.getElementById(`p${targetElementId}-status`);
+        // 常に index + 1 (1, 2, 3...) のHTML要素に流し込む
+        const uiSlotId = index + 1; 
+        const container = document.getElementById(`p${uiSlotId}-status`);
         const isMyTurn = (turn === players.indexOf(p)); 
 
         if (container) {
@@ -769,12 +782,12 @@ function renderStatus() {
             else container.classList.remove("player-active-box"); 
         }
         
-        const nameEl = document.getElementById(`p${targetElementId}-name`);
+        const nameEl = document.getElementById(`p${uiSlotId}-name`);
         if (nameEl) {
             nameEl.textContent = p.name || `Player ${p.id}`;
         }
 
-        const rightsEl = document.getElementById(`p${targetElementId}-rights`);
+        const rightsEl = document.getElementById(`p${uiSlotId}-rights`);
         if (rightsEl) {
             rightsEl.innerHTML = '';
             rightsEl.className = "flex items-center gap-1 mt-0.5"; 
@@ -830,8 +843,7 @@ function renderStatus() {
         }
 
         LOCK_ORDER.forEach(color => {
-            // ここも targetElementId を使用するように修正
-            const slotEl = document.getElementById(`p${targetElementId}-slot-${color.id}`); 
+            const slotEl = document.getElementById(`p${uiSlotId}-slot-${color.id}`); 
             if(!slotEl) return; 
             const slotCards = collections[p.id] ? collections[p.id][color.id] : []; 
             slotEl.innerHTML = ''; 
@@ -931,9 +943,6 @@ function renderStatus() {
             } 
         });
     }); 
-
-    const oldLockArea = document.getElementById('my-lock-container');
-    if (oldLockArea) oldLockArea.classList.add('hidden', 'pointer-events-none');
 }
 
 function renderMyLockArea() { 

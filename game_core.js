@@ -4218,8 +4218,16 @@ function listenRoomUpdate(roomID) {
                     });
                     
                     /* 2026/03/14 修正：プレイヤー情報の反映をさらに確実に実行 */
-                    // 1. まず変数を窓口（window）にセットしてエラーを防ぐ
-                    window.currentPhaseMaxTime = 15;
+                    /**
+                     * 2026/03/21 21:55 修正
+                     * ゲスト側画面の描画を強制更新し、ステータスエリアの ID に合わせて
+                     * 正しい名前が表示されるよう反映を強化。
+                     */
+                    setTimeout(() => {
+                        updateProfileButtonVisual(); // プロフィールUIの全体更新
+                        renderStatus(); 
+                        updateGameState(true);
+                    }, 500);
                     window.PHASE_TIME_ADD = 15;
 
                     // 2. 画面への反映を時間差で2回行い、描画漏れを防ぐ
@@ -4533,16 +4541,36 @@ async function handleJoinRoom() {
  */
 /* 2026/03/14 修正：画面の非表示処理を追加 */
 /* 2026/03/14 修正：Firebaseエラーを回避するため、データを徹底的に分解して送信 */
+/**
+ * 2026/03/21 21:50 修正
+ * オンライン戦開始時、initGameInternal でリセットされた players 配列に対し
+ * ホストとゲストの正式な名前を即座に再適用して上書きを防ぐ。
+ */
 async function startOnlineGameHost(num) {
     const homeScreen = document.getElementById('home-screen');
     if(homeScreen) homeScreen.classList.add('hidden');
     const setupOverlay = document.getElementById('setup-overlay');
     if(setupOverlay) setupOverlay.classList.add('hidden');
 
-    // 1. 手元で初期化
+    // 1. 手元で初期化（ここで players が P1, P2 にリセットされる）
     await initGameInternal(num);
+
+    // 1.5 正式な名前の「再注入」
+    if (players && players.length >= 2) {
+        players[0].name = userProfile.name || "AsobuzZ";
+        players[0].icon = userProfile.icon;
+        
+        const roomData = window.MULTIPLAY.latestRoomData;
+        if (roomData && roomData.guestInfo) {
+            players[1].name = roomData.guestInfo.split('|')[0];
+            players[1].icon = roomData.guestInfo.split('|')[1];
+        } else if (roomData && roomData.players) {
+            players[1].name = roomData.players[1] || "IS";
+        }
+        console.log("[DEBUG-Online] ホスト側 players 名を再固定しました:", players.map(p => p.name));
+    }
     
-    // 2. 盤面を1次元の「文字」に変換（もっとも安全な方法）
+    // 2. 盤面を1次元の「文字」に変換
     const boardStrings = serializeBoard(board).map(cell => JSON.stringify(cell));
     
     // 3. デッキとプレイヤーをただの「数字/文字の配列」にする
@@ -4585,7 +4613,9 @@ async function startOnlineGameHost(num) {
         
         console.log(`[DEBUG-Online] プレイヤー${p.id}の同期用名前確定: ${actualName}`);
         
-        return `${p.id}|${safeIcon}|${actualName}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
+        // 各項目の間に確実に名前(actualName)が入るように固定
+        const pDataString = [p.id, safeIcon, actualName, p.startPos.x, p.startPos.y, p.color.id, firstCardId].join('|');
+        return pDataString;
     });
 
     const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);

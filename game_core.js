@@ -4585,39 +4585,49 @@ async function startOnlineGameHost(num) {
         if (freshDoc.exists) {
             const data = freshDoc.data();
             // guestInfo (名前|アイコン) があればそれを使う
+            /**
+             * 2026/03/22 00:45 修正
+             * VS画面の表示不具合を修正（cssTextの使用）。
+             * あわせて、Firebase からの生データ受信ログを強化。
+             */
+            console.log("[DEBUG-Online] Firebaseからの生データ:", data);
             if (data.guestInfo) {
                 const infoParts = data.guestInfo.split('|');
                 realGuestName = infoParts[0];
                 realGuestIcon = infoParts[1];
-                console.log(`[DEBUG-Online] Firebaseから本物を取得完了: ${realGuestName}`);
+                console.log(`[DEBUG-Online] 解析後のゲスト情報: Name=${realGuestName}, Icon=${realGuestIcon}`);
 
-                /**
-                 * 2026/03/22 00:30 修正
-                 * 【検証用：VSオーバーレイ】
-                 * 発送直前にホストが認識しているアイコンを画面に大きく表示します。
-                 * これにより、取得ミスか上書きミスかを切り分けます。
-                 */
                 const vsDiv = document.createElement('div');
-                vsDiv.style = "fixed; inset:0; background:rgba(0,0,0,0.9); z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:white; font-family:sans-serif;";
+                // style ではなく style.cssText を使用するように修正
+                vsDiv.style.cssText = "position:fixed; inset:0; background:rgba(0,0,0,0.95); z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:white; font-family:sans-serif;";
                 vsDiv.id = "verification-vs-overlay";
                 vsDiv.innerHTML = `
                     <div style="font-size:20px; color:#fbbf24; font-weight:black; margin-bottom:40px; letter-spacing:0.2em;">MATCH VERIFICATION</div>
                     <div style="display:flex; align-items:center; gap:40px;">
                         <div style="text-align:center;">
-                            <img src="${userProfile.icon}" style="width:100px; height:100px; border-radius:50%; border:4px solid #3b82f6; object-cover;">
-                            <div style="margin-top:10px; font-weight:bold;">${userProfile.name} (HOST)</div>
+                            <img src="${userProfile.icon}" style="width:120px; height:120px; border-radius:50%; border:4px solid #3b82f6; object-fit:cover;">
+                            <div style="margin-top:10px; font-weight:bold;">${userProfile.name}</div>
+                            <div style="font-size:10px; color:#3b82f6;">HOST</div>
                         </div>
                         <div style="font-size:40px; font-style:italic; font-weight:black; color:#ef4444;">VS</div>
                         <div style="text-align:center;">
-                            <img src="${realGuestIcon}" style="width:100px; height:100px; border-radius:50%; border:4px solid #ef4444; object-cover;">
-                            <div style="margin-top:10px; font-weight:bold;">${realGuestName} (GUEST)</div>
+                            <img src="${realGuestIcon}" style="width:120px; height:120px; border-radius:50%; border:4px solid #ef4444; object-fit:cover;">
+                            <div style="margin-top:10px; font-weight:bold;">${realGuestName}</div>
+                            <div style="font-size:10px; color:#ef4444;">GUEST</div>
                         </div>
                     </div>
-                    <div style="margin-top:50px; font-size:12px; color:#aaa;">この画面のアイコンが正しければ、Firebaseからの取得は成功しています。</div>
+                    <div style="margin-top:50px; font-size:12px; color:#aaa; text-align:center; max-width:80%;">
+                        この画面の右側のアイコンが正しければ、Firebaseからの取得は成功しています。<br>
+                        もしここでも初期画像なら、Firebaseにデータが届いていません。
+                    </div>
                 `;
                 document.body.appendChild(vsDiv);
-                // 3秒後に自動で消して続行
-                setTimeout(() => vsDiv.remove(), 3500);
+                console.log("[DEBUG-Online] VS検証画面を表示しました。");
+                // 4秒表示
+                setTimeout(() => {
+                    vsDiv.remove();
+                    console.log("[DEBUG-Online] VS検証画面を閉じました。");
+                }, 4000);
             } else if (data.players && data.players[1]) {
                 // guestInfoがない場合は、入室リストの2番目の名前を使う
                 realGuestName = data.players[1];

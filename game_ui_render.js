@@ -361,25 +361,16 @@ function renderBoard() {
     if (!players || !players.length) return;
 
     /**
-     * 2026/03/22 修正：視点判定の最終解決（ホストフラグ優先）
+     * 2026/03/22 02:00 修正：視点判定の最終解決（通信フラグ直結型）
      */
-    const loginName = (userProfile && userProfile.name) ? userProfile.name.trim().toLowerCase() : "";
-    const isActuallyHost = (window.MULTIPLAY && window.MULTIPLAY.isHost) || window.isHost;
-
-    // 1. まず「ホストならID:1、ゲストならID:2」を絶対の基準にする
-    let me = players.find(pl => pl.id === (isActuallyHost ? 1 : 2));
-
-    // 2. もしisMeフラグがついていればそれを尊重する
-    const meFlag = players.find(pl => pl.isMe === true);
-    if (meFlag) me = meFlag;
-
-    const p = me || players[0];
-    const myId = p.id;
-
-    // 以前の反転ロジックはそのまま維持
-    const isInverted = (myId !== 1);
+    const isActuallyHost = (window.MULTIPLAY && window.MULTIPLAY.isHost === true) || (window.isHost === true);
     
-    console.log(`[View Sync Success] I am ${isActuallyHost ? 'HOST' : 'GUEST'}, FocusID: ${myId}, Inverted: ${isInverted}`);    
+    // ホストなら ID:1（手前）、ゲストなら ID:2（奥）を自分の視点として強制固定
+    const myViewId = isActuallyHost ? 1 : 2;
+    const p = players.find(pl => pl.id === myViewId) || players[0];
+    const isInverted = !isActuallyHost; // ホスト以外は全員反転（ゲスト視点）
+
+    console.log(`[View Final] isHost: ${isActuallyHost}, ViewID: ${myViewId}, Inverted: ${isInverted}`);    
     // 自分が Guest (通常はID:2) なら盤面を反転
     if (isInverted) console.log("[View Check] Guest Perspective: Inverting Board UI.");
 
@@ -744,27 +735,27 @@ function renderHand() {
     }
 }
 
+/**
+ * 2026/03/22 02:00 修正：UI配置の最終解決（通信フラグ直結型）
+ */
 function renderStatus() { 
     if(!players || !players.length) return;
 
-    /**
-     * 2026/03/22 修正：UI配置の最終解決（ホストフラグ優先）
-     */
-    const isActuallyHost = (window.MULTIPLAY && window.MULTIPLAY.isHost) || window.isHost;
-    const me = players.find(pl => pl.id === (isActuallyHost ? 1 : 2)) || players.find(pl => pl.isMe === true);
-    const myId = me ? me.id : 1;
+    const isActuallyHost = (window.MULTIPLAY && window.MULTIPLAY.isHost === true) || (window.isHost === true);
+    const myViewId = isActuallyHost ? 1 : 2;
 
-    console.log(`[Status Sync Success] MyID: ${myId}, Name: ${me ? me.name : 'Unknown'}`);
+    console.log(`[Status Final] isHost: ${isActuallyHost}, UI Alignment ID: ${myViewId}`);
 
-    // 表示順の整理：自分を先頭（index 0）に、それ以外を順番に並べる
+    // 表示順の整理：myViewId を持つプレイヤーを必ず先頭（index 0 = 手前）に持ってくる
     const sortedPlayers = [...players].sort((a, b) => {
-        if (a.id === myId) return -1;
-        if (b.id === myId) return 1;
+        if (a.id === myViewId) return -1;
+        if (b.id === myViewId) return 1;
         return a.id - b.id;
     });
 
+    // --- 3. UIへの流し込み ---
     sortedPlayers.forEach((p, index) => { 
-        // 常に index + 1 (1, 2, 3...) のHTML要素に流し込む
+        // index 0（自分）は p1-status へ、index 1（相手）は p2-status へ
         const uiSlotId = index + 1; 
         const container = document.getElementById(`p${uiSlotId}-status`);
         const isMyTurn = (turn === players.indexOf(p)); 

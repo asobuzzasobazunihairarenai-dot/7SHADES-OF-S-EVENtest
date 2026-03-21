@@ -361,27 +361,26 @@ function renderBoard() {
     if (!players || !players.length) return;
 
     /**
-     * 2026/03/22 修正：視点判定の最強化（isMe 優先 & 名前直接照合）
+     * 2026/03/22 修正：視点判定の最終解決（ホストフラグ優先）
      */
-    const loginName = (typeof userProfile !== 'undefined' && userProfile.name) ? userProfile.name.trim().toLowerCase() : "";
-    
-    // 1. isMeフラグ、またはログイン名が完全一致するプレイヤーを探す
-    let me = players.find(pl => pl.isMe === true) || 
-             players.find(pl => pl.name && pl.name.trim().toLowerCase() === loginName);
-    
-    // 2. それでも見つからない場合、ホストならP1、ゲストならP2と仮定する
-    if (!me) {
-        const reallyHost = (typeof window.isHost !== 'undefined' && window.isHost === true);
-        me = players.find(pl => pl.id === (reallyHost ? 1 : 2));
-    }
-    
+    const loginName = (userProfile && userProfile.name) ? userProfile.name.trim().toLowerCase() : "";
+    const isActuallyHost = (window.MULTIPLAY && window.MULTIPLAY.isHost) || window.isHost;
+
+    // 1. まず「ホストならID:1、ゲストならID:2」を絶対の基準にする
+    let me = players.find(pl => pl.id === (isActuallyHost ? 1 : 2));
+
+    // 2. もしisMeフラグがついていればそれを尊重する
+    const meFlag = players.find(pl => pl.isMe === true);
+    if (meFlag) me = meFlag;
+
     const p = me || players[0];
     const myId = p.id;
 
-    // 詳細ログ（ここで ID と Name が一致していれば成功）
-    console.log(`[View System] Target: "${loginName}", FoundPlayer: "${p.name}", MyID: ${myId}, isHost: ${window.isHost}`);    
-    // 自分が Guest (通常はID:2) なら盤面を反転
+    // 以前の反転ロジックはそのまま維持
     const isInverted = (myId !== 1);
+    
+    console.log(`[View Sync Success] I am ${isActuallyHost ? 'HOST' : 'GUEST'}, FocusID: ${myId}, Inverted: ${isInverted}`);    
+    // 自分が Guest (通常はID:2) なら盤面を反転
     if (isInverted) console.log("[View Check] Guest Perspective: Inverting Board UI.");
 
     // --- 条件付き監視ロジック ---
@@ -749,20 +748,13 @@ function renderStatus() {
     if(!players || !players.length) return;
 
     /**
-     * 2026/03/22 修正：UI配置判定の最強化（isMe 優先 & 名前直接照合）
+     * 2026/03/22 修正：UI配置の最終解決（ホストフラグ優先）
      */
-    const loginName = (typeof userProfile !== 'undefined' && userProfile.name) ? userProfile.name.trim().toLowerCase() : "";
-    let me = players.find(pl => pl.isMe === true) || 
-             players.find(pl => pl.name && pl.name.trim().toLowerCase() === loginName);
-    
-    if (!me) {
-        const reallyHost = (typeof window.isHost !== 'undefined' && window.isHost === true);
-        me = players.find(pl => pl.id === (reallyHost ? 1 : 2));
-    }
-    
+    const isActuallyHost = (window.MULTIPLAY && window.MULTIPLAY.isHost) || window.isHost;
+    const me = players.find(pl => pl.id === (isActuallyHost ? 1 : 2)) || players.find(pl => pl.isMe === true);
     const myId = me ? me.id : 1;
 
-    console.log(`[Status UI] MyID: ${myId}, Name: ${me ? me.name : 'Unknown'}`);
+    console.log(`[Status Sync Success] MyID: ${myId}, Name: ${me ? me.name : 'Unknown'}`);
 
     // 表示順の整理：自分を先頭（index 0）に、それ以外を順番に並べる
     const sortedPlayers = [...players].sort((a, b) => {

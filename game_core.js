@@ -2591,6 +2591,7 @@ function cleanupGame() {
 }
 
 /**
+ * 2026/03/21 02:00 修正
  * ターン数の初期値を0に設定し、1ターン目から正しくカウントされるように修正。
  */
 async function initGameInternal(num, isTest = false) { 
@@ -2817,10 +2818,6 @@ async function initGameInternal(num, isTest = false) {
             x: pos.x, 
             y: pos.y, 
             startPos: {...pos}, 
-            /**
-             * 2026/03/22 修正：オンライン対戦時の「自分」判定を確定
-             */
-            isMe: (profile && userProfile.uid && profile.uid === userProfile.uid) || (profile && profile.name === "Guest" && !window.isHost),
             name: profile ? profile.name : `P${assignedId}`, 
             icon: profile ? profile.icon : `images/character_00${assignedId}.webp`,
             pieceImage: pColor.pieceImage, 
@@ -4539,49 +4536,22 @@ async function startOnlineGameHost(num) {
     /* 2026/03/14 修正：プレイヤーの初期ロック情報（ファーストカード）も文字列に含める */
     /* 2026/03/14 修正：Googleアイコンのエラー防止措置を追加 */
     /* 2026/03/14 修正：ホスト自身の最新情報を確実に送信 */
-/**
-     * 2026/03/21 14:15 修正
-     * ホスト開始時に、入室したゲストの情報をFirebaseから取得して同期データに含めます。
-     * これにより、両者の画面で「AsobuzZ」と「I S」が正しく表示されます。
-     */
-    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-    const roomDoc = await roomRef.get();
-    const roomData = roomDoc.data();
-    
-    // ゲスト情報(guestInfo = "名前|アイコン")を分解して取得
-    let guestName = "Guest";
-    let guestIcon = "images/character_002.webp";
-    if (roomData && roomData.guestInfo) {
-        const parts = roomData.guestInfo.split('|');
-        guestName = parts[0];
-        guestIcon = parts[1];
-        console.log(`[Online] ゲスト情報を特定しました: ${guestName}`);
-    }
-
     const playersBasic = players.map((p, idx) => {
         const firstCard = collections[p.id][p.color.id][0];
         const firstCardId = firstCard ? firstCard.id : "";
         
-        // 名前を確定：P1なら自分の、P2ならゲストの情報を採用
-        let actualName = p.name;
-        let actualIcon = p.icon;
-
-        if (p.id === 1) {
-            actualName = userProfile.name || "Host";
-            actualIcon = userProfile.icon;
-        } else if (p.id === 2) {
-            actualName = guestName;
-            actualIcon = guestIcon;
+        // P1（ホスト自身）の場合は、userProfile の最新の名前を使う
+        const actualName = (p.id === 1) ? (userProfile.name || p.name) : p.name;
+        
+        let safeIcon = p.icon;
+        if (!safeIcon || safeIcon.includes('googleusercontent') || safeIcon.includes('http')) {
+            safeIcon = `images/character_00${p.id}.webp`;
         }
         
-        // アイコンの安全処理（以前の修正を維持）
-        if (!actualIcon || actualIcon.includes('googleusercontent')) {
-            actualIcon = `images/character_00${p.id}.webp`;
-        }
-        
-        return `${p.id}|${actualIcon}|${actualName}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
+        return `${p.id}|${safeIcon}|${actualName}|${p.startPos.x}|${p.startPos.y}|${p.color.id}|${firstCardId}`;
     });
 
+    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
     
     try {
         // 全てを「配列の配列」にせず、バラバラの項目として保存

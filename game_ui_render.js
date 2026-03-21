@@ -358,61 +358,51 @@ function renderBoard() {
     const boardEl = document.getElementById('board-grid');
     if (!boardEl) return;
     boardEl.innerHTML = '';
-    if (!players || !players.length) return;
+    if (!players || !players.length || !players[turn]) return;
 
-    /**
-     * 2026/03/22 02:00 修正：視点判定の最終解決（通信フラグ直結型）
-     */
-    const isActuallyHost = (window.MULTIPLAY && window.MULTIPLAY.isHost === true) || (window.isHost === true);
-    
-    // ホストなら ID:1（手前）、ゲストなら ID:2（奥）を自分の視点として強制固定
-    const myViewId = isActuallyHost ? 1 : 2;
-    const p = players.find(pl => pl.id === myViewId) || players[0];
-    const isInverted = !isActuallyHost; // ホスト以外は全員反転（ゲスト視点）
+    // ★修正：プレイヤー配列が空、または現在のプレイヤーが未定義の場合（初期化中）への対策
+    const p = (players && players.length > 0 && players[turn]) ? players[turn] : null;
 
-    console.log(`[View Final] isHost: ${isActuallyHost}, ViewID: ${myViewId}, Inverted: ${isInverted}`);    
-    // 自分が Guest (通常はID:2) なら盤面を反転
-    if (isInverted) console.log("[View Check] Guest Perspective: Inverting Board UI.");
-
-    // --- 条件付き監視ロジック ---
+    // --- 修正箇所：条件付き監視ロジック ---
+    // 選択モード中でなく、かつ自分が移動処理中でない時のみ、足元の未処理カードをチェック
     if (!selectionState.active && !isProcessingMove) { 
         players.forEach(pObj => {
             if (pObj.x === -1 || pObj.y === -1) return;
             const cell = board[pObj.y][pObj.x];
+            
+            // カードが存在し、表向きで、かつまだそのプレイヤーがそのカードの効果を処理していない場合
             if (cell && !cell.empty && cell.revealed && pObj.processedArrivalCard !== cell.color) {
                 pObj.processedArrivalCard = cell.color;
+                
+                // 演出が重ならないようわずかに遅延させて実行
                 setTimeout(() => {
                     handleArrivalLogic(cell, pObj, null, cell.color, false);
                 }, 50);
             }
         });
     }
-
-    // 盤面描画ループ（isInvertedがtrueなら逆順にループ）
-    for (let i = 0; i < GRID_SIZE; i++) {
-        for (let j = 0; j < GRID_SIZE; j++) {
-            const y = isInverted ? (GRID_SIZE - 1 - i) : i;
-            const x = isInverted ? (GRID_SIZE - 1 - j) : j;
-            
-            const cell = board[y][x];
+    // --- 修正箇所ここまで ---
+    
+    board.forEach((row, y) => {
+        row.forEach((cell, x) => {
             const div = document.createElement('div');
             let cls = "cell relative rounded-sm flex items-center justify-center transition-all duration-300 w-full h-full hover-zoom ";
-            
             const owner = players.find(pl => pl.startPos.x === x && pl.startPos.y === y);
             let gateOverlay = '';
             if (owner) {
-                const borderColor = owner.color.hex; 
-                gateOverlay = `<div class="gate-glow-overlay" style="border: 2px solid ${borderColor}; box-shadow: 0 0 5px ${borderColor};"></div>`;
+                const borderColor = owner.color.hex; gateOverlay = `<div class="gate-glow-overlay" style="border: 2px solid ${borderColor}; box-shadow: 0 0 5px ${borderColor};"></div>`;
             }
             
             let cardDisplay = '';
+            // ★修正：cell.color が null（配置中）の場合でもエラーにならないようガード
             if (cell && !cell.empty && cell.color) {
                 if (cell.revealed) { 
                     const label = cell.color.image ? "" : `<span class="z-10">${cell.color.name[0]}</span>`;
                     cardDisplay = `<div class="w-full h-full border border-white/5 flex items-center justify-center shadow-sm pointer-events-none relative overflow-hidden" style="font-size: 8px; ${cell.color.image ? `background-image: url('${cell.color.image}'); background-size: cover; background-position: center;` : `background-color: ${cell.color.hex};`}">
                         ${label}
                     </div>`; 
-                } else {
+                } 
+                else {
                     cardDisplay = `<div class="w-full h-full rounded-sm card-back-pattern border border-gray-500/30 flex items-center justify-center pointer-events-none"><span class="text-white opacity-20 text-[8px] font-bold">?</span></div>`;
                 }
                 const stackCount = (cell.stack || []).filter(c => c).length;
@@ -421,12 +411,24 @@ function renderBoard() {
                 cls += "bg-transparent "; 
             }
 
+            /**
+ * 2026/03/19 修正：選択モード時のハイライト表示の確実化
+ */
+            /**
+ * 2026/03/19 14:00 修正
+ * 1. 選択可能マスのハイライトを緑色 (ring-green-400) に統一。
+ * 2. 移動先のハイライトも黄色から緑色へ変更。
+ * 3. 選択済みマスの強調 (ring-yellow-500) を維持し、3D空間で浮かせるための z-50 を付与。
+ */
             if (p && selectionState.active) {
                 const isSelectable = isCellSelectable(x, y);
                 if (isSelectable) {
+                    // 選択可能：緑色でハイライト
                     cls += "selectable ring-2 ring-green-400 opacity-100 z-50 "; 
                     div.onclick = () => { if(!isLongPressActive) handleSelection(x, y); };
+                    
                     if (selectionState.selected.some(s => s.x === x && s.y === y)) {
+                        // 選択済み：黄色（金）でさらに強調
                         cls += "ring-4 ring-yellow-500 "; 
                         if (selectionState.count > 1) {
                             const selIdx = selectionState.selected.findIndex(s => s.x === x && s.y === y);
@@ -453,67 +455,100 @@ function renderBoard() {
                             if (!p.konohanaPenalty) { cls += "ring-2 ring-red-500 cursor-pointer z-50 "; showRing = true; } 
                         }
                         else { 
+                            // 修正：移動先のハイライトを黄色(yellow-400)から緑色(green-400)に統一
                             if (!p.marmegoPenalty) { cls += "ring-2 ring-green-400 cursor-pointer z-50 "; showRing = true; } 
                         }
                         if (showRing) div.onclick = () => { if(!isLongPressActive) handleBoardClick(x, y); };
                     } else cls += "opacity-50 cursor-not-allowed "; 
                 } else cls += "opacity-90 ";
+            } else {
+                cls += "opacity-90 "; // p がいない初期化中
             }
 
+            // --- 1. セルの基本設定 ---
             div.className = cls; 
             div.innerHTML = cardDisplay + gateOverlay; 
 
+            // --- 2. 特殊演出（気まぐれ）の適用 ---
             const whimInfo = richWhimHistory.find(h => h.pos.x === x && h.pos.y === y);
             if (whimInfo) {
                 div.classList.add('rich-whim-highlight');
                 div.style.setProperty('--player-color', whimInfo.player.color.hex);
                 const label = document.createElement('div');
                 label.className = 'whim-label';
+                
+                // After: 名前を最大3文字に制限。4文字以上の場合は末尾に ".." を付加して省略。
                 const originalName = whimInfo.player.name || "";
-                label.textContent = originalName.length > 3 ? originalName.substring(0, 3) + ".." : originalName;
+                label.textContent = originalName.length > 3 
+                    ? originalName.substring(0, 3) + ".." 
+                    : originalName;
+                
                 div.appendChild(label);
             }
 
+            // --- 3. プレイヤー駒の描画（5面体構造 ＆ 演出パーツの分離） ---
             const pOnCellMarker = players.find(pl => x === pl.x && y === pl.y && x !== -1); 
             if (pOnCellMarker) { 
-                const isActive = (turn === players.indexOf(pOnCellMarker)); 
+                const isActive = p && (turn === players.indexOf(pOnCellMarker)); 
                 const pDiv = document.createElement('div'); 
                 pDiv.id = `p${pOnCellMarker.id}-marker`; 
                 pDiv.className = `player-marker`; 
-                const rotateX = -50;
-                pDiv.style.setProperty('--rotate-x', `${rotateX}deg`);
-                pDiv.style.setProperty('--rotate-y', `0deg`);
-                const verticalScale = 1.2 - (y * 0.03); 
-                pDiv.style.transform = `rotateX(${rotateX}deg) translateZ(15px) translateY(-40px) scaleY(${verticalScale})`;                
                 
-                if (pOnCellMarker.pieceImage) {
+                // 2026/03/20 修正：駒の潜り込み防止のため translateZ をプラスに変更し接地位置を調整
+                // 2026/03/21 修正：奥（y=0付近）に行くほど背が縮むため、y座標に応じて垂直方向に拡大(scaleY)をかける
+                const rotateX = -50;
+                const rotateY = 0;
+                pDiv.style.setProperty('--rotate-x', `${rotateX}deg`);
+                pDiv.style.setProperty('--rotate-y', `${rotateY}deg`);
+                
+                // y=0(最奥)で約1.2倍、y=6(最前)で1.0倍になるように計算
+                const verticalScale = 1.2 - (y * 0.03); 
+                pDiv.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateZ(15px) translateY(-40px) scaleY(${verticalScale})`;                
+                const markerImage = pOnCellMarker.pieceImage;
+
+                if (markerImage) {
+                    // ★外科手術：立方体本体（5面）を作成
                     const faces = ['front', 'top', 'left', 'right', 'back'];
                     faces.forEach(name => {
                         const f = document.createElement('div');
                         f.className = `cube-face face-${name}`;
-                        f.style.backgroundImage = `url('${pOnCellMarker.pieceImage}')`;
+                        f.style.backgroundImage = `url('${markerImage}')`;
                         pDiv.appendChild(f);
                     });
+
+                    // ★新規：演出用オーラパーツを「立方体の外側」に独立して作成
                     if (isActive) {
                         const aura = document.createElement('div');
                         aura.className = 'cube-aura-layer';
+                        // オーラの色をセット
                         aura.style.setProperty('--aura-color', pOnCellMarker.color.hex || '#fff');
                         pDiv.appendChild(aura);
                     }
+                } else {
+                    pDiv.className += ` ${pOnCellMarker.css} rounded-sm`;
                 }
+
+                /**
+ * 2026/03/19 修正：駒がいるマスの視認性確保
+ */
                 if (isActive) {
                     div.classList.add('player-active'); 
                     pDiv.style.setProperty('--player-color-glow', pOnCellMarker.color.hex || '#fff');
+                    // 駒がいるマスのハイライト不透明度をわずかに下げ、駒を際立たせる
                     div.style.opacity = "1";
                 }
                 div.appendChild(pDiv); 
             }
+
+            // --- 4. ホバーイベントの登録（ご質問の箇所：ここに残します） ---
             if (cell && !cell.empty && cell.color && cell.revealed) {
                 attachHoverEvents(div, cell.color, true);
             }
+
+            // --- 5. セルを盤面に追加 ---
             boardEl.appendChild(div);
-        }
-    }
+        });
+    });
 }
 
 /**
@@ -735,29 +770,10 @@ function renderHand() {
     }
 }
 
-/**
- * 2026/03/22 02:00 修正：UI配置の最終解決（通信フラグ直結型）
- */
 function renderStatus() { 
-    if(!players || !players.length) return;
-
-    const isActuallyHost = (window.MULTIPLAY && window.MULTIPLAY.isHost === true) || (window.isHost === true);
-    const myViewId = isActuallyHost ? 1 : 2;
-
-    console.log(`[Status Final] isHost: ${isActuallyHost}, UI Alignment ID: ${myViewId}`);
-
-    // 表示順の整理：myViewId を持つプレイヤーを必ず先頭（index 0 = 手前）に持ってくる
-    const sortedPlayers = [...players].sort((a, b) => {
-        if (a.id === myViewId) return -1;
-        if (b.id === myViewId) return 1;
-        return a.id - b.id;
-    });
-
-    // --- 3. UIへの流し込み ---
-    sortedPlayers.forEach((p, index) => { 
-        // index 0（自分）は p1-status へ、index 1（相手）は p2-status へ
-        const uiSlotId = index + 1; 
-        const container = document.getElementById(`p${uiSlotId}-status`);
+    if(!players) return;
+    players.forEach(p => { 
+        const container = document.getElementById(`p${p.id}-status`);
         const isMyTurn = (turn === players.indexOf(p)); 
 
         if (container) {
@@ -765,24 +781,31 @@ function renderStatus() {
             else container.classList.remove("player-active-box"); 
         }
         
-        const nameEl = document.getElementById(`p${uiSlotId}-name`);
+        /* 2026/03/14 追加：プレイヤー名とアイコンを同期反映 */
+        const nameEl = document.getElementById(`p${p.id}-name`);
         if (nameEl) {
+            // Firebaseから届いた名前に書き換える
             nameEl.textContent = p.name || `Player ${p.id}`;
         }
 
-        const rightsEl = document.getElementById(`p${uiSlotId}-rights`);
+        const rightsEl = document.getElementById(`p${p.id}-rights`);
         if (rightsEl) {
             rightsEl.innerHTML = '';
             rightsEl.className = "flex items-center gap-1 mt-0.5"; 
 
+            // 1. プロフィール画像の反映
             const profImg = document.createElement('img');
+            // Firebaseから届いたアイコンパスを使用（なければデフォルト）
             const iconPath = p.icon || `images/character_00${p.id}.webp`;
             profImg.src = iconPath;
             profImg.className = "w-6 h-6 rounded-full border border-gray-500 shadow-sm object-cover";
             rightsEl.appendChild(profImg);
 
+            // 2. 手札枚数の追加
             const handInfo = document.createElement('div');
+            //ステータスエリアの手札枚数のフォントサイズ
             handInfo.className = "flex items-center text-[12px] font-bold text-gray-300 mr-1";
+            // 2. 手札枚数の反映（同期された枚数を使う）
             const handCount = (hands[p.id] || []).length;
             handInfo.innerHTML = `
              <div class="w-4 h-4 mr-1 border border-gray-500 rounded-[2px] overflow-hidden shadow-sm opacity-80" 
@@ -792,15 +815,18 @@ function renderStatus() {
              `;
             rightsEl.appendChild(handInfo);
 
+            // 3. 既存の追加移動権利（ダッシュアイコン）の表示（既存ロジックを維持）
             if (p.extraMoves > 0) {
                 const dashIcon = document.createElement('div');
                 dashIcon.className = "rounded-sm border border-white relative overflow-hidden bg-red-500 cursor-pointer hover:scale-110 transition-transform shadow-sm flex-shrink-0";
                 dashIcon.style.width = "1.1rem"; dashIcon.style.height = "1.1rem"; dashIcon.style.pointerEvents = "auto"; 
                 dashIcon.style.backgroundImage = `url('images/card_15.webp')`; dashIcon.style.backgroundSize = "cover"; dashIcon.style.backgroundPosition = "center";
+                
                 const badge = document.createElement('div');
                 badge.className = "absolute -bottom-0.5 -right-0.5 bg-black/80 text-white text-[5px] px-0.5 rounded-tl-sm border border-white/20 font-bold z-10";
                 badge.textContent = `x${p.extraMoves}`; 
                 dashIcon.appendChild(badge);
+                
                 dashIcon.onclick = (e) => { 
                     e.stopPropagation(); 
                     if (typeof showToast === 'function') showToast(`追加移動権利が ${p.extraMoves} 回あります`); 
@@ -808,15 +834,21 @@ function renderStatus() {
                 rightsEl.appendChild(dashIcon);
             }
 
+            // 4. ディメンション権利（紫のキューブ：2マス移動）の表示を追加
             if (p.dimensionActive && !p.baseMoveUsed) {
                 const dimIcon = document.createElement('div');
+                // 紫色の背景とボーダー
                 dimIcon.className = "rounded-sm border border-white relative overflow-hidden bg-purple-600 cursor-pointer hover:scale-110 transition-transform shadow-sm flex-shrink-0 animate-pulse";
                 dimIcon.style.width = "1.1rem"; dimIcon.style.height = "1.1rem"; dimIcon.style.pointerEvents = "auto"; 
+                // カードID 14 (ディメンション) の画像を使用
                 dimIcon.style.backgroundImage = `url('images/card_14.webp')`; dimIcon.style.backgroundSize = "cover"; dimIcon.style.backgroundPosition = "center";
+                
+                // バッジの代わりに「2マス」を示すテキスト
                 const dimBadge = document.createElement('div');
                 dimBadge.className = "absolute -bottom-0.5 -right-0.5 bg-purple-900/90 text-white text-[5px] px-0.5 rounded-tl-sm border border-white/20 font-bold z-10";
                 dimBadge.textContent = "2step"; 
                 dimIcon.appendChild(dimBadge);
+                
                 dimIcon.onclick = (e) => { 
                     e.stopPropagation(); 
                     if (typeof showToast === 'function') showToast("ディメンション発動中：2マス移動が可能です"); 
@@ -826,19 +858,25 @@ function renderStatus() {
         }
 
         LOCK_ORDER.forEach(color => {
-            const slotEl = document.getElementById(`p${uiSlotId}-slot-${color.id}`); 
-            if(!slotEl) return; 
-            const slotCards = collections[p.id] ? collections[p.id][color.id] : []; 
-            slotEl.innerHTML = ''; 
+            const slotEl = document.getElementById(`p${p.id}-slot-${color.id}`); if(!slotEl) return; 
+            const slotCards = collections[p.id] ? collections[p.id][color.id] : []; slotEl.innerHTML = ''; 
             slotEl.style.pointerEvents = "auto"; 
             slotEl.style.position = "relative"; 
 
+            /** 2026/03/09 修正：特殊カードの強調クラス付与ロジックを追加 **/
             if (slotCards && slotCards.length > 0) { 
                 const topC = slotCards[slotCards.length - 1];
                 let txtCls = topC.colorId === 'white' ? 'text-gray-800' : (topC.colorId === 'black' ? 'text-gray-200' : 'text-white');
+                
+                // 基本クラスを設定
                 let slotClasses = `mini-slot rounded-sm border border-white relative ${topC.bg}`;
+
+                // --- 特殊カード（ETERNAL/FIRST）の強調判定 ---
                 if (topC.type === "ETERNAL" || topC.type === "FIRST") {
+                    // 他人のターンでも「特別なカード」であることがわかるように常に光らせる
                     slotClasses += " special-lock-active";
+                    
+                    // 自分のターン 且つ ハンドフェイズなら、使用可能であることを示す「 playable 」クラスを追加
                     if (isMyTurn && currentPhase === PHASE.HAND) {
                         slotClasses += " special-lock-playable";
                     }
@@ -860,15 +898,19 @@ function renderStatus() {
                 }
                 slotEl.style.opacity = "1"; 
 
+                // 【外科手術的修正】構文エラーを解消し、論理構造を整理
                 const slotKey = `p${p.id}-${color.id}`;
                 const isExpanded = (expandedLockColor === slotKey);
 
                 slotEl.onclick = (e) => {
                     e.stopPropagation();
                     hideHoverPreview(true);
+
+                    // 1. そのカードの持ち主のターンかつハンドフェイズなら発動確認へ
                     if (isMyTurn && currentPhase === PHASE.HAND && slotCards.length === 1 && (topC.type === "FIRST" || topC.type === "ETERNAL")) {
                         handleHandClick(-1, topC);
                     } 
+                    // 2. それ以外（複数枚ある場合や、他人のターンの場合）は中身を展開して見る
                     else if (slotCards.length > 0) {
                         expandedLockColor = isExpanded ? null : slotKey;
                         renderStatus(); 
@@ -896,6 +938,7 @@ function renderStatus() {
                         pCard.onclick = (ev) => {
                             ev.stopPropagation();
                             hideHoverPreview(true);
+                            // 展開リストからも、持ち主のターンであれば発動可能に
                             if (isMyTurn && currentPhase === PHASE.HAND && (card.type === "FIRST" || card.type === "ETERNAL")) {
                                 handleHandClick(-1, card);
                             }
@@ -912,10 +955,15 @@ function renderStatus() {
                     slotEl.classList.remove('ring-2', 'ring-yellow-500');
                 }
             } else { 
+                // スロットが空の場合
                 slotEl.style.opacity = "0.5"; 
                 slotEl.style.borderColor = color.hex; 
                 slotEl.classList.add("border-b-2"); 
                 slotEl.style.backgroundImage = 'none';
+                /**
+                 * 2026/03/21 修正：未定義変数 isHuman によるエラーを解消
+                 * 空のスロットをクリックした際に、条件なしでプレイヤー詳細モーダルを開くように修正します。
+                 */
                 slotEl.className = `mini-slot rounded-sm border border-gray-600 bg-gray-800 relative flex items-center justify-center`;
                 slotEl.onclick = (e) => { 
                     e.stopPropagation(); 
@@ -926,6 +974,9 @@ function renderStatus() {
             } 
         });
     }); 
+
+    const oldLockArea = document.getElementById('my-lock-container');
+    if (oldLockArea) oldLockArea.classList.add('hidden', 'pointer-events-none');
 }
 
 function renderMyLockArea() { 

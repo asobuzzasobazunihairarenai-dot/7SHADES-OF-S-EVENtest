@@ -741,14 +741,13 @@ function renderStatus() {
     if(!players || !players.length) return;
 
     /**
-     * 2026/03/21 23:45 修正：ステータスUIの視点同期バグを完全解消
-     * pl.isMe フラグ（Firebase同期用）を最優先でチェックし、
-     * 自分自身の情報を必ず p1-status (手前) に表示させます。
+     * 2026/03/22 00:05 修正：自分自身の判定ロジックを pl.isMe に一本化
+     * game_core.js で付与された isMe フラグを元に、確実に自分のステータスを手前に配置。
      */
-    const me = players.find(pl => pl.isMe === true) || players.find(pl => pl.id === (typeof isOnline !== 'undefined' && isOnline && !window.isHost ? 2 : 1));
-    const myId = me ? me.id : 1;
+    const me = players.find(pl => pl.isMe === true);
+    const myId = me ? me.id : (window.isHost ? 1 : 2);
 
-    console.log(`[Status View] UI Aligning for: Player ${myId} (${me ? me.name : 'Unknown'})`);
+    console.log(`[Status View] UI Sync - MyID: ${myId}, Name: ${me ? me.name : 'Unknown'}`);
 
     // 表示順の整理：自分を先頭（index 0）に、それ以外を順番に並べる
     const sortedPlayers = [...players].sort((a, b) => {

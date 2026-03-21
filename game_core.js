@@ -4590,6 +4590,34 @@ async function startOnlineGameHost(num) {
                 realGuestName = infoParts[0];
                 realGuestIcon = infoParts[1];
                 console.log(`[DEBUG-Online] Firebaseから本物を取得完了: ${realGuestName}`);
+
+                /**
+                 * 2026/03/22 00:30 修正
+                 * 【検証用：VSオーバーレイ】
+                 * 発送直前にホストが認識しているアイコンを画面に大きく表示します。
+                 * これにより、取得ミスか上書きミスかを切り分けます。
+                 */
+                const vsDiv = document.createElement('div');
+                vsDiv.style = "fixed; inset:0; background:rgba(0,0,0,0.9); z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:white; font-family:sans-serif;";
+                vsDiv.id = "verification-vs-overlay";
+                vsDiv.innerHTML = `
+                    <div style="font-size:20px; color:#fbbf24; font-weight:black; margin-bottom:40px; letter-spacing:0.2em;">MATCH VERIFICATION</div>
+                    <div style="display:flex; align-items:center; gap:40px;">
+                        <div style="text-align:center;">
+                            <img src="${userProfile.icon}" style="width:100px; height:100px; border-radius:50%; border:4px solid #3b82f6; object-cover;">
+                            <div style="margin-top:10px; font-weight:bold;">${userProfile.name} (HOST)</div>
+                        </div>
+                        <div style="font-size:40px; font-style:italic; font-weight:black; color:#ef4444;">VS</div>
+                        <div style="text-align:center;">
+                            <img src="${realGuestIcon}" style="width:100px; height:100px; border-radius:50%; border:4px solid #ef4444; object-cover;">
+                            <div style="margin-top:10px; font-weight:bold;">${realGuestName} (GUEST)</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:50px; font-size:12px; color:#aaa;">この画面のアイコンが正しければ、Firebaseからの取得は成功しています。</div>
+                `;
+                document.body.appendChild(vsDiv);
+                // 3秒後に自動で消して続行
+                setTimeout(() => vsDiv.remove(), 3500);
             } else if (data.players && data.players[1]) {
                 // guestInfoがない場合は、入室リストの2番目の名前を使う
                 realGuestName = data.players[1];

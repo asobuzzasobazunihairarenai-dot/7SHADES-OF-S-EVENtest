@@ -4176,18 +4176,10 @@ function listenRoomUpdate(roomID) {
             const homeVisible = !document.getElementById('home-screen').classList.contains('hidden');
             
             if (!board || board.length === 0 || homeVisible) {
-                /**
-                 * 2026/03/22 17:15 修正
-                 * ゲスト側でも対戦開始時にVS演出を表示するように割り込み。
-                 */
-                if (players && players.length >= 2) {
-                    showMatchVerification(
-                        { name: players[0].name, icon: players[0].icon },
-                        { name: players[1].name, icon: players[1].icon }
-                    );
-                }
-
                 addLog(`[Online] 盤面データを受信。復元を開始します...`);
+
+                /**
+                 * 2026/03/21 21:05 修正
 
                 /**
                  * 2026/03/21 21:05 修正
@@ -4227,6 +4219,17 @@ function listenRoomUpdate(roomID) {
                             extraMoves: 0, baseMoveUsed: false
                         };
                     });
+
+                    /**
+                     * 2026/03/22 18:00 修正
+                     * プレイヤー情報の復元が完了したこのタイミングでVS演出を実行します。
+                     */
+                    if (players && players.length >= 2) {
+                        showMatchVerification(
+                            { name: players[0].name, icon: players[0].icon },
+                            { name: players[1].name, icon: players[1].icon }
+                        );
+                    }
                     
                     /* 2026/03/14 修正：プレイヤー情報の反映をさらに確実に実行 */
                     /**

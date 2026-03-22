@@ -4540,46 +4540,6 @@ async function handleJoinRoom() {
     }
 }
 
-/**
- * 2026/03/14 追加：既存のルームへ入室する (Guest)
- */
-async function handleJoinRoom() {
-    const id = document.getElementById('online-room-input').value;
-    if (!id) { alert("ルームIDを入力してください"); return; }
-
-    const roomRef = window.MULTIPLAY.db.collection("rooms").doc(id);
-    const doc = await roomRef.get();
-
-    if (!doc.exists) {
-        alert("ルームが見つかりません。IDを確認してください。");
-        return;
-    }
-
-    const data = doc.data();
-    if (data.players.length >= 2) {
-        alert("このルームは既に満員です。");
-        return;
-    }
-
-    // 自分の情報を追加して更新
-    try {
-        await roomRef.update({
-            players: firebase.firestore.FieldValue.arrayUnion(userProfile.name || "GuestPlayer"),
-            status: "ready" // 二人揃ったのでステータスを更新
-        });
-
-        window.MULTIPLAY.roomID = id;
-        window.MULTIPLAY.playerNumber = 2; // Guestは2番
-        window.MULTIPLAY.isHost = false;
-
-        document.getElementById('online-menu-overlay').classList.add('hidden');
-        addLog(`[Online] ルーム「${id}」に入室しました！`);
-        
-        listenRoomUpdate(id); // 監視開始
-    } catch (e) {
-        addLog(`[ERROR] 入室失敗: ${e.message}`, true);
-    }
-}
 
 /**
  * 2026/03/14 追加：ホストによるオンライン戦の開始

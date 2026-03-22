@@ -777,21 +777,37 @@ function renderHand() {
  * ステータスエリアの表示順をプレイヤー視点に合わせて最適化。
  * ゲスト(P2)の場合は、自分のステータス(p2)が手前(下側)に来るように CSS の order を制御します。
  */
+/**
+ * 2026/03/23 02:45 修正
+ * ステータスエリアの上下入れ替えを確実にするため、親要素に Flexbox を強制適用。
+ * order プロパティが機能するように親の CSS を上書きします。
+ */
 function renderStatus() { 
     if(!players) return;
 
-    const isGuest = (window.MULTIPLAY && window.MULTIPLAY.playerNumber === 2);
+    const myPlayerNumber = (window.MULTIPLAY && window.MULTIPLAY.playerNumber) ? window.MULTIPLAY.playerNumber : 1;
+    const isGuest = (myPlayerNumber === 2);
+
+    // ログで現在の視点を判定（確認用）
+    console.log(`[DEBUG-UI] renderStatus: ViewPlayer=${myPlayerNumber}, isGuest=${isGuest}`);
 
     players.forEach(p => { 
         const container = document.getElementById(`p${p.id}-status`);
         
-        // ゲスト視点なら P1を上に(order:0)、P2を下に(order:1)強制配置
         if (container) {
-            if (isGuest) {
-                container.style.order = (p.id === 2) ? "1" : "0";
+            // 親要素（status-area-container 等）を Flexbox 化して order を有効にする
+            const parent = container.parentElement;
+            if (parent) {
+                parent.style.display = "flex";
+                parent.style.flexDirection = "column"; // 縦に並べる
+            }
+
+            // 視点プレイヤー（自分）を常に order: 1 (下側) に配置する
+            // 相手を order: 0 (上側) に配置する
+            if (p.id === myPlayerNumber) {
+                container.style.order = "1"; // 自分は下
             } else {
-                // ホスト視点ならデフォルト（P1が下）
-                container.style.order = (p.id === 1) ? "1" : "0";
+                container.style.order = "0"; // 相手は上
             }
         }
 

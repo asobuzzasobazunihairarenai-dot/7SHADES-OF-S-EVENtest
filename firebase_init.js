@@ -85,17 +85,29 @@ async function loginWithGoogle() {
 
 /**
  * ログイン成功後の共通処理（内部用）
+ * 2026/03/23 01:20 修正
+ * ログイン時に Google の名前で強制上書きするのをやめ、
+ * クラウド(Firestore)に保存された「編集後の名前」を最優先で復元するように変更。
  */
 async function finalizeLoginUI(user) {
-    userProfile.name = user.displayName || userProfile.name;
-    if (user.photoURL) userProfile.icon = user.photoURL;
+    // 1. まずはログイン状態とUIDを確定させる
     userProfile.isLoggedIn = true;
     userProfile.uid = user.uid;
 
+    // 2. クラウドからデータを読み込む（ここで編集済みの名前・アイコンが userProfile に入る）
     if (typeof loadProfileFromCloud === 'function') {
         await loadProfileFromCloud();
     }
 
+    // 3. もしクラウドに名前がなかった場合のみ、Google の名前を予備として使う
+    if (!userProfile.name || userProfile.name === "GuestPlayer") {
+        userProfile.name = user.displayName || "Player1";
+    }
+    if (!userProfile.icon || userProfile.icon.includes('character_00')) {
+        if (user.photoURL) userProfile.icon = user.photoURL;
+    }
+
+    // 4. 最終的な状態をローカルに保存してUIに反映
     saveUserProfile();
     if (typeof updateProfileButtonVisual === 'function') updateProfileButtonVisual(); 
     

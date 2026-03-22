@@ -385,9 +385,28 @@ function renderBoard() {
     }
     // --- 修正箇所ここまで ---
     
-    board.forEach((row, y) => {
-        row.forEach((cell, x) => {
+    /**
+     * 2026/03/23 03:45 修正
+     * オンライン対戦時の視点反転ロジックを実装。
+     * ゲスト(P2)の場合、(0,0)を右下、(6,6)を左上として描画することで、
+     * 自分の陣地が常に手前に来るように盤面を180度回転させます。
+     */
+    const myId = (window.MULTIPLAY && window.MULTIPLAY.playerNumber) ? window.MULTIPLAY.playerNumber : 1;
+    const isGuestView = (myId === 2);
+
+    // 描画用のループ。ゲスト視点なら配列を逆順に回す
+    const yRange = isGuestView ? [...Array(7).keys()].reverse() : [...Array(7).keys()];
+    const xRange = isGuestView ? [...Array(7).keys()].reverse() : [...Array(7).keys()];
+
+    yRange.forEach(y => {
+        const row = board[y];
+        xRange.forEach(x => {
+            const cell = row[x];
             const div = document.createElement('div');
+            // 座標デバッグ用属性（クリック判定のズレを防ぐため）
+            div.dataset.x = x;
+            div.dataset.y = y;
+
             let cls = "cell relative rounded-sm flex items-center justify-center transition-all duration-300 w-full h-full hover-zoom ";
             const owner = players.find(pl => pl.startPos.x === x && pl.startPos.y === y);
             let gateOverlay = '';
@@ -503,8 +522,14 @@ function renderBoard() {
                 pDiv.style.setProperty('--rotate-x', `${rotateX}deg`);
                 pDiv.style.setProperty('--rotate-y', `${rotateY}deg`);
                 
-                // y=0(最奥)で約1.2倍、y=6(最前)で1.0倍になるように計算
-                const verticalScale = 1.2 - (y * 0.03); 
+                /**
+                 * 2026/03/23 03:50 修正
+                 * 視点に合わせて駒のパース（遠近感）を補正。
+                 * ゲスト視点では y=6 が「奥」になるため、スケール計算を反転させます。
+                 */
+                const displayY = isGuestView ? (6 - y) : y;
+                const verticalScale = 1.2 - (displayY * 0.03); 
+                
                 pDiv.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateZ(15px) translateY(-40px) scaleY(${verticalScale})`;                
                 const markerImage = pOnCellMarker.pieceImage;
 

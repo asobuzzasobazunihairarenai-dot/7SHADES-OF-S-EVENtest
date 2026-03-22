@@ -4176,6 +4176,17 @@ function listenRoomUpdate(roomID) {
             const homeVisible = !document.getElementById('home-screen').classList.contains('hidden');
             
             if (!board || board.length === 0 || homeVisible) {
+                /**
+                 * 2026/03/22 17:15 修正
+                 * ゲスト側でも対戦開始時にVS演出を表示するように割り込み。
+                 */
+                if (players && players.length >= 2) {
+                    showMatchVerification(
+                        { name: players[0].name, icon: players[0].icon },
+                        { name: players[1].name, icon: players[1].icon }
+                    );
+                }
+
                 addLog(`[Online] 盤面データを受信。復元を開始します...`);
 
                 /**
@@ -4586,43 +4597,19 @@ async function startOnlineGameHost(num) {
              * あわせて、Firebase からの生データ受信ログを強化。
              */
             console.log("[DEBUG-Online] Firebaseからの生データ:", data);
+            /**
+             * 2026/03/22 17:10 修正
+             * 共通関数 showMatchVerification を呼び出し、ホスト側のVS演出を実行。
+             */
             if (data.guestInfo) {
                 const infoParts = data.guestInfo.split('|');
                 realGuestName = infoParts[0];
                 realGuestIcon = infoParts[1];
-                console.log(`[DEBUG-Online] 解析後のゲスト情報: Name=${realGuestName}, Icon=${realGuestIcon}`);
-
-                const vsDiv = document.createElement('div');
-                // style ではなく style.cssText を使用するように修正
-                vsDiv.style.cssText = "position:fixed; inset:0; background:rgba(0,0,0,0.95); z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:white; font-family:sans-serif;";
-                vsDiv.id = "verification-vs-overlay";
-                vsDiv.innerHTML = `
-                    <div style="font-size:20px; color:#fbbf24; font-weight:black; margin-bottom:40px; letter-spacing:0.2em;">MATCH VERIFICATION</div>
-                    <div style="display:flex; align-items:center; gap:40px;">
-                        <div style="text-align:center;">
-                            <img src="${userProfile.icon}" style="width:120px; height:120px; border-radius:50%; border:4px solid #3b82f6; object-fit:cover;">
-                            <div style="margin-top:10px; font-weight:bold;">${userProfile.name}</div>
-                            <div style="font-size:10px; color:#3b82f6;">HOST</div>
-                        </div>
-                        <div style="font-size:40px; font-style:italic; font-weight:black; color:#ef4444;">VS</div>
-                        <div style="text-align:center;">
-                            <img src="${realGuestIcon}" style="width:120px; height:120px; border-radius:50%; border:4px solid #ef4444; object-fit:cover;">
-                            <div style="margin-top:10px; font-weight:bold;">${realGuestName}</div>
-                            <div style="font-size:10px; color:#ef4444;">GUEST</div>
-                        </div>
-                    </div>
-                    <div style="margin-top:50px; font-size:12px; color:#aaa; text-align:center; max-width:80%;">
-                        この画面の右側のアイコンが正しければ、Firebaseからの取得は成功しています。<br>
-                        もしここでも初期画像なら、Firebaseにデータが届いていません。
-                    </div>
-                `;
-                document.body.appendChild(vsDiv);
-                console.log("[DEBUG-Online] VS検証画面を表示しました。");
-                // 4秒表示
-                setTimeout(() => {
-                    vsDiv.remove();
-                    console.log("[DEBUG-Online] VS検証画面を閉じました。");
-                }, 4000);
+                
+                showMatchVerification(
+                    { name: userProfile.name, icon: userProfile.icon },
+                    { name: realGuestName, icon: realGuestIcon }
+                );
             } else if (data.players && data.players[1]) {
                 // guestInfoがない場合は、入室リストの2番目の名前を使う
                 realGuestName = data.players[1];

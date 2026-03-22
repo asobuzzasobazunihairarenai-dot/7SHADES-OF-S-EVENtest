@@ -1276,3 +1276,51 @@ document.addEventListener('DOMContentLoaded', () => {
         bg.appendChild(p);
     }
 });
+
+
+
+/**
+ * 2026/03/22 17:00 新規実装
+ * オンライン対戦開始前のVS演出（Match Verification）を共通化。
+ * ホスト・ゲスト双方で同一の3秒間演出を実行します。
+ */
+function showMatchVerification(p1Info, p2Info, callback) {
+    const vsDiv = document.createElement('div');
+    // フェードインアニメーションを追加
+    vsDiv.style.cssText = `
+        position:fixed; inset:0; background:rgba(0,0,0,0.95); z-index:99999; 
+        display:flex; flex-direction:column; align-items:center; justify-content:center; 
+        color:white; font-family:sans-serif; animation: fadeIn 0.5s ease-out;
+    `;
+    vsDiv.id = "verification-vs-overlay";
+    
+    vsDiv.innerHTML = `
+        <div style="font-size:24px; color:#fbbf24; font-weight:900; margin-bottom:40px; letter-spacing:0.3em; text-shadow: 0 0 10px rgba(251,191,36,0.5);">MATCH VERIFICATION</div>
+        <div style="display:flex; align-items:center; gap:60px;">
+            <div style="text-align:center; animation: slideInLeft 0.6s ease-out;">
+                <img src="${p1Info.icon}" style="width:130px; height:130px; border-radius:50%; border:4px solid #3b82f6; object-fit:cover; box-shadow: 0 0 20px rgba(59,130,246,0.5);">
+                <div style="margin-top:15px; font-size:18px; font-weight:bold;">${p1Info.name}</div>
+                <div style="font-size:12px; color:#3b82f6; letter-spacing:0.1em; margin-top:4px;">HOST</div>
+            </div>
+            <div style="font-size:60px; font-style:italic; font-weight:900; color:#ef4444; text-shadow: 2px 2px 0 #fff;">VS</div>
+            <div style="text-align:center; animation: slideInRight 0.6s ease-out;">
+                <img src="${p2Info.icon}" style="width:130px; height:130px; border-radius:50%; border:4px solid #ef4444; object-fit:cover; box-shadow: 0 0 20px rgba(239,68,68,0.5);">
+                <div style="margin-top:15px; font-size:18px; font-weight:bold;">${p2Info.name}</div>
+                <div style="font-size:12px; color:#ef4444; letter-spacing:0.1em; margin-top:4px;">GUEST</div>
+            </div>
+        </div>
+        <div style="margin-top:60px; font-size:14px; color:#666; font-style:italic;">Loading Game Session...</div>
+    `;
+
+    document.body.appendChild(vsDiv);
+
+    // 3秒間しっかり表示させてから、フェードアウトして消去
+    setTimeout(() => {
+        vsDiv.style.transition = "opacity 0.5s ease-out";
+        vsDiv.style.opacity = "0";
+        setTimeout(() => {
+            vsDiv.remove();
+            if (callback) callback();
+        }, 500);
+    }, 3000);
+}

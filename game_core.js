@@ -4491,26 +4491,36 @@ async function handleJoinRoom() {
          * 掲示板（Firebase）に送る直前の生データを確認できるようにし、
          * 書き込み完了のタイミングを厳密に記録します。
          */
-        const infoString = `${guestName}|${guestIcon}`;
-        console.log("%c[GUEST-SEND-LOG] >>> 掲示板への書き込みを開始します", "color: #00ffff; font-weight: bold;");
-        console.log("[GUEST-SEND-LOG] 送信内容(guestInfo):", infoString);
-        console.log("[GUEST-SEND-LOG] 使用中のアイコン変数(guestIcon):", guestIcon);
-        
-        // STEP1: 自分の情報を刻み込む
+        /**
+         * 2026/03/22 12:30 修正
+         * ゲスト入室プロセスを3段階に完全分離し、それぞれの成功ログを実装。
+         * 名前(STEP1) → アイコンURL(STEP2) → 準備完了(STEP3) の順で確実に送信します。
+         */
+        console.log("%c[GUEST-SEND-LOG] >>> 入室シーケンス開始", "color: #00ffff; font-weight: bold;");
+
+        // --- STEP 1: 名前（入室リスト）の登録 ---
+        console.log("[GUEST-SEND-LOG] STEP1: 名前の登録を試みます...", guestName);
         await roomRef.update({
-            "players": firebase.firestore.FieldValue.arrayUnion(guestName),
-            "guestInfo": infoString
+            "players": firebase.firestore.FieldValue.arrayUnion(guestName)
         }).then(() => {
-            console.log("%c[GUEST-SEND-LOG] <<< STEP1完了: ゲスト情報の登録に成功しました", "color: #00ff00;");
+            console.log("%c[GUEST-SEND-LOG] OK - STEP1: 名前が登録されました", "color: #00ff00;");
         });
 
-        console.log("[GUEST-SEND-LOG] STEP2: ホストへ開始合図を送ります...");
+        // --- STEP 2: アイコンURLの登録 ---
+        const infoString = `${guestName}|${guestIcon}`;
+        console.log("[GUEST-SEND-LOG] STEP2: アイコン情報の登録を試みます...", infoString);
+        await roomRef.update({
+            "guestInfo": infoString
+        }).then(() => {
+            console.log("%c[GUEST-SEND-LOG] OK - STEP2: アイコンが登録されました", "color: #00ff00;");
+        });
 
-        // STEP2: 最後にホストを動かす
+        // --- STEP 3: ホストへの「準備完了」通知 ---
+        console.log("[GUEST-SEND-LOG] STEP3: ホストへ開始合図を送ります...");
         await roomRef.update({
             "status": "ready"
         }).then(() => {
-            console.log("%c[GUEST-SEND-LOG] <<< STEP2完了: すべての入室手続きが終了しました", "color: #00ff00; font-weight: bold;");
+            console.log("%c[GUEST-SEND-LOG] OK - STEP3: すべての手続きが完了しました！", "color: #00ff00; font-weight: bold;");
         });
 
         // 2. 自分のマルチプレイ設定を保存

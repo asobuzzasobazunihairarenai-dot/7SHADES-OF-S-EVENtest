@@ -812,13 +812,26 @@ function renderStatus() {
         const areaP1 = document.getElementById('area-p1'); // 上側
         const areaP2 = document.getElementById('area-p2'); // 右側（または下）
         
-        if (myId === 2 && p1Status && p2Status && areaP1 && areaP2) {
-            // ゲスト視点：自分(p2)を top(area-p1) ではなく、画面手前に持っていきたいが
-            // 今のHTML構造では area-p1 が「画面の一番奥」なので、そこへホストを飛ばす
-            areaP1.appendChild(p1Status); 
-            // area-p2（または適切な下側のエリア）に自分を置く
-            areaP2.appendChild(p2Status);
-            console.log("[DEBUG-UI] ゲスト視点：ステータス位置を物理移動しました");
+        /**
+         * 2026/03/23 03:20 修正
+         * 2人対戦時の表示位置最適化。
+         * プレイヤー番号に関わらず、「相手は奥(area-p1)」「自分は手前(area-p3)」
+         * に物理的に要素を引っ越しさせます。これで右側(area-p2)への誤配置を防ぎます。
+         */
+
+        const areaTop = document.getElementById('area-p1');    // 画面奥
+        const areaBottom = document.getElementById('area-p3'); // 画面手前
+        
+        if (p1Status && p2Status && areaTop && areaBottom) {
+            if (myId === 2) {
+                // ゲスト視点：ホスト(P1)を奥へ、自分(P2)を手前へ
+                areaTop.appendChild(p1Status);
+                areaBottom.appendChild(p2Status);
+            } else {
+                // ホスト視点：自分(P1)を手前へ、ゲスト(P2)を奥へ
+                areaBottom.appendChild(p1Status);
+                areaTop.appendChild(p2Status);
+            }
         }
 
         const container = document.getElementById(`p${p.id}-status`);

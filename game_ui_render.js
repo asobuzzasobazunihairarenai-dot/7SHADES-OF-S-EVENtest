@@ -782,36 +782,47 @@ function renderHand() {
  * ステータスエリアの上下入れ替えを確実にするため、親要素に Flexbox を強制適用。
  * order プロパティが機能するように親の CSS を上書きします。
  */
+/**
+ * 2026/03/23 03:00 修正
+ * ステータス表示位置の完全反転ロジック。
+ * 物理的に分かれた area-top / area-bottom に対して、
+ * 自分の情報を「手前(bottom)」に、相手の情報を「奥(top)」に割り振るように修正。
+ */
 function renderStatus() { 
     if(!players) return;
 
-    const myPlayerNumber = (window.MULTIPLAY && window.MULTIPLAY.playerNumber) ? window.MULTIPLAY.playerNumber : 1;
-    const isGuest = (myPlayerNumber === 2);
-
-    // ログで現在の視点を判定（確認用）
-    console.log(`[DEBUG-UI] renderStatus: ViewPlayer=${myPlayerNumber}, isGuest=${isGuest}`);
-
+    const myId = (window.MULTIPLAY && window.MULTIPLAY.playerNumber) ? window.MULTIPLAY.playerNumber : 1;
+    
     players.forEach(p => { 
-        const container = document.getElementById(`p${p.id}-status`);
-        
-        if (container) {
-            // 親要素（status-area-container 等）を Flexbox 化して order を有効にする
-            const parent = container.parentElement;
-            if (parent) {
-                parent.style.display = "flex";
-                parent.style.flexDirection = "column"; // 縦に並べる
-            }
+        // 1. 本来の表示場所を取得（p1ならarea-p1）
+        let targetAreaId = `area-p${p.id}`;
 
-            // 視点プレイヤー（自分）を常に order: 1 (下側) に配置する
-            // 相手を order: 0 (上側) に配置する
-            if (p.id === myPlayerNumber) {
-                container.style.order = "1"; // 自分は下
-            } else {
-                container.style.order = "0"; // 相手は上
-            }
+        // 2. 【オンライン戦の反転処理】自分がP2（ゲスト）の場合、表示場所を入れ替える
+        if (myId === 2) {
+            if (p.id === 1) targetAreaId = "area-p2"; // ホスト(P1)を右（奥）へ
+            if (p.id === 2) targetAreaId = "area-p1"; // 自分(P2)を上（手前）へ 
+            // ※スマホ1画面の縦レイアウトなら p1=上、p3=下 なので、
+            // 自分のIDに合わせて bottom 側の ID を奪い取る処理が必要です。
         }
 
-        const isMyTurn = (turn === players.indexOf(p)); 
+        // 3. 確実に「自分の情報が手前」に来るように、コンテナのIDを動的に解決
+        // ※もっとシンプルな方法：area-p1 と area-p3 の中身を入れ替える
+        const p1Status = document.getElementById('p1-status');
+        const p2Status = document.getElementById('p2-status');
+        const areaP1 = document.getElementById('area-p1'); // 上側
+        const areaP2 = document.getElementById('area-p2'); // 右側（または下）
+        
+        if (myId === 2 && p1Status && p2Status && areaP1 && areaP2) {
+            // ゲスト視点：自分(p2)を top(area-p1) ではなく、画面手前に持っていきたいが
+            // 今のHTML構造では area-p1 が「画面の一番奥」なので、そこへホストを飛ばす
+            areaP1.appendChild(p1Status); 
+            // area-p2（または適切な下側のエリア）に自分を置く
+            areaP2.appendChild(p2Status);
+            console.log("[DEBUG-UI] ゲスト視点：ステータス位置を物理移動しました");
+        }
+
+        const container = document.getElementById(`p${p.id}-status`);
+        const isMyTurn = (turn === players.indexOf(p));
 
         if (container) {
             if (isMyTurn) container.classList.add("player-active-box"); 

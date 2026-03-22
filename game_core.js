@@ -2942,8 +2942,12 @@ async function initGameInternal(num, isTest = false) {
             </div>
         </div>`;
 
-        // 2. メッセージを2秒表示してからロゴ→ゲーム開始へ
-        showMessageOverlay(msg, 2000, () => {
+        /**
+         * 2026/03/23 01:45 修正
+         * 先手紹介の表示時間を 2秒 から 3秒(3000ms) に延長。
+         * VS画面とのテンポを合わせ、プレイヤーが状況を把握しやすくします。
+         */
+        showMessageOverlay(msg, 3000, () => {
             showOpeningLogo(startTurn);
         });
         
@@ -4339,8 +4343,12 @@ function listenRoomUpdate(roomID) {
                                 </div>
                             </div>`;
                             
+                            /**
+                             * 2026/03/23 01:50 修正
+                             * ゲスト側の先手紹介もホストと合わせて 3秒(3000ms) に延長。
+                             */
                             if (typeof showMessageOverlay === 'function') {
-                                showMessageOverlay(msg, 2000, () => {
+                                showMessageOverlay(msg, 3000, () => {
                                     addLog(`[Online] 先手は ${firstPlayer.name} です。`);
                                     startTurn(); 
                                 });

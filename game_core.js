@@ -3396,11 +3396,23 @@ function openProfileEdit() {
             const selectedImg = modal.querySelector('#p1-icon-selector img.border-yellow-500');
             const iconPath = selectedImg ? selectedImg.src : userProfile.icon;
 
-            // データの保存と反映
+            /**
+             * 2026/03/23 01:40 修正
+             * プロフィール編集完了時に、即座にクラウド(Firebase)へ同期するように修正。
+             * これにより、再ログイン時に編集前の名前に戻る不具合を解消します。
+             */
             userProfile.name = newName;
             userProfile.icon = iconPath;
             
+            // 1. 自分のブラウザに保存
             if (typeof saveUserProfile === 'function') saveUserProfile();
+
+            // 2. クラウド（Firebase）に送信！ ★ここが重要
+            if (typeof syncProfileToCloud === 'function') {
+                syncProfileToCloud();
+            }
+
+            // 3. 画面の表示を更新
             if (typeof updateProfileButtonVisual === 'function') updateProfileButtonVisual();
 
             // モーダルを閉じる

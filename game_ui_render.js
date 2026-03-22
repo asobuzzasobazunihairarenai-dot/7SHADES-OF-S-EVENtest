@@ -365,21 +365,32 @@ function renderBoard() {
     // ★修正：プレイヤー配列が空、または現在のプレイヤーが未定義の場合（初期化中）への対策
     const p = (players && players.length > 0 && players[turn]) ? players[turn] : null;
 
-    // --- 修正箇所：条件付き監視ロジック ---
-    // 選択モード中でなく、かつ自分が移動処理中でない時のみ、足元の未処理カードをチェック
+    /**
+     * 2026/03/23 04:10 修正：到達効果の実行主導権の厳格化
+     * オンライン戦での二重発動を防ぐため、「操作している本人のPC」でのみ効果を起動します。
+     * 見ている側のPCは、Firebase 経由で届く「結果」を待つことで同期を保ちます。
+     */
     if (!selectionState.active && !isProcessingMove) { 
         players.forEach(pObj => {
             if (pObj.x === -1 || pObj.y === -1) return;
-            const cell = board[pObj.y][pObj.x];
-            
-            // カードが存在し、表向きで、かつまだそのプレイヤーがそのカードの効果を処理していない場合
-            if (cell && !cell.empty && cell.revealed && pObj.processedArrivalCard !== cell.color) {
-                pObj.processedArrivalCard = cell.color;
+
+            // 【オンライン戦専用ガード】自分自身の駒でない場合は、勝手に効果を処理しない
+            const isMyPiece = (window.MULTIPLAY && pObj.id === window.MULTIPLAY.playerNumber);
+            const isOffline = (!window.MULTIPLAY || !window.MULTIPLAY.roomID);
+
+            if (isMyPiece || isOffline) {
+                const cell = board[pObj.y][pObj.x];
                 
-                // 演出が重ならないようわずかに遅延させて実行
-                setTimeout(() => {
-                    handleArrivalLogic(cell, pObj, null, cell.color, false);
-                }, 50);
+                // カードが存在し、表向きで、かつまだそのプレイヤーがそのカードの効果を処理していない場合
+                if (cell && !cell.empty && cell.revealed && pObj.processedArrivalCard !== cell.color) {
+                    pObj.processedArrivalCard = cell.color;
+                    
+                    console.log(`[DEBUG-SYNC] 到達効果を起動します(主導権あり): ${pObj.name} on ${cell.color.name}`);
+                    
+                    setTimeout(() => {
+                        handleArrivalLogic(cell, pObj, null, cell.color, false);
+                    }, 50);
+                }
             }
         });
     }

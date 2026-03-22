@@ -150,11 +150,19 @@ function updateGameState(skipFirebaseUpdate = false) {
         const isMyTurn = (activeP && activeP.id === window.MULTIPLAY.playerNumber);
         
         // 自分が操作主であり、かつ自分のターンの時だけ「真実」を報告する
+        /**
+         * 2026/03/23 04:30 修正
+         * オンライン同期時に、自分の手札の「中身(IDリスト)」もリアルタイムに報告します。
+         * これにより、相手が自分の手札を奪った際に "Unknown" になる不具合を解消します。
+         */
         if (isMyTurn) {
             const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
+            const myHandIDs = (hands[window.MULTIPLAY.playerNumber] || []).map(c => c.id);
+            
             roomRef.update({
                 "currentTurn": turn,
                 "currentPhase": currentPhase,
+                [`handIDs_${window.MULTIPLAY.playerNumber}`]: myHandIDs, // IDリストを送信
                 "lastUpdate": Date.now()
             }).catch(e => console.error("Sync Update Error:", e));
         }
@@ -2098,10 +2106,28 @@ async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraC
 
     if (marker && !isForced) { 
         const startRect = marker.getBoundingClientRect();
+        /**
+         * 2026/03/23 04:50 修正
+         * 移動アニメーションの目的地計算を視点（ホスト/ゲスト）に合わせて補正。
+         * ゲスト視点では盤面が180度回転しているため、マスのインデックス計算を反転させます。
+         */
         const boardEl = document.getElementById('board-grid');
-        // 移動中、盤面全体の「はみ出し禁止」設定を一時的に解除して駒を見えるようにする
         boardEl.style.overflow = "visible";
-        const destCellEl = boardEl ? boardEl.children[ty * GRID_SIZE + tx] : null;
+
+        const myId = (window.MULTIPLAY && window.MULTIPLAY.playerNumber) ? window.MULTIPLAY.playerNumber : 1;
+        const isGuestView = (myId === 2);
+
+        // 目的地マスの特定
+        let destCellEl;
+        if (isGuestView) {
+            // ゲスト視点：(6-ty, 6-tx) の位置にあるマスを探す
+            const reversedY = 6 - ty;
+            const reversedX = 6 - tx;
+            destCellEl = boardEl ? boardEl.children[reversedY * 7 + reversedX] : null;
+        } else {
+            // ホスト視点：通常計算
+            destCellEl = boardEl ? boardEl.children[ty * 7 + tx] : null;
+        }
 
         if (destCellEl) {
             const endRect = destCellEl.getBoundingClientRect(); 
@@ -4427,11 +4453,22 @@ function listenRoomUpdate(roomID) {
                     }
                 });
 
-                // 2. 相手の手札枚数の同期（念押し）
-                const remoteCount = data[`handCount_${p.id}`];
-                if (remoteCount !== undefined && (!hands[p.id] || hands[p.id].length !== remoteCount)) {
-                    hands[p.id] = new Array(remoteCount).fill({ name: "Unknown", colorId: "white" });
-                    if (typeof renderStatus === 'function') renderStatus();
+                /**
+                 * 2026/03/23 04:35 修正
+                 * 相手から届いた手札IDリストに基づき、カードの実体を復元します。
+                 * これにより強奪などの効果が正しく同期されます。
+                 */
+                const remoteIDs = data[`handIDs_${p.id}`];
+                if (remoteIDs && Array.isArray(remoteIDs)) {
+                    // 枚数や中身が現在の手元と食い違っている場合のみ更新
+                    const currentIDs = (hands[p.id] || []).map(c => c.id);
+                    if (JSON.stringify(remoteIDs) !== JSON.stringify(currentIDs)) {
+                        hands[p.id] = remoteIDs.map(id => {
+                            const masterData = CARD_DATABASE.find(c => c.id === id);
+                            return createCardInstance(masterData);
+                        });
+                        if (typeof renderStatus === 'function') renderStatus();
+                    }
                 }
             }
         });

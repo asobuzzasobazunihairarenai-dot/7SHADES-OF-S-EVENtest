@@ -4420,15 +4420,28 @@ function listenRoomUpdate(roomID) {
         
         /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正 */
         /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正（重複を削除） */
+        /**
+         * 2026/03/23 12:00 修正
+         * 相手の移動を受信した際は「見るだけ」に徹するように厳格化。
+         * 受信中の moveToCell では、足元のカード判定(handleArrival)を絶対に起動させません。
+         */
         if (data.lastMove) {
             const move = data.lastMove;
             if (players && players.length > 0) {
                 const movingP = players.find(pl => pl.id === move.playerId);
+                
+                // 自分以外の移動、かつ新しい移動データの場合
                 if (movingP && move.playerId !== window.MULTIPLAY.playerNumber && movingP.lastSyncedTimestamp !== move.timestamp) {
                     movingP.lastSyncedTimestamp = move.timestamp;
                     addLog(`[Online] ${movingP.name} の移動を受信`);
-                    moveToCell(movingP, move.x, move.y, false, () => {
-                        updateGameState();
+
+                    // 外科手術：受信側のPCで勝手に効果が起きないよう、一時的にフラグでガード
+                    window.isRemoteSyncing = true; 
+                    
+                    // 第4引数を 'no_open' にすることで、受信側でのカードめくりや効果発動を封じます
+                    moveToCell(movingP, move.x, move.y, 'no_open', () => {
+                        window.isRemoteSyncing = false;
+                        updateGameState(true); // Firebaseへの書き戻しは不要
                     });
                 }
             }

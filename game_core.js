@@ -647,19 +647,20 @@ function resetTimer() {
     const myID = window.MULTIPLAY.playerNumber;
     const isMyTurn = (p && p.id === myID);
 
-    // オンライン戦なら「自分の番」の時だけ、オフラインなら常に秒針を動かす
-    if (!isOnline || isMyTurn) {
-        console.log(`[DEBUG-TIMER] カウントダウン開始: Player=${p.name}`);
-        timerInterval = setInterval(() => {
-            if (typeof updateTimerTick === 'function') {
-                updateTimerTick();
-            }
-        }, 1000);
-    } else {
-        console.log(`[DEBUG-TIMER] 待機中: 相手(${p.name})の行動を待っています...`);
-        // 相手の番の時は、表示上の更新（バーの色など）だけ一回実行して止める
+    /**
+     * 2026/03/23 15:30 修正：オンラインタイマーの視覚同期
+     * 相手の番でもバーを表示させるため setInterval は常に回し、
+     * updateTimerTick 内部で「減らすかどうか」を判定するように分離します。
+     */
+    console.log(`[DEBUG-TIMER] タイマー管理開始:手番=${p.name} (自分=${myID})`);
+    
+    timerInterval = setInterval(() => {
+        if (typeof updateTimerTick === 'function') {
+            updateTimerTick();
+        }
+        // 秒針とは別に、バーの描画(updateTimerVisual)は常に実行して見た目を維持する
         if (typeof updateTimerVisual === 'function') updateTimerVisual();
-    }
+    }, 1000);
 }
 
 /**
@@ -709,9 +710,20 @@ function updateTimerTick() {
          * オンライン戦で相手の番のときは、timeLeft を減らさず、
          * タイムアウト判定も行わずに即座にリターンします（フリーズ状態）。
          */
+        /**
+         * 2026/03/23 15:35 修正
+         * オンライン戦：相手の番なら、timeLeft を減らさずに維持して描画だけ生かします。
+         */
         if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
             const myID = window.MULTIPLAY.playerNumber;
-            if (p.id !== myID) return; 
+            if (p.id !== myID) {
+                // 相手の番なので、timeLeft は減らさずそのまま
+                return; 
+            }
+        }
+
+        if (timeLeft > 0) {
+            timeLeft--; 
         }
         
         addLog(`[DEBUG] タイムアウト発生: ${p.name} の自動実行を要請`, true);
@@ -1223,8 +1235,15 @@ function autoPlace(p) {
 }
 
 /* 2026/03/14 修正：オンライン対戦時は勝手にフェイズを進めない */
-function checkAutoSkip() { 
-    if (window.MULTIPLAY.roomID) return; // オンライン時は完全停止
+/**
+ * 2026/03/23 15:40 修正
+ * オンライン戦でも、自分の番かつ手札がなければ自動でフェイズを飛ばします。
+ */
+function checkAutoSkip() {
+    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
+        const myID = window.MULTIPLAY.playerNumber;
+        if (players[turn].id !== myID) return; // 相手の番なら勝手に進めない
+    }
 
     if (winner || isAutoSkipping || isPlacingCard || (invasionQueue && invasionQueue.length > 0)) return;
     if (!players || !players[turn]) return;

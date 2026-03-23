@@ -473,7 +473,11 @@ function nextPhase(isForced = false) {
         const now = new Date();
         const timeStr = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
         
-        let phaseName = "";
+        /**
+         * 2026/03/23 20:10 修正：フェイズ進行の安定化
+         * phaseName が空になるのを防ぎ、移行時に確実にタイマーをフル回復させます。
+         */
+        let phaseName = "LOCK"; // デフォルト
         if (currentPhase === PHASE.LOCK) { 
             currentPhase = PHASE.HAND; 
             phaseName = "HAND";
@@ -482,16 +486,11 @@ function nextPhase(isForced = false) {
             currentPhase = PHASE.MOVE; 
             phaseName = "MOVE";
         } 
-        else if (currentPhase === PHASE.MOVE && isForced) { 
+        else if (currentPhase === PHASE.MOVE) { 
             isPhaseTransitioning = false; 
-            endTurn(); return; 
-        } 
+            if (isForced) { endTurn(); return; }
+        }
 
-        /**
-         * 2026/03/20 00:15 修正
-         * ログに「誰の」フェイズかを表示するように改善。
-         * 例：⏳ [P1: YGM] HAND PHASE
-         */
         const pColor = p.color.hex || '#fff';
         addLog(`<span class="text-indigo-400 font-bold italic">⏳ [<span style="color:${pColor}">${p.name}</span>] ${phaseName} PHASE</span>`); 
         
@@ -603,64 +602,47 @@ function endTurn() {
  * 2026/03/23 13:05 修正：多重タイマーの完全防止
  * setInterval が二重に走るのを防ぐため、既存の ID を確実にクリアします。
  */
+/**
+ * 2026/03/23 20:00 修正：タイマー同期の完成版
+ * 1. window.timerInterval を使い、確実に一つだけのタイマーを生かします。
+ * 2. 相手の番でもバーの描画(Visual)を動かし続け、自分の番なら秒数を減らします。
+ */
 function resetTimer() {
-    // 1. 既存タイマーを物理的に抹殺（window変数からも確実に消去）
-    if (window.timerInterval) {
-        clearInterval(window.timerInterval);
-    }
-    timerInterval = null;
+    // 重複起動を絶対に許さない（物理的抹殺）
+    if (window.timerInterval) { clearInterval(window.timerInterval); }
     window.timerInterval = null;
-    
-    /* 2026/03/15 修正：人間・CPU・オンラインを判別してタイマー秒数をセット */
-    const p = players[turn];
-    let maxTime = window.currentPhaseMaxTime || 15;
+    timerInterval = null;
 
-    // 1. オンライン対戦中か判定
+    const p = players[turn];
+    if (!p) return;
+
+    // 初期秒数の設定
+    let maxTime = window.currentPhaseMaxTime || 15;
     const isOnline = !!(window.MULTIPLAY && window.MULTIPLAY.roomID);
 
-    if (isOnline) {
-        // オンライン戦：誰の番であっても設定された時間（15秒等）をセット
-        // ※相手の番の時もタイマーを表示させるため
-        maxTime = window.currentPhaseMaxTime || 15;
-    } else {
-        // オフライン戦（通常CPU戦）：
-        if (p && p.id !== 1) {
-            // CPUの番なら、ロックフェイズ等は爆速（1秒）にする
-            maxTime = (currentPhase === PHASE.LOCK) ? 1 : 2;
-        } else {
-            // 人間（P1）の番なら設定通り
-            maxTime = window.currentPhaseMaxTime || 15;
-        }
+    if (!isOnline && p.id !== 1) {
+        maxTime = (currentPhase === PHASE.LOCK) ? 1 : 2;
     }
-
+    
     timeLeft = maxTime;
-    
-    if (p) {
-        timeAtTurnStart = p.totalTimeLeft;
-    }
+    timeAtTurnStart = p.totalTimeLeft;
 
-    /**
-     * 2026/03/23 13:30 修正：タイマー主導権の同期
-     * オンライン戦において、タイマーが勝手に回復したり暴走したりするのを防ぐため、
-     * 「自分の手番」の時だけカウントダウンの秒針(setInterval)を動かします。
-     */
-    const myID = window.MULTIPLAY.playerNumber;
-    const isMyTurn = (p && p.id === myID);
-
-    /**
-     * 2026/03/23 15:30 修正：オンラインタイマーの視覚同期
-     * 相手の番でもバーを表示させるため setInterval は常に回し、
-     * updateTimerTick 内部で「減らすかどうか」を判定するように分離します。
-     */
-    console.log(`[DEBUG-TIMER] タイマー管理開始:手番=${p.name} (自分=${myID})`);
-    
-    timerInterval = setInterval(() => {
-        if (typeof updateTimerTick === 'function') {
-            updateTimerTick();
+    // 共通タイマー（秒針）の起動
+    window.timerInterval = setInterval(() => {
+        // A. 数値を減らす判定（自分の番の時だけ）
+        const myID = (window.MULTIPLAY && window.MULTIPLAY.playerNumber) ? window.MULTIPLAY.playerNumber : 1;
+        if (!isOnline || p.id === myID) {
+            if (typeof updateTimerTick === 'function') {
+                updateTimerTick();
+            }
         }
-        // 秒針とは別に、バーの描画(updateTimerVisual)は常に実行して見た目を維持する
-        if (typeof updateTimerVisual === 'function') updateTimerVisual();
+        // B. 見た目の更新（誰の番でも、バーのアニメーションは常に動かす）
+        if (typeof updateTimerVisual === 'function') {
+            updateTimerVisual();
+        }
     }, 1000);
+
+    console.log(`[DEBUG-TIMER] タイマー再起動:手番=${p.name}, 初期=${maxTime}s`);
 }
 
 /**

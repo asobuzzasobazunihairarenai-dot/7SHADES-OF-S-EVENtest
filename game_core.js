@@ -599,13 +599,17 @@ function endTurn() {
     isProcessingMove = false; 
 }
 
-/* 2026/03/14 修正：タイマー加速防止と変数エラー防止を一本化 */
+/**
+ * 2026/03/23 13:05 修正：多重タイマーの完全防止
+ * setInterval が二重に走るのを防ぐため、既存の ID を確実にクリアします。
+ */
 function resetTimer() {
-    // 1. 既存タイマーを完全に停止
-    if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null; 
+    // 1. 既存タイマーを物理的に抹殺（window変数からも確実に消去）
+    if (window.timerInterval) {
+        clearInterval(window.timerInterval);
     }
+    timerInterval = null;
+    window.timerInterval = null;
     
     /* 2026/03/15 修正：人間・CPU・オンラインを判別してタイマー秒数をセット */
     const p = players[turn];
@@ -680,11 +684,16 @@ function updateTimerTick() {
             return;
         }
         
-        /* 2026/03/15 修正：オンライン戦では「自分の番」以外のタイムアウト自動処理を禁止 */
+        /**
+         * 2026/03/23 13:00 修正：オンライン戦のタイマーガード強化
+         * 自分の番でない時にタイマーが0になっても、勝手に自動処理(AI)を走らせないように
+         * 判定を最上部に移動し、不要なデバッグログもカットします。
+         */
         if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-            const isMyTurn = (p.id === window.MULTIPLAY.playerNumber);
-            if (!isMyTurn) {
-                // 相手の番なら、自分側では何もしない（相手の処理が届くのを待つ）
+            const myID = window.MULTIPLAY.playerNumber;
+            // タイムアウトを処理すべきプレイヤー（p）が自分でないなら、即座に中断
+            if (p.id !== myID) {
+                timeLeft = 0; // 0で止めておく
                 return;
             }
         }

@@ -639,12 +639,27 @@ function resetTimer() {
         timeAtTurnStart = p.totalTimeLeft;
     }
 
-    // 3. タイマーを1つだけ再起動
-    timerInterval = setInterval(() => {
-        if (typeof updateTimerTick === 'function') {
-            updateTimerTick();
-        }
-    }, 1000);
+    /**
+     * 2026/03/23 13:30 修正：タイマー主導権の同期
+     * オンライン戦において、タイマーが勝手に回復したり暴走したりするのを防ぐため、
+     * 「自分の手番」の時だけカウントダウンの秒針(setInterval)を動かします。
+     */
+    const myID = window.MULTIPLAY.playerNumber;
+    const isMyTurn = (p && p.id === myID);
+
+    // オンライン戦なら「自分の番」の時だけ、オフラインなら常に秒針を動かす
+    if (!isOnline || isMyTurn) {
+        console.log(`[DEBUG-TIMER] カウントダウン開始: Player=${p.name}`);
+        timerInterval = setInterval(() => {
+            if (typeof updateTimerTick === 'function') {
+                updateTimerTick();
+            }
+        }, 1000);
+    } else {
+        console.log(`[DEBUG-TIMER] 待機中: 相手(${p.name})の行動を待っています...`);
+        // 相手の番の時は、表示上の更新（バーの色など）だけ一回実行して止める
+        if (typeof updateTimerVisual === 'function') updateTimerVisual();
+    }
 }
 
 /**
@@ -689,13 +704,14 @@ function updateTimerTick() {
          * 自分の番でない時にタイマーが0になっても、勝手に自動処理(AI)を走らせないように
          * 判定を最上部に移動し、不要なデバッグログもカットします。
          */
+        /**
+         * 2026/03/23 13:35 修正
+         * オンライン戦で相手の番のときは、timeLeft を減らさず、
+         * タイムアウト判定も行わずに即座にリターンします（フリーズ状態）。
+         */
         if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
             const myID = window.MULTIPLAY.playerNumber;
-            // タイムアウトを処理すべきプレイヤー（p）が自分でないなら、即座に中断
-            if (p.id !== myID) {
-                timeLeft = 0; // 0で止めておく
-                return;
-            }
+            if (p.id !== myID) return; 
         }
         
         addLog(`[DEBUG] タイムアウト発生: ${p.name} の自動実行を要請`, true);

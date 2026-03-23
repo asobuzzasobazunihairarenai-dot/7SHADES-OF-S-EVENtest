@@ -502,18 +502,33 @@ function nextPhase(isForced = false) {
         isAutoAction = false; 
         isPlacingCard = false;
 
-        /* 2026/03/14 修正：動くのがCPU（または観戦モード）なら補充時間を1秒に短縮 */
+        /**
+         * 2026/03/23 20:30 修正：オンライン対応型の補充時間判定
+         * オンライン戦では「手番プレイヤーが人間かどうか」を MULTIPLAY 情報に基づいて判定。
+         * ゲスト(P2)が自分の番になった際に CPU 扱いされる不具合を解消します。
+         */
+        const isOnline = !!(window.MULTIPLAY && window.MULTIPLAY.roomID);
         const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
-        const isCurrentPlayerCpu = (p.id !== 1); // 今の手番が人間(P1)ではない
+        
+        let isHumanTurn = false;
+        if (isOnline) {
+            // オンライン：現在の手番(turn)のプレイヤーIDが、自分の担当番号と一致するか
+            isHumanTurn = (p.id === window.MULTIPLAY.playerNumber);
+        } else {
+            // オフライン：P1のみが人間
+            isHumanTurn = (p.id === 1);
+        }
 
-        if (isForcedCpu || isCurrentPlayerCpu) {
-            // 観戦モード、またはCPUの手番なら爆速進行（1秒）
+        if (isForcedCpu || (!isHumanTurn && !isOnline)) {
+            // CPU手番（オフライン）または観戦モードなら1秒
             window.currentPhaseMaxTime = 1; 
         } else {
-            // 人間(P1)の手番なら、設定画面で決めた秒数（デフォルト15秒）を補充
+            // 人間（自分）の手番、またはオンラインでの相手待機中なら設定値を補充
             const pTimeEl = document.getElementById('setting-phase-time');
             window.currentPhaseMaxTime = pTimeEl ? parseInt(pTimeEl.value) : 15;
         }
+        
+        console.log(`[DEBUG-TIMER] フェイズ補充完了: ${p.name} (${window.currentPhaseMaxTime}s)`);
 
         resetTimer(); 
         updateGameState(); 
@@ -607,8 +622,12 @@ function endTurn() {
  * 1. window.timerInterval を使い、確実に一つだけのタイマーを生かします。
  * 2. 相手の番でもバーの描画(Visual)を動かし続け、自分の番なら秒数を減らします。
  */
+/**
+ * 2026/03/23 20:45 修正：タイマー完全同期版
+ * 1. window.timerInterval を使用し、既存のタイマーを確実に停止してから再始動します。
+ * 2. オンライン戦では、自分の手番であれば秒数を減らし、相手の手番であれば描画のみ行います。
+ */
 function resetTimer() {
-    // 重複起動を絶対に許さない（物理的抹殺）
     if (window.timerInterval) { clearInterval(window.timerInterval); }
     window.timerInterval = null;
     timerInterval = null;
@@ -616,33 +635,27 @@ function resetTimer() {
     const p = players[turn];
     if (!p) return;
 
-    // 初期秒数の設定
-    let maxTime = window.currentPhaseMaxTime || 15;
     const isOnline = !!(window.MULTIPLAY && window.MULTIPLAY.roomID);
-
-    if (!isOnline && p.id !== 1) {
-        maxTime = (currentPhase === PHASE.LOCK) ? 1 : 2;
-    }
+    const myID = isOnline ? window.MULTIPLAY.playerNumber : 1;
     
-    timeLeft = maxTime;
+    // 補充秒数の決定
+    timeLeft = window.currentPhaseMaxTime || 15;
     timeAtTurnStart = p.totalTimeLeft;
 
-    // 共通タイマー（秒針）の起動
+    console.log(`[DEBUG-TIMER] タイマー再起動:手番=${p.name}(ID:${p.id}), 自分=${myID}, 初期=${timeLeft}s`);
+
     window.timerInterval = setInterval(() => {
-        // A. 数値を減らす判定（自分の番の時だけ）
-        const myID = (window.MULTIPLAY && window.MULTIPLAY.playerNumber) ? window.MULTIPLAY.playerNumber : 1;
+        // A. 数値を減らす判定（オフライン、またはオンラインでの自分の番のみ）
         if (!isOnline || p.id === myID) {
             if (typeof updateTimerTick === 'function') {
                 updateTimerTick();
             }
         }
-        // B. 見た目の更新（誰の番でも、バーのアニメーションは常に動かす）
+        // B. 描画更新（誰の番でもバーのアニメーションは動かす）
         if (typeof updateTimerVisual === 'function') {
             updateTimerVisual();
         }
     }, 1000);
-
-    console.log(`[DEBUG-TIMER] タイマー再起動:手番=${p.name}, 初期=${maxTime}s`);
 }
 
 /**

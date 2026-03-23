@@ -150,19 +150,11 @@ function updateGameState(skipFirebaseUpdate = false) {
         const isMyTurn = (activeP && activeP.id === window.MULTIPLAY.playerNumber);
         
         // 自分が操作主であり、かつ自分のターンの時だけ「真実」を報告する
-        /**
-         * 2026/03/23 04:30 修正
-         * オンライン同期時に、自分の手札の「中身(IDリスト)」もリアルタイムに報告します。
-         * これにより、相手が自分の手札を奪った際に "Unknown" になる不具合を解消します。
-         */
         if (isMyTurn) {
             const roomRef = window.MULTIPLAY.db.collection("rooms").doc(window.MULTIPLAY.roomID);
-            const myHandIDs = (hands[window.MULTIPLAY.playerNumber] || []).map(c => c.id);
-            
             roomRef.update({
                 "currentTurn": turn,
                 "currentPhase": currentPhase,
-                [`handIDs_${window.MULTIPLAY.playerNumber}`]: myHandIDs, // IDリストを送信
                 "lastUpdate": Date.now()
             }).catch(e => console.error("Sync Update Error:", e));
         }
@@ -473,11 +465,7 @@ function nextPhase(isForced = false) {
         const now = new Date();
         const timeStr = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
         
-        /**
-         * 2026/03/23 20:10 修正：フェイズ進行の安定化
-         * phaseName が空になるのを防ぎ、移行時に確実にタイマーをフル回復させます。
-         */
-        let phaseName = "LOCK"; // デフォルト
+        let phaseName = "";
         if (currentPhase === PHASE.LOCK) { 
             currentPhase = PHASE.HAND; 
             phaseName = "HAND";
@@ -486,11 +474,16 @@ function nextPhase(isForced = false) {
             currentPhase = PHASE.MOVE; 
             phaseName = "MOVE";
         } 
-        else if (currentPhase === PHASE.MOVE) { 
+        else if (currentPhase === PHASE.MOVE && isForced) { 
             isPhaseTransitioning = false; 
-            if (isForced) { endTurn(); return; }
-        }
+            endTurn(); return; 
+        } 
 
+        /**
+         * 2026/03/20 00:15 修正
+         * ログに「誰の」フェイズかを表示するように改善。
+         * 例：⏳ [P1: YGM] HAND PHASE
+         */
         const pColor = p.color.hex || '#fff';
         addLog(`<span class="text-indigo-400 font-bold italic">⏳ [<span style="color:${pColor}">${p.name}</span>] ${phaseName} PHASE</span>`); 
         
@@ -502,33 +495,18 @@ function nextPhase(isForced = false) {
         isAutoAction = false; 
         isPlacingCard = false;
 
-        /**
-         * 2026/03/23 20:30 修正：オンライン対応型の補充時間判定
-         * オンライン戦では「手番プレイヤーが人間かどうか」を MULTIPLAY 情報に基づいて判定。
-         * ゲスト(P2)が自分の番になった際に CPU 扱いされる不具合を解消します。
-         */
-        const isOnline = !!(window.MULTIPLAY && window.MULTIPLAY.roomID);
+        /* 2026/03/14 修正：動くのがCPU（または観戦モード）なら補充時間を1秒に短縮 */
         const isForcedCpu = (typeof window.FORCED_CPU_MODE !== 'undefined' && window.FORCED_CPU_MODE);
-        
-        let isHumanTurn = false;
-        if (isOnline) {
-            // オンライン：現在の手番(turn)のプレイヤーIDが、自分の担当番号と一致するか
-            isHumanTurn = (p.id === window.MULTIPLAY.playerNumber);
-        } else {
-            // オフライン：P1のみが人間
-            isHumanTurn = (p.id === 1);
-        }
+        const isCurrentPlayerCpu = (p.id !== 1); // 今の手番が人間(P1)ではない
 
-        if (isForcedCpu || (!isHumanTurn && !isOnline)) {
-            // CPU手番（オフライン）または観戦モードなら1秒
+        if (isForcedCpu || isCurrentPlayerCpu) {
+            // 観戦モード、またはCPUの手番なら爆速進行（1秒）
             window.currentPhaseMaxTime = 1; 
         } else {
-            // 人間（自分）の手番、またはオンラインでの相手待機中なら設定値を補充
+            // 人間(P1)の手番なら、設定画面で決めた秒数（デフォルト15秒）を補充
             const pTimeEl = document.getElementById('setting-phase-time');
             window.currentPhaseMaxTime = pTimeEl ? parseInt(pTimeEl.value) : 15;
         }
-        
-        console.log(`[DEBUG-TIMER] フェイズ補充完了: ${p.name} (${window.currentPhaseMaxTime}s)`);
 
         resetTimer(); 
         updateGameState(); 
@@ -613,47 +591,46 @@ function endTurn() {
     isProcessingMove = false; 
 }
 
-/**
- * 2026/03/23 13:05 修正：多重タイマーの完全防止
- * setInterval が二重に走るのを防ぐため、既存の ID を確実にクリアします。
- */
-/**
- * 2026/03/23 20:00 修正：タイマー同期の完成版
- * 1. window.timerInterval を使い、確実に一つだけのタイマーを生かします。
- * 2. 相手の番でもバーの描画(Visual)を動かし続け、自分の番なら秒数を減らします。
- */
-/**
- * 2026/03/23 20:45 修正：タイマー完全同期版
- * 1. window.timerInterval を使用し、既存のタイマーを確実に停止してから再始動します。
- * 2. オンライン戦では、自分の手番であれば秒数を減らし、相手の手番であれば描画のみ行います。
- */
+/* 2026/03/14 修正：タイマー加速防止と変数エラー防止を一本化 */
 function resetTimer() {
-    if (window.timerInterval) { clearInterval(window.timerInterval); }
-    window.timerInterval = null;
-    timerInterval = null;
-
-    const p = players[turn];
-    if (!p) return;
-
-    const isOnline = !!(window.MULTIPLAY && window.MULTIPLAY.roomID);
-    const myID = isOnline ? window.MULTIPLAY.playerNumber : 1;
+    // 1. 既存タイマーを完全に停止
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null; 
+    }
     
-    // 補充秒数の決定
-    timeLeft = window.currentPhaseMaxTime || 15;
-    timeAtTurnStart = p.totalTimeLeft;
+    /* 2026/03/15 修正：人間・CPU・オンラインを判別してタイマー秒数をセット */
+    const p = players[turn];
+    let maxTime = window.currentPhaseMaxTime || 15;
 
-    console.log(`[DEBUG-TIMER] タイマー再起動:手番=${p.name}(ID:${p.id}), 自分=${myID}, 初期=${timeLeft}s`);
+    // 1. オンライン対戦中か判定
+    const isOnline = !!(window.MULTIPLAY && window.MULTIPLAY.roomID);
 
-    window.timerInterval = setInterval(() => {
-        // A. 数値を減らす判定（オフライン、またはオンラインでの自分の番のみ）
-        if (!isOnline || p.id === myID) {
-            if (typeof updateTimerTick === 'function') {
-                updateTimerTick();
-            }
+    if (isOnline) {
+        // オンライン戦：誰の番であっても設定された時間（15秒等）をセット
+        // ※相手の番の時もタイマーを表示させるため
+        maxTime = window.currentPhaseMaxTime || 15;
+    } else {
+        // オフライン戦（通常CPU戦）：
+        if (p && p.id !== 1) {
+            // CPUの番なら、ロックフェイズ等は爆速（1秒）にする
+            maxTime = (currentPhase === PHASE.LOCK) ? 1 : 2;
+        } else {
+            // 人間（P1）の番なら設定通り
+            maxTime = window.currentPhaseMaxTime || 15;
         }
-        // B. 描画更新（誰の番でもバーのアニメーションは動かす）
-        if (typeof updateTimerVisual === 'function') {
-            updateTimerVisual();
+    }
+
+    timeLeft = maxTime;
+    
+    if (p) {
+        timeAtTurnStart = p.totalTimeLeft;
+    }
+
+    // 3. タイマーを1つだけ再起動
+    timerInterval = setInterval(() => {
+        if (typeof updateTimerTick === 'function') {
+            updateTimerTick();
         }
     }, 1000);
 }
@@ -695,30 +672,13 @@ function updateTimerTick() {
             return;
         }
         
-        /**
-         * 2026/03/23 13:00 修正：オンライン戦のタイマーガード強化
-         * 自分の番でない時にタイマーが0になっても、勝手に自動処理(AI)を走らせないように
-         * 判定を最上部に移動し、不要なデバッグログもカットします。
-         */
-        /**
-         * 2026/03/23 13:35 修正
-         * オンライン戦で相手の番のときは、timeLeft を減らさず、
-         * タイムアウト判定も行わずに即座にリターンします（フリーズ状態）。
-         */
-        /**
-         * 2026/03/23 15:35 修正
-         * オンライン戦：相手の番なら、timeLeft を減らさずに維持して描画だけ生かします。
-         */
+        /* 2026/03/15 修正：オンライン戦では「自分の番」以外のタイムアウト自動処理を禁止 */
         if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-            const myID = window.MULTIPLAY.playerNumber;
-            if (p.id !== myID) {
-                // 相手の番なので、timeLeft は減らさずそのまま
-                return; 
+            const isMyTurn = (p.id === window.MULTIPLAY.playerNumber);
+            if (!isMyTurn) {
+                // 相手の番なら、自分側では何もしない（相手の処理が届くのを待つ）
+                return;
             }
-        }
-
-        if (timeLeft > 0) {
-            timeLeft--; 
         }
         
         addLog(`[DEBUG] タイムアウト発生: ${p.name} の自動実行を要請`, true);
@@ -1230,15 +1190,8 @@ function autoPlace(p) {
 }
 
 /* 2026/03/14 修正：オンライン対戦時は勝手にフェイズを進めない */
-/**
- * 2026/03/23 15:40 修正
- * オンライン戦でも、自分の番かつ手札がなければ自動でフェイズを飛ばします。
- */
-function checkAutoSkip() {
-    if (window.MULTIPLAY && window.MULTIPLAY.roomID) {
-        const myID = window.MULTIPLAY.playerNumber;
-        if (players[turn].id !== myID) return; // 相手の番なら勝手に進めない
-    }
+function checkAutoSkip() { 
+    if (window.MULTIPLAY.roomID) return; // オンライン時は完全停止
 
     if (winner || isAutoSkipping || isPlacingCard || (invasionQueue && invasionQueue.length > 0)) return;
     if (!players || !players[turn]) return;
@@ -2145,28 +2098,10 @@ async function moveToCell(player, tx, ty, isForced, callback, preArrival, extraC
 
     if (marker && !isForced) { 
         const startRect = marker.getBoundingClientRect();
-        /**
-         * 2026/03/23 04:50 修正
-         * 移動アニメーションの目的地計算を視点（ホスト/ゲスト）に合わせて補正。
-         * ゲスト視点では盤面が180度回転しているため、マスのインデックス計算を反転させます。
-         */
         const boardEl = document.getElementById('board-grid');
+        // 移動中、盤面全体の「はみ出し禁止」設定を一時的に解除して駒を見えるようにする
         boardEl.style.overflow = "visible";
-
-        const myId = (window.MULTIPLAY && window.MULTIPLAY.playerNumber) ? window.MULTIPLAY.playerNumber : 1;
-        const isGuestView = (myId === 2);
-
-        // 目的地マスの特定
-        let destCellEl;
-        if (isGuestView) {
-            // ゲスト視点：(6-ty, 6-tx) の位置にあるマスを探す
-            const reversedY = 6 - ty;
-            const reversedX = 6 - tx;
-            destCellEl = boardEl ? boardEl.children[reversedY * 7 + reversedX] : null;
-        } else {
-            // ホスト視点：通常計算
-            destCellEl = boardEl ? boardEl.children[ty * 7 + tx] : null;
-        }
+        const destCellEl = boardEl ? boardEl.children[ty * GRID_SIZE + tx] : null;
 
         if (destCellEl) {
             const endRect = destCellEl.getBoundingClientRect(); 
@@ -4459,28 +4394,15 @@ function listenRoomUpdate(roomID) {
         
         /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正 */
         /* 2026/03/14 修正：データ階層の変更に合わせて移動同期を修正（重複を削除） */
-        /**
-         * 2026/03/23 12:00 修正
-         * 相手の移動を受信した際は「見るだけ」に徹するように厳格化。
-         * 受信中の moveToCell では、足元のカード判定(handleArrival)を絶対に起動させません。
-         */
         if (data.lastMove) {
             const move = data.lastMove;
             if (players && players.length > 0) {
                 const movingP = players.find(pl => pl.id === move.playerId);
-                
-                // 自分以外の移動、かつ新しい移動データの場合
                 if (movingP && move.playerId !== window.MULTIPLAY.playerNumber && movingP.lastSyncedTimestamp !== move.timestamp) {
                     movingP.lastSyncedTimestamp = move.timestamp;
                     addLog(`[Online] ${movingP.name} の移動を受信`);
-
-                    // 外科手術：受信側のPCで勝手に効果が起きないよう、一時的にフラグでガード
-                    window.isRemoteSyncing = true; 
-                    
-                    // 第4引数を 'no_open' にすることで、受信側でのカードめくりや効果発動を封じます
-                    moveToCell(movingP, move.x, move.y, 'no_open', () => {
-                        window.isRemoteSyncing = false;
-                        updateGameState(true); // Firebaseへの書き戻しは不要
+                    moveToCell(movingP, move.x, move.y, false, () => {
+                        updateGameState();
                     });
                 }
             }
@@ -4505,22 +4427,11 @@ function listenRoomUpdate(roomID) {
                     }
                 });
 
-                /**
-                 * 2026/03/23 04:35 修正
-                 * 相手から届いた手札IDリストに基づき、カードの実体を復元します。
-                 * これにより強奪などの効果が正しく同期されます。
-                 */
-                const remoteIDs = data[`handIDs_${p.id}`];
-                if (remoteIDs && Array.isArray(remoteIDs)) {
-                    // 枚数や中身が現在の手元と食い違っている場合のみ更新
-                    const currentIDs = (hands[p.id] || []).map(c => c.id);
-                    if (JSON.stringify(remoteIDs) !== JSON.stringify(currentIDs)) {
-                        hands[p.id] = remoteIDs.map(id => {
-                            const masterData = CARD_DATABASE.find(c => c.id === id);
-                            return createCardInstance(masterData);
-                        });
-                        if (typeof renderStatus === 'function') renderStatus();
-                    }
+                // 2. 相手の手札枚数の同期（念押し）
+                const remoteCount = data[`handCount_${p.id}`];
+                if (remoteCount !== undefined && (!hands[p.id] || hands[p.id].length !== remoteCount)) {
+                    hands[p.id] = new Array(remoteCount).fill({ name: "Unknown", colorId: "white" });
+                    if (typeof renderStatus === 'function') renderStatus();
                 }
             }
         });
